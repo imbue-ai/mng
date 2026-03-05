@@ -426,7 +426,7 @@ Coverage requirements: 80% minimum (hard), 81% warning threshold. Excluded: test
 - **Dependency management**: uv (workspace-aware)
 - **Linting/formatting**: ruff (line length 119, double quotes)
 - **Import enforcement**: import-linter (layer contracts)
-- **Type checking**: pyright (strict mode)
+- **Type checking**: ty (Ruff's type checker), run via `uv run ty check`
 - **Pre-commit hooks**: ruff formatting on commit
 
 **GitHub Actions CI** (`.github/workflows/ci.yml`):
@@ -453,4 +453,4 @@ Coverage requirements: 80% minimum (hard), 81% warning threshold. Excluded: test
 | File sync | rsync, unison |
 | Web (apps) | FastAPI, FastHTML, React + TypeScript, Flask |
 | Testing | pytest, pytest-xdist, pytest-cov, inline-snapshot |
-| Quality | ruff, pyright, import-linter, pre-commit |
+| Quality | ruff, ty (type checker), import-linter, pre-commit |
