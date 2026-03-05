@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime
 from enum import auto
 from pathlib import Path
@@ -10,6 +11,8 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
 from imbue.slack_exporter.primitives import SlackMessageTimestamp
+
+SlackApiCaller = Callable[[str, dict[str, str] | None], dict[str, Any]]
 
 
 class EventKind(UpperCaseStrEnum):

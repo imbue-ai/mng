@@ -11,6 +11,7 @@ from imbue.slack_exporter.errors import ChannelNotFoundError
 from imbue.slack_exporter.errors import LatchkeyInvocationError
 from imbue.slack_exporter.errors import SlackApiError
 from imbue.slack_exporter.exporter import run_export
+from imbue.slack_exporter.latchkey import call_slack_api
 from imbue.slack_exporter.primitives import SlackChannelName
 
 
@@ -80,7 +81,7 @@ Examples:
     )
 
     try:
-        run_export(settings)
+        run_export(settings, api_caller=call_slack_api)
     except ChannelNotFoundError as e:
         logging.error("Channel not found: %s", e.channel_name)
         sys.exit(1)

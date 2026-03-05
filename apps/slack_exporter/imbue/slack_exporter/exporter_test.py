@@ -2,27 +2,44 @@ import json
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
 
 from imbue.slack_exporter.data_types import ChannelConfig
 from imbue.slack_exporter.data_types import ExporterSettings
-from imbue.slack_exporter.data_types import StoredMessage
+from imbue.slack_exporter.data_types import SlackApiCaller
 from imbue.slack_exporter.exporter import _datetime_to_slack_timestamp
 from imbue.slack_exporter.exporter import _fetch_all_messages_for_channel
 from imbue.slack_exporter.exporter import run_export
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
 from imbue.slack_exporter.primitives import SlackMessageTimestamp
+from imbue.slack_exporter.testing import make_stored_message
 
-_NOW = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+def _make_fake_api_caller(
+    response_by_method: dict[str, list[dict[str, Any]]],
+) -> SlackApiCaller:
+    """Create a fake SlackApiCaller that returns pre-configured responses per method.
+
+    Each method maps to a list of responses that are returned in order (for pagination).
+    """
+    call_index_by_method: dict[str, int] = {}
+
+    def fake_api_caller(method: str, query_params: dict[str, str] | None = None) -> dict[str, Any]:
+        responses = response_by_method.get(method, [])
+        idx = call_index_by_method.get(method, 0)
+        call_index_by_method[method] = idx + 1
+        return responses[idx]
+
+    return fake_api_caller
 
 
-def _make_slack_history_response(
+def _history_response(
     messages: list[dict[str, str]],
     has_more: bool = False,
     next_cursor: str = "",
-) -> dict[str, object]:
-    response: dict[str, object] = {
+) -> dict[str, Any]:
+    response: dict[str, Any] = {
         "ok": True,
         "messages": messages,
         "has_more": has_more,
@@ -32,29 +49,12 @@ def _make_slack_history_response(
     return response
 
 
-def _make_slack_channel_list_response(
-    channels: list[dict[str, str]],
-) -> dict[str, object]:
+def _channel_list_response(channels: list[dict[str, str]]) -> dict[str, Any]:
     return {
         "ok": True,
         "channels": channels,
         "response_metadata": {"next_cursor": ""},
     }
-
-
-def _make_mock_call_slack_api(
-    channel_list_response: dict[str, object],
-    history_response: dict[str, object],
-) -> object:
-    def mock_call_slack_api(method: str, query_params: dict[str, str] | None = None) -> dict[str, object]:
-        if method == "conversations.list":
-            return channel_list_response
-        elif method == "conversations.history":
-            return history_response
-        else:
-            raise AssertionError(f"Unexpected method: {method}")
-
-    return mock_call_slack_api
 
 
 def test_datetime_to_slack_timestamp_converts_correctly() -> None:
@@ -70,17 +70,21 @@ def test_datetime_to_slack_timestamp_preserves_fractional_seconds() -> None:
 
 
 def test_fetch_all_messages_fetches_single_page() -> None:
-    response = _make_slack_history_response(
-        messages=[{"ts": "1700000000.000001", "text": "hello"}],
+    api_caller = _make_fake_api_caller(
+        {
+            "conversations.history": [
+                _history_response(messages=[{"ts": "1700000000.000001", "text": "hello"}]),
+            ],
+        }
     )
 
-    with patch("imbue.slack_exporter.exporter.call_slack_api", return_value=response):
-        messages = _fetch_all_messages_for_channel(
-            channel_id=SlackChannelId("C123"),
-            channel_name=SlackChannelName("general"),
-            oldest_ts=SlackMessageTimestamp("1699999999.000000"),
-            is_inclusive=True,
-        )
+    messages = _fetch_all_messages_for_channel(
+        channel_id=SlackChannelId("C123"),
+        channel_name=SlackChannelName("general"),
+        oldest_ts=SlackMessageTimestamp("1699999999.000000"),
+        is_inclusive=True,
+        api_caller=api_caller,
+    )
 
     assert len(messages) == 1
     assert messages[0].timestamp == SlackMessageTimestamp("1700000000.000001")
@@ -88,64 +92,79 @@ def test_fetch_all_messages_fetches_single_page() -> None:
 
 
 def test_fetch_all_messages_handles_pagination() -> None:
-    page1 = _make_slack_history_response(
-        messages=[{"ts": "1700000000.000001", "text": "first"}],
-        has_more=True,
-        next_cursor="cursor_abc",
-    )
-    page2 = _make_slack_history_response(
-        messages=[{"ts": "1700000000.000002", "text": "second"}],
+    api_caller = _make_fake_api_caller(
+        {
+            "conversations.history": [
+                _history_response(
+                    messages=[{"ts": "1700000000.000001", "text": "first"}],
+                    has_more=True,
+                    next_cursor="cursor_abc",
+                ),
+                _history_response(messages=[{"ts": "1700000000.000002", "text": "second"}]),
+            ],
+        }
     )
 
-    with patch("imbue.slack_exporter.exporter.call_slack_api", side_effect=[page1, page2]):
-        messages = _fetch_all_messages_for_channel(
-            channel_id=SlackChannelId("C123"),
-            channel_name=SlackChannelName("general"),
-            oldest_ts=SlackMessageTimestamp("1699999999.000000"),
-            is_inclusive=True,
-        )
+    messages = _fetch_all_messages_for_channel(
+        channel_id=SlackChannelId("C123"),
+        channel_name=SlackChannelName("general"),
+        oldest_ts=SlackMessageTimestamp("1699999999.000000"),
+        is_inclusive=True,
+        api_caller=api_caller,
+    )
 
     assert len(messages) == 2
 
 
 def test_fetch_all_messages_skips_messages_without_ts() -> None:
-    response = _make_slack_history_response(
-        messages=[{"text": "no timestamp"}, {"ts": "1700000000.000001", "text": "has ts"}],
+    api_caller = _make_fake_api_caller(
+        {
+            "conversations.history": [
+                _history_response(messages=[{"text": "no timestamp"}, {"ts": "1700000000.000001", "text": "has ts"}]),
+            ],
+        }
     )
 
-    with patch("imbue.slack_exporter.exporter.call_slack_api", return_value=response):
-        messages = _fetch_all_messages_for_channel(
-            channel_id=SlackChannelId("C123"),
-            channel_name=SlackChannelName("general"),
-            oldest_ts=SlackMessageTimestamp("1699999999.000000"),
-            is_inclusive=True,
-        )
+    messages = _fetch_all_messages_for_channel(
+        channel_id=SlackChannelId("C123"),
+        channel_name=SlackChannelName("general"),
+        oldest_ts=SlackMessageTimestamp("1699999999.000000"),
+        is_inclusive=True,
+        api_caller=api_caller,
+    )
 
     assert len(messages) == 1
 
 
 def test_fetch_all_messages_returns_empty_when_no_messages() -> None:
-    response = _make_slack_history_response(messages=[])
+    api_caller = _make_fake_api_caller(
+        {
+            "conversations.history": [_history_response(messages=[])],
+        }
+    )
 
-    with patch("imbue.slack_exporter.exporter.call_slack_api", return_value=response):
-        messages = _fetch_all_messages_for_channel(
-            channel_id=SlackChannelId("C123"),
-            channel_name=SlackChannelName("general"),
-            oldest_ts=SlackMessageTimestamp("1699999999.000000"),
-            is_inclusive=True,
-        )
+    messages = _fetch_all_messages_for_channel(
+        channel_id=SlackChannelId("C123"),
+        channel_name=SlackChannelName("general"),
+        oldest_ts=SlackMessageTimestamp("1699999999.000000"),
+        is_inclusive=True,
+        api_caller=api_caller,
+    )
 
     assert messages == []
 
 
 def test_run_export_writes_messages_to_file(temp_output_path: Path) -> None:
-    channel_list_response = _make_slack_channel_list_response(
-        channels=[{"id": "C123", "name": "general"}],
+    api_caller = _make_fake_api_caller(
+        {
+            "conversations.list": [
+                _channel_list_response(channels=[{"id": "C123", "name": "general"}]),
+            ],
+            "conversations.history": [
+                _history_response(messages=[{"ts": "1700000000.000001", "text": "hello"}]),
+            ],
+        }
     )
-    history_response = _make_slack_history_response(
-        messages=[{"ts": "1700000000.000001", "text": "hello"}],
-    )
-    mock_api = _make_mock_call_slack_api(channel_list_response, history_response)
 
     settings = ExporterSettings(
         channels=(ChannelConfig(name=SlackChannelName("general")),),
@@ -153,9 +172,7 @@ def test_run_export_writes_messages_to_file(temp_output_path: Path) -> None:
         output_path=temp_output_path,
     )
 
-    with patch("imbue.slack_exporter.exporter.call_slack_api", side_effect=mock_api):
-        with patch("imbue.slack_exporter.channels.call_slack_api", side_effect=mock_api):
-            run_export(settings)
+    run_export(settings, api_caller=api_caller)
 
     lines = temp_output_path.read_text().strip().splitlines()
     assert len(lines) >= 2
@@ -166,32 +183,19 @@ def test_run_export_writes_messages_to_file(temp_output_path: Path) -> None:
 
 
 def test_run_export_incremental_resumes_from_latest(temp_output_path: Path) -> None:
-    existing_msg = StoredMessage(
-        channel_id=SlackChannelId("C123"),
-        channel_name=SlackChannelName("general"),
-        timestamp=SlackMessageTimestamp("1700000000.000001"),
-        fetched_at=_NOW,
-        raw={"ts": "1700000000.000001", "text": "old"},
-    )
+    existing_msg = make_stored_message(ts="1700000000.000001")
     temp_output_path.write_text(existing_msg.model_dump_json() + "\n")
 
-    channel_list_response = _make_slack_channel_list_response(
-        channels=[{"id": "C123", "name": "general"}],
-    )
-    history_response = _make_slack_history_response(
-        messages=[{"ts": "1700000000.000009", "text": "new"}],
-    )
+    captured_params: list[dict[str, str] | None] = []
 
-    def mock_call_slack_api(method: str, query_params: dict[str, str] | None = None) -> dict[str, object]:
+    def tracking_api_caller(method: str, query_params: dict[str, str] | None = None) -> dict[str, Any]:
         if method == "conversations.list":
-            return channel_list_response
+            return _channel_list_response(channels=[{"id": "C123", "name": "general"}])
         elif method == "conversations.history":
-            assert query_params is not None
-            assert query_params.get("oldest") == "1700000000.000001"
-            assert query_params.get("inclusive") == "false"
-            return history_response
+            captured_params.append(query_params)
+            return _history_response(messages=[{"ts": "1700000000.000009", "text": "new"}])
         else:
-            raise AssertionError(f"Unexpected method: {method}")
+            return {"ok": True}
 
     settings = ExporterSettings(
         channels=(ChannelConfig(name=SlackChannelName("general")),),
@@ -199,9 +203,13 @@ def test_run_export_incremental_resumes_from_latest(temp_output_path: Path) -> N
         output_path=temp_output_path,
     )
 
-    with patch("imbue.slack_exporter.exporter.call_slack_api", side_effect=mock_call_slack_api):
-        with patch("imbue.slack_exporter.channels.call_slack_api", side_effect=mock_call_slack_api):
-            run_export(settings)
+    run_export(settings, api_caller=tracking_api_caller)
+
+    # Verify incremental behavior
+    assert len(captured_params) == 1
+    assert captured_params[0] is not None
+    assert captured_params[0].get("oldest") == "1700000000.000001"
+    assert captured_params[0].get("inclusive") == "false"
 
     lines = temp_output_path.read_text().strip().splitlines()
     assert len(lines) >= 3

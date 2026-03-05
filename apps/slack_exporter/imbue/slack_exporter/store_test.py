@@ -1,44 +1,14 @@
 import json
-from datetime import datetime
-from datetime import timezone
 from pathlib import Path
 
 from imbue.slack_exporter.data_types import EventKind
-from imbue.slack_exporter.data_types import StoredChannelInfo
-from imbue.slack_exporter.data_types import StoredMessage
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
 from imbue.slack_exporter.primitives import SlackMessageTimestamp
 from imbue.slack_exporter.store import append_records
 from imbue.slack_exporter.store import load_existing_state
-
-_NOW = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-
-
-def _make_stored_message(
-    channel_id: str = "C123",
-    channel_name: str = "general",
-    ts: str = "1700000000.000001",
-) -> StoredMessage:
-    return StoredMessage(
-        channel_id=SlackChannelId(channel_id),
-        channel_name=SlackChannelName(channel_name),
-        timestamp=SlackMessageTimestamp(ts),
-        fetched_at=_NOW,
-        raw={"ts": ts, "text": "hello"},
-    )
-
-
-def _make_stored_channel_info(
-    channel_id: str = "C123",
-    channel_name: str = "general",
-) -> StoredChannelInfo:
-    return StoredChannelInfo(
-        channel_id=SlackChannelId(channel_id),
-        channel_name=SlackChannelName(channel_name),
-        fetched_at=_NOW,
-        raw={"id": channel_id, "name": channel_name},
-    )
+from imbue.slack_exporter.testing import make_stored_channel_info
+from imbue.slack_exporter.testing import make_stored_message
 
 
 def test_load_existing_state_returns_empty_when_file_does_not_exist(temp_output_path: Path) -> None:
@@ -48,8 +18,8 @@ def test_load_existing_state_returns_empty_when_file_does_not_exist(temp_output_
 
 
 def test_load_existing_state_loads_messages_and_tracks_latest_timestamp(temp_output_path: Path) -> None:
-    msg1 = _make_stored_message(ts="1700000000.000001")
-    msg2 = _make_stored_message(ts="1700000000.000009")
+    msg1 = make_stored_message(ts="1700000000.000001")
+    msg2 = make_stored_message(ts="1700000000.000009")
     temp_output_path.write_text(msg1.model_dump_json() + "\n" + msg2.model_dump_json() + "\n")
 
     state_by_id, id_by_name = load_existing_state(temp_output_path)
@@ -61,7 +31,7 @@ def test_load_existing_state_loads_messages_and_tracks_latest_timestamp(temp_out
 
 
 def test_load_existing_state_loads_channel_info_records(temp_output_path: Path) -> None:
-    info = _make_stored_channel_info()
+    info = make_stored_channel_info()
     temp_output_path.write_text(info.model_dump_json() + "\n")
 
     state_by_id, id_by_name = load_existing_state(temp_output_path)
@@ -71,7 +41,7 @@ def test_load_existing_state_loads_channel_info_records(temp_output_path: Path) 
 
 
 def test_load_existing_state_skips_malformed_lines(temp_output_path: Path) -> None:
-    msg = _make_stored_message()
+    msg = make_stored_message()
     temp_output_path.write_text("not valid json\n" + msg.model_dump_json() + "\n")
 
     state_by_id, _id_by_name = load_existing_state(temp_output_path)
@@ -79,8 +49,8 @@ def test_load_existing_state_skips_malformed_lines(temp_output_path: Path) -> No
 
 
 def test_load_existing_state_handles_multiple_channels(temp_output_path: Path) -> None:
-    msg1 = _make_stored_message(channel_id="C123", channel_name="general", ts="1700000000.000001")
-    msg2 = _make_stored_message(channel_id="C456", channel_name="random", ts="1700000000.000002")
+    msg1 = make_stored_message(channel_id="C123", channel_name="general", ts="1700000000.000001")
+    msg2 = make_stored_message(channel_id="C456", channel_name="random", ts="1700000000.000002")
     temp_output_path.write_text(msg1.model_dump_json() + "\n" + msg2.model_dump_json() + "\n")
 
     state_by_id, id_by_name = load_existing_state(temp_output_path)
@@ -91,7 +61,7 @@ def test_load_existing_state_handles_multiple_channels(temp_output_path: Path) -
 
 
 def test_append_records_creates_file_and_appends(temp_output_path: Path) -> None:
-    msg = _make_stored_message()
+    msg = make_stored_message()
     append_records(temp_output_path, [msg])
 
     lines = temp_output_path.read_text().strip().splitlines()
@@ -102,10 +72,10 @@ def test_append_records_creates_file_and_appends(temp_output_path: Path) -> None
 
 
 def test_append_records_appends_to_existing_file(temp_output_path: Path) -> None:
-    msg1 = _make_stored_message(ts="1700000000.000001")
+    msg1 = make_stored_message(ts="1700000000.000001")
     append_records(temp_output_path, [msg1])
 
-    msg2 = _make_stored_message(ts="1700000000.000002")
+    msg2 = make_stored_message(ts="1700000000.000002")
     append_records(temp_output_path, [msg2])
 
     lines = temp_output_path.read_text().strip().splitlines()
@@ -118,7 +88,7 @@ def test_append_records_does_nothing_for_empty_list(temp_output_path: Path) -> N
 
 
 def test_append_records_appends_channel_info(temp_output_path: Path) -> None:
-    info = _make_stored_channel_info()
+    info = make_stored_channel_info()
     append_records(temp_output_path, [info])
 
     lines = temp_output_path.read_text().strip().splitlines()

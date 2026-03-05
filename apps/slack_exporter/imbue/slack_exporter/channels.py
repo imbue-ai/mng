@@ -2,9 +2,9 @@ import logging
 from datetime import datetime
 from datetime import timezone
 
+from imbue.slack_exporter.data_types import SlackApiCaller
 from imbue.slack_exporter.data_types import StoredChannelInfo
 from imbue.slack_exporter.errors import ChannelNotFoundError
-from imbue.slack_exporter.latchkey import call_slack_api
 from imbue.slack_exporter.latchkey import extract_next_cursor
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
@@ -12,7 +12,7 @@ from imbue.slack_exporter.primitives import SlackChannelName
 logger = logging.getLogger(__name__)
 
 
-def fetch_channel_list() -> list[StoredChannelInfo]:
+def fetch_channel_list(api_caller: SlackApiCaller) -> list[StoredChannelInfo]:
     """Fetch all non-archived channels from Slack and return them as StoredChannelInfo records."""
     all_channels: list[StoredChannelInfo] = []
     cursor: str | None = None
@@ -27,7 +27,7 @@ def fetch_channel_list() -> list[StoredChannelInfo]:
         if cursor:
             params["cursor"] = cursor
 
-        data = call_slack_api("conversations.list", query_params=params)
+        data = api_caller("conversations.list", params)
 
         for channel_raw in data.get("channels", []):
             channel_info = StoredChannelInfo(

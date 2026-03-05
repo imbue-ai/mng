@@ -7,9 +7,9 @@ from imbue.slack_exporter.channels import resolve_channel_id
 from imbue.slack_exporter.data_types import ChannelConfig
 from imbue.slack_exporter.data_types import ChannelExportState
 from imbue.slack_exporter.data_types import ExporterSettings
+from imbue.slack_exporter.data_types import SlackApiCaller
 from imbue.slack_exporter.data_types import StoredChannelInfo
 from imbue.slack_exporter.data_types import StoredMessage
-from imbue.slack_exporter.latchkey import call_slack_api
 from imbue.slack_exporter.latchkey import extract_next_cursor
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
@@ -20,12 +20,12 @@ from imbue.slack_exporter.store import load_existing_state
 logger = logging.getLogger(__name__)
 
 
-def run_export(settings: ExporterSettings) -> None:
+def run_export(settings: ExporterSettings, api_caller: SlackApiCaller) -> None:
     """Run the full export process: load state, resolve channels, fetch new messages, save."""
     state_by_channel_id, cached_channel_id_by_name = load_existing_state(settings.output_path)
 
     # Fetch the channel list from Slack and persist it
-    channel_info_records = fetch_channel_list()
+    channel_info_records = fetch_channel_list(api_caller)
     append_records(settings.output_path, channel_info_records)
 
     # Update the cached name-to-id mapping with fresh data
@@ -40,6 +40,7 @@ def run_export(settings: ExporterSettings) -> None:
             cached_channel_id_by_name=cached_channel_id_by_name,
             state_by_channel_id=state_by_channel_id,
             settings=settings,
+            api_caller=api_caller,
         )
 
 
@@ -49,6 +50,7 @@ def _export_single_channel(
     cached_channel_id_by_name: dict[SlackChannelName, SlackChannelId],
     state_by_channel_id: dict[SlackChannelId, ChannelExportState],
     settings: ExporterSettings,
+    api_caller: SlackApiCaller,
 ) -> None:
     """Export messages from a single channel."""
     channel_id = resolve_channel_id(
@@ -79,6 +81,7 @@ def _export_single_channel(
         oldest_ts=oldest_ts,
         # When resuming, we already have the message at oldest_ts, so exclude it
         is_inclusive=existing_state is None or existing_state.latest_message_timestamp is None,
+        api_caller=api_caller,
     )
 
     if all_new_messages:
@@ -93,6 +96,7 @@ def _fetch_all_messages_for_channel(
     channel_name: SlackChannelName,
     oldest_ts: SlackMessageTimestamp,
     is_inclusive: bool,
+    api_caller: SlackApiCaller,
 ) -> list[StoredMessage]:
     """Fetch all messages from a channel newer than oldest_ts, handling pagination."""
     all_messages: list[StoredMessage] = []
@@ -110,7 +114,7 @@ def _fetch_all_messages_for_channel(
         if cursor:
             params["cursor"] = cursor
 
-        data = call_slack_api("conversations.history", query_params=params)
+        data = api_caller("conversations.history", params)
 
         for message_raw in data.get("messages", []):
             ts = message_raw.get("ts", "")
