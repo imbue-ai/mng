@@ -93,6 +93,14 @@ class KanpanPluginConfig(PluginConfig):
         default_factory=dict,
         description="Custom commands keyed by their trigger key",
     )
+    auto_refresh_cooldown_seconds: float = Field(
+        default=60.0,
+        description="Minimum seconds between automatic refreshes (triggered by delete, push, etc.)",
+    )
+    manual_refresh_cooldown_seconds: float = Field(
+        default=5.0,
+        description="Minimum seconds between manual refreshes (triggered by pressing 'r')",
+    )
 
     def merge_with(self, override: "PluginConfig") -> "KanpanPluginConfig":
         """Merge this config with an override config."""
@@ -100,4 +108,9 @@ class KanpanPluginConfig(PluginConfig):
             return self
         merged_enabled = override.enabled if override.enabled is not None else self.enabled
         merged_commands = {**self.commands, **override.commands}
-        return KanpanPluginConfig(enabled=merged_enabled, commands=merged_commands)
+        return KanpanPluginConfig(
+            enabled=merged_enabled,
+            commands=merged_commands,
+            auto_refresh_cooldown_seconds=override.auto_refresh_cooldown_seconds,
+            manual_refresh_cooldown_seconds=override.manual_refresh_cooldown_seconds,
+        )

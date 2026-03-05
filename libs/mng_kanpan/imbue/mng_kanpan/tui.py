@@ -1,5 +1,6 @@
 import os
 import subprocess
+import time
 from collections.abc import Hashable
 from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
@@ -169,6 +170,11 @@ class _KanpanState(MutableModel):
     steady_footer_text: str = "  Loading..."
     # All commands (builtins merged with user config), keyed by trigger key
     commands: dict[str, CustomCommand] = {}
+    # Monotonic timestamp of the last completed refresh (for cooldown logic)
+    last_refresh_time: float = 0.0
+    # Cooldown durations (loaded from plugin config)
+    auto_refresh_cooldown_seconds: float = 60.0
+    manual_refresh_cooldown_seconds: float = 5.0
 
 
 class _KanpanInputHandler(MutableModel):
@@ -334,9 +340,9 @@ def _finish_delete(loop: MainLoop, state: _KanpanState) -> None:
         state.delete_future = None
         state.deleting_agent_name = None
 
-    # Trigger a refresh to update the board
-    if state.refresh_future is None:
-        _start_refresh(loop, state)
+    # Trigger a refresh to update the board (subject to auto cooldown)
+    if state.loop is not None:
+        _request_refresh(loop, state, state.auto_refresh_cooldown_seconds)
 
 
 def _run_git_push(work_dir: str) -> subprocess.CompletedProcess[str]:
@@ -405,9 +411,9 @@ def _finish_push(loop: MainLoop, state: _KanpanState) -> None:
         state.push_future = None
         state.pushing_agent_name = None
 
-    # Trigger a refresh to update the board
-    if state.refresh_future is None:
-        _start_refresh(loop, state)
+    # Trigger a refresh to update the board (subject to auto cooldown)
+    if state.loop is not None:
+        _request_refresh(loop, state, state.auto_refresh_cooldown_seconds)
 
 
 def _update_snapshot_mute(state: _KanpanState, agent_name: AgentName, is_muted: bool) -> None:
@@ -475,8 +481,8 @@ def _on_mute_persist_poll(loop: MainLoop, data: tuple[_KanpanState, Future[bool]
 def _dispatch_command(state: _KanpanState, key: str, cmd: CustomCommand) -> None:
     """Dispatch a command by key. Routes to builtins or runs shell commands."""
     if key == _BUILTIN_COMMAND_KEY_REFRESH and not cmd.command:
-        if state.refresh_future is None and state.loop is not None:
-            _start_refresh(state.loop, state)
+        if state.loop is not None:
+            _request_refresh(state.loop, state, state.manual_refresh_cooldown_seconds)
         return
     if key == _BUILTIN_COMMAND_KEY_PUSH and not cmd.command:
         _push_focused_agent(state)
@@ -534,8 +540,8 @@ def _on_custom_command_poll(
                 _show_transient_message(state, f"  {cmd.name} failed for {agent_name}: {stderr}")
         except Exception as e:
             _show_transient_message(state, f"  {cmd.name} failed for {agent_name}: {e}")
-        if cmd.refresh_afterwards and state.refresh_future is None:
-            _start_refresh(loop, state)
+        if cmd.refresh_afterwards:
+            _request_refresh(loop, state, state.auto_refresh_cooldown_seconds)
     else:
         frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
         state.footer_left_text.set_text(f"  Running {cmd.name} on {agent_name} {frame_char}")
@@ -560,6 +566,28 @@ def _restore_footer(state: _KanpanState) -> None:
 def _on_restore_footer(loop: MainLoop, state: _KanpanState) -> None:
     """Alarm callback to restore the steady-state footer."""
     _restore_footer(state)
+
+
+def _request_refresh(loop: MainLoop, state: _KanpanState, cooldown_seconds: float) -> None:
+    """Request a refresh, subject to a cooldown period.
+
+    If enough time has passed since the last refresh, starts immediately.
+    Otherwise, schedules a deferred refresh for when the cooldown expires.
+    """
+    if state.refresh_future is not None:
+        return
+    elapsed = time.monotonic() - state.last_refresh_time
+    remaining = cooldown_seconds - elapsed
+    if remaining <= 0:
+        _start_refresh(loop, state)
+    else:
+        loop.set_alarm_in(remaining, _on_deferred_refresh, state)
+
+
+def _on_deferred_refresh(loop: MainLoop, state: _KanpanState) -> None:
+    """Alarm callback for a deferred (cooldown-delayed) refresh."""
+    if state.refresh_future is None:
+        _start_refresh(loop, state)
 
 
 def _start_refresh(loop: MainLoop, state: _KanpanState) -> None:
@@ -610,6 +638,7 @@ def _finish_refresh(loop: MainLoop, state: _KanpanState) -> None:
             )
     finally:
         state.refresh_future = None
+        state.last_refresh_time = time.monotonic()
 
     _refresh_display(state)
 
@@ -816,13 +845,20 @@ def _on_auto_refresh_alarm(loop: MainLoop, state: _KanpanState) -> None:
         _start_refresh(loop, state)
 
 
-def _load_user_commands(mng_ctx: MngContext) -> dict[str, CustomCommand]:
-    """Load user-defined commands from plugin config."""
+def _load_plugin_config(mng_ctx: MngContext) -> KanpanPluginConfig | None:
+    """Load the kanpan plugin config, or None if not configured."""
     plugin_name = PluginName("kanpan")
     if plugin_name not in mng_ctx.config.plugins:
-        return {}
+        return None
     config = mng_ctx.config.plugins[plugin_name]
     if not isinstance(config, KanpanPluginConfig):
+        return None
+    return config
+
+
+def _load_user_commands(config: KanpanPluginConfig | None) -> dict[str, CustomCommand]:
+    """Load user-defined commands from plugin config."""
+    if config is None:
         return {}
     # Config loader uses model_construct() which bypasses validation,
     # so nested dicts may not be parsed into CustomCommand objects.
@@ -835,21 +871,22 @@ def _load_user_commands(mng_ctx: MngContext) -> dict[str, CustomCommand]:
     return result
 
 
-def _build_command_map(mng_ctx: MngContext) -> dict[str, CustomCommand]:
+def _build_command_map(config: KanpanPluginConfig | None) -> dict[str, CustomCommand]:
     """Build the unified command map: builtins merged with user config.
 
     User commands override builtins when they share the same key.
     Commands with enabled=False are filtered out.
     """
     commands = dict(_BUILTIN_COMMANDS)
-    user_commands = _load_user_commands(mng_ctx)
+    user_commands = _load_user_commands(config)
     commands.update(user_commands)
     return {key: cmd for key, cmd in commands.items() if cmd.enabled}
 
 
 def run_kanpan(mng_ctx: MngContext) -> None:
     """Run the kanpan TUI board."""
-    commands = _build_command_map(mng_ctx)
+    plugin_config = _load_plugin_config(mng_ctx)
+    commands = _build_command_map(plugin_config)
 
     # Build footer keybindings (q: quit is always present, not in the command map)
     keybinding_parts = [f"{key}: {cmd.name}" for key, cmd in commands.items()]
@@ -880,6 +917,8 @@ def run_kanpan(mng_ctx: MngContext) -> None:
         footer_left_attr=footer_left_attr,
         footer_right=footer_right,
         commands=commands,
+        auto_refresh_cooldown_seconds=plugin_config.auto_refresh_cooldown_seconds if plugin_config else 60.0,
+        manual_refresh_cooldown_seconds=plugin_config.manual_refresh_cooldown_seconds if plugin_config else 5.0,
     )
 
     input_handler = _KanpanInputHandler(state=state)
