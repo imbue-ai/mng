@@ -24,6 +24,7 @@ from urwid.widget.text import Text
 
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
@@ -630,6 +631,7 @@ def _finish_refresh(loop: MainLoop, state: _KanpanState) -> None:
     _schedule_next_refresh(loop, state)
 
 
+@pure
 def _carry_forward_pr_data(old: BoardSnapshot, new: BoardSnapshot) -> BoardSnapshot:
     """Carry forward PR data from a previous snapshot when the new one failed to load PRs.
 
@@ -642,11 +644,13 @@ def _carry_forward_pr_data(old: BoardSnapshot, new: BoardSnapshot) -> BoardSnaps
         old_entry = old_by_name.get(entry.name)
         if old_entry is not None and old_entry.pr is not None:
             ref = entry.field_ref()
-            entry = entry.model_copy_update(
+            updated = entry.model_copy_update(
                 to_update(ref.pr, old_entry.pr),
                 to_update(ref.create_pr_url, old_entry.create_pr_url),
             )
-        updated_entries.append(entry)
+            updated_entries.append(updated)
+        else:
+            updated_entries.append(entry)
     return BoardSnapshot(
         entries=tuple(updated_entries),
         errors=new.errors,
@@ -757,6 +761,7 @@ def _format_section_heading(section: BoardSection, count: int) -> list[str | tup
     return [(attr, prefix), f" ({count})"]
 
 
+@pure
 def _build_board_widgets(
     snapshot: BoardSnapshot | None,
 ) -> tuple[SimpleFocusListWalker[AttrMap | Text | Divider], dict[int, AgentBoardEntry]]:
