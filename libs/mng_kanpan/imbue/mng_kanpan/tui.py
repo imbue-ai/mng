@@ -147,8 +147,8 @@ _AGENT_LINE_ATTRS = (
 
 # Map from PendingMark to the mark indicator character and attribute
 _MARK_DISPLAY: dict[PendingMark, tuple[str, str]] = {
-    PendingMark.DELETE: ("D", "mark_delete"),
-    PendingMark.PUSH: ("P", "mark_push"),
+    PendingMark.DELETE: ("d", "mark_delete"),
+    PendingMark.PUSH: ("p", "mark_push"),
 }
 
 # Column layout configuration
@@ -368,9 +368,6 @@ def _toggle_mark(state: _KanpanState, mark: PendingMark) -> None:
     _update_row_mark(state, focus_idx, new_mark)
     _update_mark_count_footer(state)
 
-    # Advance focus to next agent (like dired)
-    _advance_focus(state)
-
 
 def _unmark_focused(state: _KanpanState) -> None:
     """Remove any mark from the focused agent, then advance focus."""
@@ -386,7 +383,6 @@ def _unmark_focused(state: _KanpanState) -> None:
         del state.marks[entry.name]
         _update_row_mark(state, focus_idx, None)
         _update_mark_count_footer(state)
-    _advance_focus(state)
 
 
 def _unmark_all(state: _KanpanState) -> None:
@@ -400,20 +396,6 @@ def _unmark_all(state: _KanpanState) -> None:
         if entry.name in marked_names:
             _update_row_mark(state, idx, None)
     _update_mark_count_footer(state)
-
-
-def _advance_focus(state: _KanpanState) -> None:
-    """Move focus to the next selectable agent entry (like dired after marking)."""
-    if state.list_walker is None:
-        return
-    _, focus_index = state.list_walker.get_focus()
-    if focus_index is None:
-        return
-    sorted_indices = sorted(state.index_to_entry.keys())
-    for idx in sorted_indices:
-        if idx > focus_index:
-            state.list_walker.set_focus(idx)
-            return
 
 
 def _update_mark_count_footer(state: _KanpanState) -> None:

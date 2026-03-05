@@ -17,7 +17,6 @@ from imbue.mng_kanpan.data_types import PrInfo
 from imbue.mng_kanpan.data_types import PrState
 from imbue.mng_kanpan.testing import make_pr_info
 from imbue.mng_kanpan.tui import _KanpanState
-from imbue.mng_kanpan.tui import _advance_focus
 from imbue.mng_kanpan.tui import _build_board_widgets
 from imbue.mng_kanpan.tui import _carry_forward_pr_data
 from imbue.mng_kanpan.tui import _classify_entry
@@ -206,7 +205,7 @@ def test_name_cell_markup_delete_mark() -> None:
     entry = _make_entry()
     result = _get_name_cell_markup(entry, mark=PendingMark.DELETE)
     assert isinstance(result, list)
-    assert result[0] == ("mark_delete", "D")
+    assert result[0] == ("mark_delete", "d")
     assert "agent-1" in result[1]
 
 
@@ -214,7 +213,7 @@ def test_name_cell_markup_push_mark() -> None:
     entry = _make_entry(work_dir=Path("/tmp/work"))
     result = _get_name_cell_markup(entry, mark=PendingMark.PUSH)
     assert isinstance(result, list)
-    assert result[0] == ("mark_push", "P")
+    assert result[0] == ("mark_push", "p")
 
 
 # --- _toggle_mark ---
@@ -307,35 +306,6 @@ def test_unmark_all_noop_when_empty() -> None:
     assert state.marks == {}
 
 
-# --- _advance_focus ---
-
-
-def test_advance_focus_moves_to_next_agent() -> None:
-    e1 = _make_entry(name="agent-1")
-    e2 = _make_entry(name="agent-2")
-    state = _make_state(entries=(e1, e2))
-
-    sorted_indices = sorted(state.index_to_entry.keys())
-    state.list_walker.set_focus(sorted_indices[0])
-
-    _advance_focus(state)
-
-    _, new_focus = state.list_walker.get_focus()
-    assert new_focus == sorted_indices[1]
-
-
-def test_advance_focus_stays_at_last_agent() -> None:
-    entry = _make_entry()
-    state = _make_state(entries=(entry,))
-    first_idx = min(state.index_to_entry.keys())
-    state.list_walker.set_focus(first_idx)
-
-    _advance_focus(state)
-
-    _, new_focus = state.list_walker.get_focus()
-    assert new_focus == first_idx
-
-
 # --- _build_board_widgets with marks ---
 
 
@@ -349,7 +319,7 @@ def test_build_board_widgets_shows_mark_indicator() -> None:
     agent_idx = min(index_to_entry.keys())
     texts = _extract_text([walker[agent_idx]])
     assert len(texts) == 1
-    assert texts[0].startswith("D")
+    assert texts[0].startswith("d")
 
 
 # === _carry_forward_pr_data ===
