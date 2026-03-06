@@ -8,14 +8,14 @@ curl -fsSL https://raw.githubusercontent.com/imbue-ai/mng/main/scripts/install.s
 **mng is *very* simple to use:**
 
 ```bash
-mng                  # launch claude locally (defaults: command=create, agent=claude, provider=local, project=current dir)
-mng --in modal       # launch claude on Modal
-mng my-task          # launch claude with a name
-mng my-task codex    # launch codex instead of claude
-mng -- --model opus  # pass any arguments through to the underlying agent
+mng create           # launch claude locally (defaults: agent=claude, provider=local, project=current dir)
+mng create --in modal       # launch claude on Modal
+mng create my-task          # launch claude with a name
+mng create my-task codex    # launch codex instead of claude
+mng create -- --model opus  # pass any arguments through to the underlying agent
 
 # send an initial message so you don't have to wait around:
-mng --no-connect --message "Speed up one of my tests and make a PR on github"
+mng create --no-connect --message "Speed up one of my tests and make a PR on github"
 
 # or, be super explicit about all of the arguments:
 mng create --name my-task --agent-type claude --in modal
@@ -29,7 +29,7 @@ mng --help
 
 **mng is fast:**
 ```bash
-> time mng local-hello  --message "Just say hello" --no-connect
+> time mng create local-hello  --message "Just say hello" --no-connect
 Agent creation started in background (PID: 709262)
 Agent name: local-hello
 
@@ -82,7 +82,7 @@ mng exec agent-1 "git log --oneline -5"
 
 # never lose any work: snapshot and fork the entire agent states
 mng create doomed-agent --in modal
-SNAPSHOT=$(mng snapshot doomed-agent --format "{id}")
+SNAPSHOT=$(mng snapshot create doomed-agent --format "{id}")
 mng message doomed-agent "try running 'rm -rf /' and see what happens"
 mng create new-agent --snapshot $SNAPSHOT
 ```
@@ -183,7 +183,7 @@ mng <command> [options]
 
 ### For managing agents:
 
-- **[`create`](libs/mng/docs/commands/primary/create.md)**: (default) Create and run an agent in a host
+- **[`create`](libs/mng/docs/commands/primary/create.md)**: Create and run an agent in a host
 - [`destroy`](libs/mng/docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
 - [`connect`](libs/mng/docs/commands/primary/connect.md): Attach to an agent
 <!-- - [`open`](libs/mng/docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser -->
@@ -208,7 +208,7 @@ mng <command> [options]
 ### For maintenance:
 
 - [`cleanup`](libs/mng/docs/commands/secondary/cleanup.md): Clean up stopped agents and unused resources
-- [`logs`](libs/mng/docs/commands/secondary/logs.md): View agent and host logs
+- [`events`](libs/mng/docs/commands/secondary/events.md): View agent and host event files
 - [`gc`](libs/mng/docs/commands/secondary/gc.md): Garbage collect unused resources
 
 ### For managing mng itself:
@@ -225,7 +225,6 @@ You can interact with `mng` via the terminal (run `mng --help` to learn more).
 `mng` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
 
 - **[agents](libs/mng/docs/concepts/agents.md)** are simply processes that run in [tmux](https://github.com/tmux/tmux/wiki) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
-<!-- - [agents](libs/mng/docs/concepts/agents.md) usually expose URLs so you can access them from the web [future: mng open] -->
 - [agents](libs/mng/docs/concepts/agents.md) run on **[hosts](libs/mng/docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal](https://modal.com) [Sandboxes](https://modal.com/docs/guide/sandboxes) (`--in modal`) or [Docker](https://www.docker.com) [containers](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/) (`--in docker`).  Use `--host <name>` to target an existing host.
 - multiple [agents](libs/mng/docs/concepts/agents.md) can share a single [host](libs/mng/docs/concepts/hosts.md).
 - [hosts](libs/mng/docs/concepts/hosts.md) come from **[providers](libs/mng/docs/concepts/providers.md)** (ex: Modal, AWS, docker, etc)

@@ -8,10 +8,7 @@ import pytest
 
 from imbue.mng.errors import MngError
 from imbue.mng.interfaces.data_types import CommandResult
-from imbue.mng.primitives import PluginName
 from imbue.mng.providers.deploy_utils import MngInstallMode
-from imbue.mng.providers.deploy_utils import detect_mng_install_mode
-from imbue.mng.providers.deploy_utils import resolve_mng_install_mode
 from imbue.mng_recursive.data_types import RecursivePluginConfig
 from imbue.mng_recursive.provisioning import _get_installed_mng_packages
 from imbue.mng_recursive.provisioning import _resolve_remote_path
@@ -43,10 +40,8 @@ def _make_mock_mng_ctx(
 ) -> MagicMock:
     """Create a mock MngContext."""
     ctx = MagicMock()
-    plugins: dict[PluginName, RecursivePluginConfig] = {}
-    if plugin_config is not None:
-        plugins[PluginName("recursive")] = plugin_config
-    ctx.config.plugins = plugins
+    resolved_config = plugin_config if plugin_config is not None else RecursivePluginConfig()
+    ctx.get_plugin_config.return_value = resolved_config
     ctx.pm.hook.get_files_for_deploy.return_value = []
     return ctx
 
@@ -165,31 +160,6 @@ def test_skip_when_install_mode_is_skip() -> None:
 
     # Should not execute any commands (no home dir lookup, no file uploads, etc.)
     host.execute_command.assert_not_called()
-
-
-# --- Install mode detection ---
-
-
-def testresolve_mng_install_mode_auto() -> None:
-    """AUTO mode should resolve to a concrete mode."""
-    with patch("imbue.mng.providers.deploy_utils.detect_mng_install_mode") as mock_detect:
-        mock_detect.return_value = MngInstallMode.PACKAGE
-        result = resolve_mng_install_mode(MngInstallMode.AUTO)
-        assert result == MngInstallMode.PACKAGE
-        mock_detect.assert_called_once()
-
-
-def testresolve_mng_install_mode_explicit() -> None:
-    """Explicit modes should pass through unchanged."""
-    assert resolve_mng_install_mode(MngInstallMode.PACKAGE) == MngInstallMode.PACKAGE
-    assert resolve_mng_install_mode(MngInstallMode.EDITABLE) == MngInstallMode.EDITABLE
-    assert resolve_mng_install_mode(MngInstallMode.SKIP) == MngInstallMode.SKIP
-
-
-def testdetect_mng_install_mode_returns_valid_mode() -> None:
-    """detect_local_install_mode should return either PACKAGE or EDITABLE."""
-    result = detect_mng_install_mode()
-    assert result in (MngInstallMode.PACKAGE, MngInstallMode.EDITABLE)
 
 
 def test_get_installed_mng_packages_finds_mng() -> None:

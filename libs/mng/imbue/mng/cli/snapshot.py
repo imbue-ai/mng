@@ -5,9 +5,9 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.mng.api.discover import discover_all_hosts_and_agents
 from imbue.mng.api.find import find_agents_by_identifiers_or_state
 from imbue.mng.api.find import group_agents_by_host
-from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.api.providers import get_all_provider_instances
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import CommonCliOptions
@@ -141,7 +141,7 @@ def _classify_mixed_identifiers(
     # Use try/except to gracefully handle provider errors (e.g. unreachable providers).
     # Partial results are acceptable here since we're only classifying identifiers.
     try:
-        agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx, include_destroyed=False)
+        agents_by_host, _ = discover_all_hosts_and_agents(mng_ctx, include_destroyed=False)
     except BaseMngError as e:
         logger.warning("Failed to load agents for identifier classification: {}", e)
         # Treat all identifiers as host identifiers when agents cannot be loaded
@@ -393,11 +393,11 @@ def _emit_destroy_result(
 
 
 class _SnapshotGroup(DefaultCommandGroup):
-    """Snapshot group that defaults to 'create' when no subcommand is given.
+    """Snapshot command group with configurable default subcommand.
 
-    This is safe because the next argument must be a valid agent name,
-    so typos like ``mng snapshot destory`` will fail with
-    "Agent or host not found" rather than silently doing something wrong.
+    Like the top-level mng group, bare invocation shows help by default.
+    Users can set ``[commands.snapshot] default_subcommand = "create"``
+    in config to restore the old forwarding behavior.
     """
 
     _config_key = "snapshot"

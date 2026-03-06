@@ -71,6 +71,7 @@ class BoardSnapshot(FrozenModel):
 
     entries: tuple[AgentBoardEntry, ...] = Field(description="All agent board entries")
     errors: tuple[str, ...] = Field(default=(), description="Errors encountered during fetch")
+    prs_loaded: bool = Field(default=True, description="Whether PR data was successfully fetched from GitHub")
     fetch_time_seconds: float = Field(description="Time taken to fetch data")
 
 
@@ -84,6 +85,11 @@ class CustomCommand(FrozenModel):
     )
     refresh_afterwards: bool = Field(default=False, description="Whether to trigger a board refresh after completion")
     enabled: bool = Field(default=True, description="Whether this command is active")
+    markable: bool | str = Field(
+        default=False,
+        description="If truthy, pressing the key marks agents for batch execution with x instead of running immediately."
+        " Set to a color name (e.g. 'light red') to customize the mark indicator color.",
+    )
 
 
 class KanpanPluginConfig(PluginConfig):

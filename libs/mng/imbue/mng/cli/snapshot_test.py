@@ -121,36 +121,27 @@ def test_snapshot_destroy_cli_options_fields() -> None:
 
 
 # =============================================================================
-# _SnapshotGroup default-to-create tests
+# _SnapshotGroup default command tests
 # =============================================================================
 
 
-def test_snapshot_bare_invocation_defaults_to_create(
+def test_snapshot_bare_invocation_shows_help(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Running `mng snapshot` with no args should forward to `snapshot create`."""
+    """Running `mng snapshot` with no args should show help (no default command)."""
     result = cli_runner.invoke(snapshot, [], obj=plugin_manager)
-    # Should attempt to run create (which errors asking for an agent),
-    # not show group help or say "Missing command".
-    assert "Missing command" not in result.output
-    assert "Commands:" not in result.output
-    assert "Must specify at least one agent" in result.output
+    assert "Commands:" in result.output or "Usage:" in result.output
 
 
-def test_snapshot_unrecognized_subcommand_forwards_to_create(
+def test_snapshot_unrecognized_subcommand_errors(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Running `mng snapshot nonexistent` should forward to `snapshot create nonexistent`.
-
-    The local provider only accepts "localhost" as a host name, so
-    "nonexistent" fails with "not found". The key assertion is that it
-    does NOT say "No such command".
-    """
+    """Running `mng snapshot nonexistent` with no default should error."""
     result = cli_runner.invoke(snapshot, ["nonexistent"], obj=plugin_manager)
-    assert "No such command" not in result.output
-    assert "Agent or host not found: nonexistent" in result.output
+    assert result.exit_code != 0
+    assert "No such command" in result.output
 
 
 def test_snapshot_explicit_create_still_works(
@@ -229,8 +220,7 @@ def test_emit_create_result_format_template(capsys: pytest.CaptureFixture[str]) 
         {"snapshot_id": "snap-def", "host_id": "host-2", "provider": "local", "agent_names": ["agent2", "agent3"]},
     ]
     _emit_create_result(created, errors=[], output_opts=output_opts)
-    captured = capsys.readouterr()
-    lines = captured.out.strip().split("\n")
+    lines = capsys.readouterr().out.strip().split("\n")
     assert lines == ["snap-abc", "snap-def"]
 
 
@@ -241,8 +231,7 @@ def test_emit_create_result_format_template_agent_names(capsys: pytest.CaptureFi
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local", "agent_names": ["a1", "a2"]},
     ]
     _emit_create_result(created, errors=[], output_opts=output_opts)
-    captured = capsys.readouterr()
-    assert captured.out.strip() == "a1, a2"
+    assert capsys.readouterr().out.strip() == "a1, a2"
 
 
 # =============================================================================
@@ -257,8 +246,7 @@ def test_emit_destroy_result_format_template(capsys: pytest.CaptureFixture[str])
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local"},
     ]
     _emit_destroy_result(destroyed, output_opts=output_opts)
-    captured = capsys.readouterr()
-    assert captured.out.strip() == "snap-abc\thost-1"
+    assert capsys.readouterr().out.strip() == "snap-abc\thost-1"
 
 
 # =============================================================================

@@ -6,10 +6,8 @@ from pathlib import Path
 import click
 import pytest
 
-from imbue.mng.config.completion_writer import AGENT_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.config.completion_writer import COMMAND_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.config.completion_writer import get_completion_cache_dir
-from imbue.mng.config.completion_writer import write_agent_names_cache
 from imbue.mng.config.completion_writer import write_cli_completions_cache
 
 
@@ -31,32 +29,6 @@ def test_get_completion_cache_dir_falls_back_to_default_host_dir(
     result = get_completion_cache_dir()
     assert result == tmp_path / "default_host"
     assert result.exists()
-
-
-def test_write_agent_names_cache_writes_json(tmp_path: Path) -> None:
-    """write_agent_names_cache should write a JSON file with sorted unique names."""
-    write_agent_names_cache(tmp_path, ["beta", "alpha", "alpha"])
-    cache_path = tmp_path / AGENT_COMPLETIONS_CACHE_FILENAME
-    assert cache_path.exists()
-    data = json.loads(cache_path.read_text())
-    assert data["names"] == ["alpha", "beta"]
-    assert "updated_at" in data
-
-
-def test_write_agent_names_cache_handles_oserror(tmp_path: Path) -> None:
-    """write_agent_names_cache should silently handle OSError (read-only dir)."""
-    # Create a read-only directory path that doesn't exist (will fail to write)
-    read_only_dir = tmp_path / "readonly"
-    read_only_dir.mkdir()
-    read_only_dir.chmod(0o444)
-    try:
-        # This should not raise -- OSError is caught internally
-        write_agent_names_cache(read_only_dir, ["agent1"])
-    finally:
-        read_only_dir.chmod(0o755)
-    # Verify the cache file was NOT created (write failed silently).
-    # Check after restoring permissions so Path.exists() doesn't raise PermissionError.
-    assert not (read_only_dir / AGENT_COMPLETIONS_CACHE_FILENAME).exists()
 
 
 def test_write_cli_completions_cache_handles_oserror(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

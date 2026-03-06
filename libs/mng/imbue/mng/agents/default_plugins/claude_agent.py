@@ -354,14 +354,13 @@ def _read_macos_keychain_credential(label: str, concurrency_group: ConcurrencyGr
 def _provision_background_scripts(host: OnlineHostInterface) -> None:
     """Write the background task scripts to $MNG_HOST_DIR/commands/.
 
-    Provisions mng_log.sh (shared logging library), export_transcript.sh,
-    and claude_background_tasks.sh so they can be launched by the agent's
-    assemble_command at runtime.
+    Provisions mng_log.sh (shared logging library), stream_transcript.sh, and claude_background_tasks.sh so they can be
+    launched by the agent's assemble_command at runtime.
     """
     commands_dir = host.host_dir / "commands"
     host.execute_command(f"mkdir -p {shlex.quote(str(commands_dir))}", timeout_seconds=5.0)
 
-    for script_name in ("mng_log.sh", "export_transcript.sh", "claude_background_tasks.sh"):
+    for script_name in ("mng_log.sh", "stream_transcript.sh", "claude_background_tasks.sh"):
         script_content = load_resource_script(script_name)
         script_path = commands_dir / script_name
         with log_span("Writing {} to host", script_name):
@@ -505,13 +504,13 @@ class ClaudeAgent(BaseAgent):
         """
         return "claude"
 
-    def uses_marker_based_send_message(self) -> bool:
-        """Enable marker-based send_message for Claude Code.
+    def uses_paste_detection_send(self) -> bool:
+        """Enable paste-detection send_message for Claude Code.
 
         Claude Code echoes input to the terminal and has a complex input handler
         that can misinterpret Enter as a literal newline if sent too quickly after
-        the message text. The marker-based approach ensures the input handler has
-        fully processed the message before submitting.
+        the message text. The paste-detection approach waits for the pasted content
+        to appear on screen before submitting.
         """
         return True
 
@@ -531,14 +530,14 @@ class ClaudeAgent(BaseAgent):
         EffortCalloutIndicator(),
     )
 
-    def _preflight_send_message(self, session_name: str) -> None:
+    def _preflight_send_message(self, tmux_target: str) -> None:
         """Check for blocking dialogs before sending a message.
 
         Captures the tmux pane and checks for known dialog indicators
         (permission prompts, trust dialogs, theme selection, effort callout).
         Raises DialogDetectedError if any are found.
         """
-        content = self._capture_pane_content(session_name)
+        content = self._capture_pane_content(tmux_target)
         if content is None:
             return
 

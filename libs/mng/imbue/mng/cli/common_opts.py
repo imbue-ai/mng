@@ -19,6 +19,7 @@ from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import CreateTemplateName
 from imbue.mng.config.data_types import MngConfig
@@ -54,6 +55,7 @@ class CommonCliOptions(FrozenModel):
     For that information, see the @add_common_options decorator and its click.option() decorators.
     """
 
+    headless: bool = False
     output_format: str
     json_flag: bool = False
     jsonl_flag: bool = False
@@ -81,6 +83,7 @@ def add_common_options(command: TDecorated) -> TDecorated:
     - --log-commands: Log executed commands
     - --log-command-output: Log command output
     - --log-env-vars: Log environment variables
+    - --headless: Disable all interactive behavior
     - --context: Project context directory
     - --plugin: Enable plugins
     - --disable-plugin: Disable plugins
@@ -98,6 +101,12 @@ def add_common_options(command: TDecorated) -> TDecorated:
         help="Project context directory (for build context and loading project-specific config) [default: local .git root]",
     )(command)
     command = optgroup.option(
+        "--headless",
+        is_flag=True,
+        default=False,
+        help="Disable all interactive behavior (prompts, TUI, editor). Also settable via MNG_HEADLESS env var or 'headless' config key.",
+    )(command)
+    command = optgroup.option(
         "--log-env-vars/--no-log-env-vars", default=None, help="Log environment variables (security risk)"
     )(command)
     command = optgroup.option(
@@ -110,7 +119,7 @@ def add_common_options(command: TDecorated) -> TDecorated:
         "--log-file",
         type=click.Path(),
         default=None,
-        help="Path to log file (overrides default ~/.mng/logs/<timestamp>-<pid>.json)",
+        help="Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json)",
     )(command)
     command = optgroup.option(
         "-v", "--verbose", count=True, help="Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE"
@@ -161,9 +170,15 @@ def setup_command_context(
     The resolved LoggingConfig (with CLI overrides applied) is stored on the
     click context at ctx.meta["logging_config"] for callers that need logging
     levels (e.g., LoggingSuppressor).
+
+    Plugin-registered CLI option values are stored in ctx.meta["plugin_cli_params"]
+    as a dict, accessible by plugins via their hooks.
     """
+    # Separate plugin-registered params from known command class fields
+    known_params, plugin_params = _split_known_and_plugin_params(ctx.params, command_class)
+
     # First parse options from CLI args to extract common parameters
-    initial_opts = command_class(**ctx.params)
+    initial_opts = command_class(**known_params)
 
     # Create a top-level ConcurrencyGroup for process management
     cg = ConcurrencyGroup(name=f"mng-{command_name}")
@@ -172,22 +187,32 @@ def setup_command_context(
     # wrapped in ConcurrencyExceptionGroup, which would break Click's error handling.
     ctx.call_on_close(lambda: cg.__exit__(None, None, None))
 
-    # Load config
+    # Load config (is_interactive will be resolved below)
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
-    # Determine if we're running interactively (stdout is a TTY)
-    try:
-        is_interactive = sys.stdout.isatty()
-    except (ValueError, AttributeError):
-        # Handle cases where stdout is uninitialized (e.g., xdist workers)
-        is_interactive = False
     mng_ctx = load_config(
         pm,
         cg,
         context_dir=context_dir,
         enabled_plugins=initial_opts.plugin,
         disabled_plugins=initial_opts.disable_plugin,
-        is_interactive=is_interactive,
+        is_interactive=False,
+    )
+
+    # Resolve is_interactive from all sources.
+    # Precedence: --headless CLI flag > config/env headless > TTY auto-detect
+    if initial_opts.headless or mng_ctx.config.headless:
+        is_interactive = False
+    else:
+        try:
+            is_interactive = sys.stdout.isatty()
+        except (ValueError, AttributeError):
+            # Handle cases where stdout is uninitialized (e.g., xdist workers)
+            is_interactive = False
+
+    # Update MngContext with the resolved is_interactive
+    mng_ctx = mng_ctx.model_copy_update(
+        to_update(mng_ctx.field_ref().is_interactive, is_interactive),
     )
 
     # Apply config defaults to parameters that came from defaults (not user-specified)
@@ -200,8 +225,14 @@ def setup_command_context(
     # Allow plugins to override command options before creating the options object
     _apply_plugin_option_overrides(pm, command_name, command_class, updated_params)
 
+    # Re-separate after config defaults and plugin overrides may have changed things
+    known_updated_params, updated_plugin_params = _split_known_and_plugin_params(updated_params, command_class)
+
+    # Store plugin CLI params so plugins can access their values via hooks
+    ctx.meta["plugin_cli_params"] = updated_plugin_params
+
     # Re-create options with config defaults applied
-    opts = command_class(**updated_params)
+    opts = command_class(**known_updated_params)
 
     # Resolve --json / --jsonl flags into output_format before parsing output options.
     effective_format = _resolve_format_flags(ctx, opts)
@@ -235,10 +266,12 @@ def setup_command_context(
     span = log_span("Started {} command", command_name)
     ctx.with_resource(span)
 
-    # Register error reporting state on the group context so AliasAwareGroup.invoke()
-    # can check it when catching unexpected exceptions
-    if ctx.parent is not None and mng_ctx.config.is_error_reporting_enabled and is_interactive:
-        ctx.parent.meta["is_error_reporting_enabled"] = True
+    # Register interactive state and error reporting state on the group context
+    # so AliasAwareGroup.invoke() can check them when catching exceptions
+    if ctx.parent is not None:
+        ctx.parent.meta["is_interactive"] = is_interactive
+        if mng_ctx.config.is_error_reporting_enabled and is_interactive:
+            ctx.parent.meta["is_error_reporting_enabled"] = True
 
     # Run pre-command scripts if configured for this command
     _run_pre_command_scripts(mng_ctx.config, command_name, cg)
@@ -476,6 +509,35 @@ def apply_create_template(
                 updated_params[param_name] = template_value
 
     return updated_params
+
+
+def is_param_explicit(ctx: click.Context, param_name: str) -> bool:
+    """Check whether a CLI parameter was explicitly set on the command line."""
+    return ctx.get_parameter_source(param_name) == ParameterSource.COMMANDLINE
+
+
+def error_if_param_explicit(ctx: click.Context, param_name: str, error_message: str) -> None:
+    """Raise UserInputError if the user explicitly set this parameter on the command line.
+
+    Use this when another flag implies a specific value for this parameter, and the
+    user explicitly chose a conflicting value.
+    """
+    if is_param_explicit(ctx, param_name):
+        raise UserInputError(error_message)
+
+
+@pure
+def _split_known_and_plugin_params(
+    params: dict[str, Any],
+    command_class: type[CommonCliOptions],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split params into those known to the command class and extra plugin params."""
+    known_fields = command_class.model_fields
+    known_params: dict[str, Any] = {}
+    plugin_params: dict[str, Any] = {}
+    for k, v in params.items():
+        (known_params if k in known_fields else plugin_params)[k] = v
+    return known_params, plugin_params
 
 
 def _apply_plugin_option_overrides(

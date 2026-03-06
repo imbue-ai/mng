@@ -1403,10 +1403,10 @@ When persisting structured event data (conversations, agent actions, state trans
 
 ## Standard directory structure
 
-Store event files at `logs/<source>/events.jsonl` where `<source>` is a static, human-readable name describing the category of events:
+Store event files at `events/<source>/events.jsonl` where `<source>` is a static, human-readable name describing the category of events:
 - Source names should be lowercase, use underscores for multi-word names
 - Source names must NOT contain dates, IDs, or dynamically generated values
-- Source CAN be nested folders (e.g. `logs/foo/bar/events.jsonl`) with source field `"foo/bar"`, but prefer flat structure when possible
+- Source CAN be nested folders (e.g. `events/foo/bar/events.jsonl`) with source field `"foo/bar"`, but prefer flat structure when possible
 
 ## Standard event envelope
 
@@ -1861,6 +1861,38 @@ def test_full_end_to_end_workflow_with_all_providers() -> None:
 The full release testing suite is a superset of acceptance tests. When pushing to main, both acceptance and release tests are run. The idea is to have any failures fixed up overnight or before release, rather than blocking every PR merge.
 
 Release tests can sometimes be flaky. This is ok. Make it possible to easily retry and re-run them if they fail.
+
+### Ratchet Tests
+
+Ratchet tests prevent accumulation of code anti-patterns. They count occurrences of specific patterns (e.g., `time.sleep()`, `except Exception`, inline imports) and fail if the count exceeds a recorded maximum. This means existing violations are tolerated but new ones are blocked.
+
+There are three levels of ratchet tests:
+
+#### Per-project ratchets (`test_ratchets.py`)
+
+Every project in the monorepo must have a `test_ratchets.py` file that checks for the standard set of anti-patterns. All `test_ratchets.py` files must define precisely the same set of test functions -- this is enforced by `test_meta_ratchets.py` (see below). The implementations may differ (e.g., different snapshot values, different `allowed_root_init_lines` for `test_prevent_code_in_init_files`), but the function names must match exactly.
+
+When adding a new ratchet to any project's `test_ratchets.py`, you must add the same test function to every other project's `test_ratchets.py` as well (the meta test will fail otherwise).
+
+Ratchet values use `inline_snapshot` so they can be automatically updated with `--inline-snapshot=fix`.
+
+**Important:** Ratchet tests do not work correctly with unstaged changes. Always stage or commit your changes before running ratchet tests.
+
+#### Project-specific ratchets (`test_project_ratchets.py`)
+
+If a project needs ratchets that only apply to it (not to all projects), put them in a `test_project_ratchets.py` file instead. These are not checked for consistency across projects.
+
+#### Repo-wide ratchets (`test_meta_ratchets.py`)
+
+The top-level `test_meta_ratchets.py` file contains:
+
+1. **Meta tests**: verify that every project has a `test_ratchets.py` file with the standard test functions
+2. **Repo-wide ratchets**: checks that scan the entire repository and should only run once (not per-project), such as:
+   - `test_prevent_bash_without_strict_mode` -- ensures all bash scripts use `set -euo pipefail`
+   - `test_no_import_layer_violations` -- ensures no import layer violations
+   - old project name checks -- prevents reintroduction of the old project name in file contents and file paths
+
+If you need to add a repo-wide ratchet that scans the entire codebase, add it to `test_meta_ratchets.py` rather than to individual project `test_ratchets.py` files (which would run the same whole-repo scan redundantly for each project).
 
 # Web requests
 

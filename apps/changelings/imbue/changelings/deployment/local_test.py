@@ -8,22 +8,15 @@ from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.config.data_types import DeploymentProvider
 from imbue.changelings.deployment.local import AgentIdLookupError
 from imbue.changelings.deployment.local import MngCreateError
-from imbue.changelings.deployment.local import MngNotFoundError
-from imbue.changelings.deployment.local import UpdateResult
 from imbue.changelings.deployment.local import _create_mng_agent
 from imbue.changelings.deployment.local import _generate_auth_code
-from imbue.changelings.deployment.local import _raise_if_agent_exists
 from imbue.changelings.deployment.local import _run_mng_command
-from imbue.changelings.deployment.local import _verify_mng_available
 from imbue.changelings.deployment.local import clone_git_repo
 from imbue.changelings.deployment.local import commit_files_in_repo
 from imbue.changelings.deployment.local import init_empty_git_repo
 from imbue.changelings.deployment.local import update_local
 from imbue.changelings.errors import AgentAlreadyExistsError
-from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
-from imbue.changelings.errors import GitCommitError
-from imbue.changelings.errors import GitInitError
 from imbue.changelings.errors import MngCommandError
 from imbue.changelings.primitives import AgentName
 from imbue.changelings.primitives import GitUrl
@@ -65,11 +58,6 @@ def _make_fake_cg(
     return make_fake_concurrency_group(results=results)
 
 
-def test_verify_mng_available_succeeds_when_mng_exists() -> None:
-    """mng should be available in the test environment (it's a dependency)."""
-    _verify_mng_available()
-
-
 def test_generate_auth_code_creates_login_url(tmp_path: Path) -> None:
     paths = ChangelingPaths(data_dir=tmp_path)
     agent_id = AgentId()
@@ -100,26 +88,6 @@ def test_generate_auth_code_stores_code_on_disk(tmp_path: Path) -> None:
     assert codes_file.exists()
 
 
-def test_mng_not_found_error_is_changeling_error() -> None:
-    err = MngNotFoundError("test")
-    assert isinstance(err, ChangelingError)
-
-
-def test_mng_create_error_is_changeling_error() -> None:
-    err = MngCreateError("test")
-    assert isinstance(err, ChangelingError)
-
-
-def test_agent_id_lookup_error_is_changeling_error() -> None:
-    err = AgentIdLookupError("test")
-    assert isinstance(err, ChangelingError)
-
-
-def test_agent_already_exists_error_is_changeling_error() -> None:
-    err = AgentAlreadyExistsError("test")
-    assert isinstance(err, ChangelingError)
-
-
 def test_agent_already_exists_error_message() -> None:
     err = AgentAlreadyExistsError(
         "An agent named 'my-agent' already exists. "
@@ -127,42 +95,6 @@ def test_agent_already_exists_error_message() -> None:
     )
     assert "changeling update" in str(err)
     assert "changeling destroy" in str(err)
-
-
-def test_raise_if_agent_exists_raises_when_agent_found() -> None:
-    """Verify that _raise_if_agent_exists raises when the JSON output contains agents."""
-    mng_output = json.dumps({"agents": [{"id": "agent-abc123", "name": "my-agent"}]})
-
-    with pytest.raises(AgentAlreadyExistsError, match="already exists"):
-        _raise_if_agent_exists(AgentName("my-agent"), mng_output)
-
-
-def test_raise_if_agent_exists_does_not_raise_when_no_agents() -> None:
-    """Verify that _raise_if_agent_exists does not raise when agents list is empty."""
-    mng_output = json.dumps({"agents": []})
-
-    _raise_if_agent_exists(AgentName("my-agent"), mng_output)
-
-
-def test_raise_if_agent_exists_does_not_raise_for_invalid_json() -> None:
-    """Verify that _raise_if_agent_exists silently proceeds on malformed JSON."""
-    _raise_if_agent_exists(AgentName("my-agent"), "not valid json {{{")
-
-
-def test_raise_if_agent_exists_error_mentions_update_and_destroy() -> None:
-    """Verify the error message mentions changeling update and changeling destroy."""
-    mng_output = json.dumps({"agents": [{"id": "agent-abc123"}]})
-
-    with pytest.raises(AgentAlreadyExistsError) as exc_info:
-        _raise_if_agent_exists(AgentName("my-agent"), mng_output)
-
-    assert "changeling update" in str(exc_info.value)
-    assert "changeling destroy" in str(exc_info.value)
-
-
-def test_git_clone_error_is_changeling_error() -> None:
-    err = GitCloneError("test")
-    assert isinstance(err, ChangelingError)
 
 
 def test_clone_git_repo_clones_local_repo(tmp_path: Path) -> None:
@@ -208,11 +140,6 @@ def test_init_empty_git_repo_creates_parent_dirs(tmp_path: Path) -> None:
     assert (repo_dir / ".git").is_dir()
 
 
-def test_git_init_error_is_changeling_error() -> None:
-    err = GitInitError("test")
-    assert isinstance(err, ChangelingError)
-
-
 # --- commit_files_in_repo tests ---
 
 
@@ -249,35 +176,6 @@ def test_commit_files_in_repo_returns_false_when_nothing_to_commit(tmp_path: Pat
     # Now try to commit again with no changes
     committed = commit_files_in_repo(repo_dir, "empty commit")
     assert committed is False
-
-
-def test_git_commit_error_is_changeling_error() -> None:
-    err = GitCommitError("test")
-    assert isinstance(err, ChangelingError)
-
-
-# --- UpdateResult tests ---
-
-
-def test_update_result_fields() -> None:
-    result = UpdateResult(
-        agent_name=AgentName("my-agent"),
-        did_snapshot=True,
-        did_push=False,
-        did_provision=True,
-    )
-    assert result.agent_name == "my-agent"
-    assert result.did_snapshot is True
-    assert result.did_push is False
-    assert result.did_provision is True
-
-
-# --- MngCommandError tests ---
-
-
-def test_mng_command_error_is_changeling_error() -> None:
-    err = MngCommandError("test")
-    assert isinstance(err, ChangelingError)
 
 
 # --- _run_mng_command tests ---
