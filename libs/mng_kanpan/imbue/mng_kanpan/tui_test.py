@@ -15,7 +15,7 @@ from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng_kanpan.data_types import AgentBoardEntry
 from imbue.mng_kanpan.data_types import BoardSnapshot
 from imbue.mng_kanpan.testing import make_pr_info
-from imbue.mng_kanpan.tui import REFRESH_INTERVAL_SECONDS
+from imbue.mng_kanpan.tui import DEFAULT_REFRESH_INTERVAL_SECONDS
 from imbue.mng_kanpan.tui import _KanpanState
 from imbue.mng_kanpan.tui import _build_board_widgets
 from imbue.mng_kanpan.tui import _carry_forward_pr_data
@@ -384,18 +384,18 @@ def test_finish_refresh_schedules_normal_interval_on_success() -> None:
 
     assert state.snapshot == snapshot
     assert state.refresh_future is None
-    auto_refresh_alarms = [a for a in loop.alarms if a.delay == REFRESH_INTERVAL_SECONDS]
+    auto_refresh_alarms = [a for a in loop.alarms if a.delay == DEFAULT_REFRESH_INTERVAL_SECONDS]
     assert len(auto_refresh_alarms) == 1
 
 
 def test_finish_refresh_uses_auto_cooldown_on_failure() -> None:
-    """After a failed refresh, the next refresh should be deferred by auto_refresh_cooldown_seconds."""
+    """After a failed refresh, the next refresh should be deferred by retry_cooldown_seconds."""
     loop = _TestableLoop()
     future: Future[BoardSnapshot] = Future()
     future.set_exception(RuntimeError("GitHub API error"))
     state = _make_state(
         refresh_future=future,
-        auto_refresh_cooldown_seconds=30.0,
+        retry_cooldown_seconds=30.0,
     )
 
     _finish_refresh(loop, state)
@@ -443,7 +443,7 @@ def test_local_refresh_does_not_schedule_next_auto_refresh() -> None:
 
     _finish_refresh(loop, state)
 
-    auto_refresh_alarms = [a for a in loop.alarms if a.delay == REFRESH_INTERVAL_SECONDS]
+    auto_refresh_alarms = [a for a in loop.alarms if a.delay == DEFAULT_REFRESH_INTERVAL_SECONDS]
     assert len(auto_refresh_alarms) == 0
 
 

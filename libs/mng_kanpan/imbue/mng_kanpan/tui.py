@@ -42,7 +42,7 @@ from imbue.mng_kanpan.fetcher import fetch_agent_snapshot
 from imbue.mng_kanpan.fetcher import fetch_board_snapshot
 from imbue.mng_kanpan.fetcher import toggle_agent_mute
 
-REFRESH_INTERVAL_SECONDS: int = 600  # 10 minutes
+DEFAULT_REFRESH_INTERVAL_SECONDS: float = 600.0
 
 SPINNER_FRAMES: tuple[str, ...] = ("|", "/", "-", "\\")
 SPINNER_INTERVAL_SECONDS: float = 0.15
@@ -188,7 +188,9 @@ class _KanpanState(MutableModel):
     # Monotonic time the deferred refresh is scheduled to fire
     deferred_refresh_fire_at: float = 0.0
     # Cooldown durations (loaded from plugin config)
-    auto_refresh_cooldown_seconds: float = 60.0
+    # Cooldown durations (loaded from plugin config)
+    refresh_interval_seconds: float = DEFAULT_REFRESH_INTERVAL_SECONDS
+    retry_cooldown_seconds: float = 60.0
 
 
 class _KanpanInputHandler(MutableModel):
@@ -713,7 +715,7 @@ def _finish_refresh(loop: MainLoop, state: _KanpanState) -> None:
     state.footer_left_text.set_text(state.steady_footer_text)
 
     if failed:
-        _request_refresh(loop, state, state.auto_refresh_cooldown_seconds)
+        _request_refresh(loop, state, state.retry_cooldown_seconds)
     elif was_local_only:
         pass
     else:
@@ -1020,7 +1022,7 @@ def _refresh_display(state: _KanpanState) -> None:
 
 def _schedule_next_refresh(loop: MainLoop, state: _KanpanState) -> None:
     """Schedule the next auto-refresh alarm."""
-    loop.set_alarm_in(REFRESH_INTERVAL_SECONDS, _on_auto_refresh_alarm, state)
+    loop.set_alarm_in(state.refresh_interval_seconds, _on_auto_refresh_alarm, state)
 
 
 def _on_auto_refresh_alarm(loop: MainLoop, state: _KanpanState) -> None:
@@ -1089,7 +1091,8 @@ def run_kanpan(mng_ctx: MngContext) -> None:
         footer_left_attr=footer_left_attr,
         footer_right=footer_right,
         commands=commands,
-        auto_refresh_cooldown_seconds=plugin_config.auto_refresh_cooldown_seconds,
+        refresh_interval_seconds=plugin_config.refresh_interval_seconds,
+        retry_cooldown_seconds=plugin_config.retry_cooldown_seconds,
     )
 
     input_handler = _KanpanInputHandler(state=state)

@@ -103,7 +103,11 @@ class KanpanPluginConfig(PluginConfig):
         default_factory=dict,
         description="Custom commands keyed by their trigger key",
     )
-    auto_refresh_cooldown_seconds: float = Field(
+    refresh_interval_seconds: float = Field(
+        default=600.0,
+        description="Seconds between periodic full refreshes (default 10 minutes)",
+    )
+    retry_cooldown_seconds: float = Field(
         default=60.0,
         description="Minimum seconds before retrying after a failed full refresh",
     )
@@ -114,13 +118,19 @@ class KanpanPluginConfig(PluginConfig):
             return self
         merged_enabled = override.enabled if override.enabled is not None else self.enabled
         merged_commands = {**self.commands, **override.commands}
+        merged_refresh_interval = (
+            override.refresh_interval_seconds
+            if override.refresh_interval_seconds is not None
+            else self.refresh_interval_seconds
+        )
         merged_auto_cooldown = (
-            override.auto_refresh_cooldown_seconds
-            if override.auto_refresh_cooldown_seconds is not None
-            else self.auto_refresh_cooldown_seconds
+            override.retry_cooldown_seconds
+            if override.retry_cooldown_seconds is not None
+            else self.retry_cooldown_seconds
         )
         return KanpanPluginConfig(
             enabled=merged_enabled,
             commands=merged_commands,
-            auto_refresh_cooldown_seconds=merged_auto_cooldown,
+            refresh_interval_seconds=merged_refresh_interval,
+            retry_cooldown_seconds=merged_auto_cooldown,
         )
