@@ -1,11 +1,3 @@
-"""Shell command builders for emitting agent lifecycle events.
-
-These functions generate shell commands that append structured JSONL events
-to an agent's event log. The commands are designed to be used in Claude Code
-hooks (or any other agent hook system) and rely on standard environment
-variables: MNG_AGENT_STATE_DIR, MNG_AGENT_ID, MNG_AGENT_NAME.
-"""
-
 from imbue.imbue_common.pure import pure
 
 

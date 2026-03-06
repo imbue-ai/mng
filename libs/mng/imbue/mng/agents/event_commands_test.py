@@ -1,5 +1,3 @@
-"""Unit tests for event_commands.py."""
-
 import json
 import subprocess
 from pathlib import Path
