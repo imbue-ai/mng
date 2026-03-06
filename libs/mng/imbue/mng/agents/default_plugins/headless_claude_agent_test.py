@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mng.agents.agent_registry import list_registered_agent_types
 from imbue.mng.agents.default_plugins.headless_claude_agent import HeadlessClaude
 from imbue.mng.agents.default_plugins.headless_claude_agent import HeadlessClaudeAgentConfig
 from imbue.mng.config.data_types import AgentTypeConfig
@@ -277,7 +278,5 @@ def test_headless_claude_registered(
     local_provider: LocalProviderInstance,
 ) -> None:
     """headless_claude should be registered as an agent type."""
-    from imbue.mng.agents.agent_registry import list_registered_agent_types
-
     types = list_registered_agent_types()
     assert "headless_claude" in types
