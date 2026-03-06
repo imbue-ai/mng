@@ -37,6 +37,7 @@ from imbue.mng.interfaces.agent import HeadlessAgentMixin
 from imbue.mng.interfaces.host import AgentLabelOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
@@ -262,33 +263,33 @@ def _headless_claude_output(mng_ctx: MngContext, prompt: str, system_prompt: str
     host = host_interface
 
     with tempfile.TemporaryDirectory(prefix="mng-ask-") as tmp_dir:
-        # Each arg is shell-quoted because assemble_command joins them with
-        # spaces into a command string that is executed by the shell inside
-        # tmux.  Without quoting, special characters in the prompt or system
-        # prompt (backticks, $, quotes, newlines, etc.) would be interpreted
-        # by the shell.
-        agent_args = tuple(
-            shlex.quote(a)
-            for a in (
-                "--system-prompt",
-                system_prompt,
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--include-partial-messages",
-                "--tools",
-                "",
-                "--no-session-persistence",
-                prompt,
-            )
+        # Write prompt and system prompt to files in the work dir so the
+        # shell command can read them via $(cat ...).  Passing them inline
+        # as agent_args would exceed tmux's command length limit.
+        work_path = Path(tmp_dir)
+        (work_path / ".mng-system-prompt").write_text(system_prompt)
+        (work_path / ".mng-prompt").write_text(prompt)
+
+        agent_args = (
+            "--system-prompt",
+            '$(cat "$MNG_AGENT_WORK_DIR/.mng-system-prompt")',
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--include-partial-messages",
+            "--tools",
+            '""',
+            "--no-session-persistence",
+            '$(cat "$MNG_AGENT_WORK_DIR/.mng-prompt")',
         )
 
-        source_location = HostLocation(host=host, path=Path(tmp_dir))
+        source_location = HostLocation(host=host, path=work_path)
         agent_options = CreateAgentOptions(
             agent_type=AgentTypeName("headless_claude"),
             agent_args=agent_args,
             label_options=AgentLabelOptions(labels={"internal": "ask"}),
-            target_path=Path(tmp_dir),
+            target_path=work_path,
+            name=AgentName("ask"),
         )
 
         result = api_create(
