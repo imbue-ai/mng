@@ -276,6 +276,17 @@ class AgentInterface(MutableModel, ABC):
     # Provisioning Lifecycle
     # =========================================================================
 
+    def get_extra_env_vars(self) -> dict[str, str]:
+        """Return additional env vars for this agent type.
+
+        Called during provisioning to collect agent-type-specific environment
+        variables (e.g., CLAUDE_CONFIG_DIR for claude agents). These are written
+        to the agent's env file and sourced before the agent command runs.
+
+        Default returns an empty dict.
+        """
+        return {}
+
     @abstractmethod
     def on_before_provisioning(
         self,

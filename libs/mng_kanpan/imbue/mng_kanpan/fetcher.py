@@ -16,8 +16,6 @@ from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
-from imbue.mng.primitives import default_branch_name
-from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng_kanpan.data_types import AgentBoardEntry
 from imbue.mng_kanpan.data_types import BoardSnapshot
 from imbue.mng_kanpan.data_types import PrInfo
@@ -61,7 +59,7 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
     # Build board entries with branch and PR info
     entries: list[AgentBoardEntry] = []
     for agent in result.agents:
-        branch = _resolve_agent_branch(agent, cg)
+        branch = agent.initial_branch
         pr = pr_by_branch.get(branch) if branch else None
         is_local = agent.host.provider_name == LOCAL_PROVIDER_NAME
         local_work_dir = agent.work_dir if is_local and agent.work_dir.exists() else None
@@ -134,24 +132,6 @@ def _find_git_cwd(agents: list[AgentDetails]) -> Path | None:
         if agent.host.provider_name == LOCAL_PROVIDER_NAME and agent.work_dir.exists():
             return agent.work_dir
     return None
-
-
-def _resolve_agent_branch(agent: AgentDetails, cg: ConcurrencyGroup) -> str | None:
-    """Determine the git branch associated with an agent.
-
-    For local agents with an accessible work_dir, reads the branch via git.
-    Falls back to the naming convention mng/<name>.
-    """
-    if agent.host.provider_name == LOCAL_PROVIDER_NAME:
-        work_dir = agent.work_dir
-        if work_dir.exists():
-            branch = get_current_git_branch(work_dir, cg)
-            if branch is not None:
-                return branch
-            logger.debug("Could not determine git branch for agent {} at {}", agent.name, work_dir)
-
-    # Fallback: naming convention
-    return default_branch_name(agent.name)
 
 
 def _get_commits_ahead(work_dir: Path | None, cg: ConcurrencyGroup) -> int | None:
