@@ -38,11 +38,10 @@ def test_load_poll_interval_handles_empty_watchers_section(tmp_path: Path) -> No
 # -- _get_llm_db_path tests --
 
 
-def test_get_llm_db_path_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_llm_db_path_raises_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LLM_USER_PATH", raising=False)
-    db_path = _get_llm_db_path()
-    assert db_path.name == "logs.db"
-    assert "io.datasette.llm" in str(db_path)
+    with pytest.raises(RuntimeError, match="LLM_USER_PATH must be set"):
+        _get_llm_db_path()
 
 
 def test_get_llm_db_path_with_env(monkeypatch: pytest.MonkeyPatch) -> None:

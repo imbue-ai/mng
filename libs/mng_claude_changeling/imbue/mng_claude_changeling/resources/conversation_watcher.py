@@ -47,10 +47,13 @@ def _load_poll_interval(agent_work_dir: Path) -> int:
 
 
 def _get_llm_db_path() -> Path:
-    """Locate the llm database file."""
+    """Locate the llm database file.
+
+    Requires LLM_USER_PATH to be set (always configured during provisioning).
+    """
     llm_user_path = os.environ.get("LLM_USER_PATH", "")
     if not llm_user_path:
-        llm_user_path = str(Path.home() / ".config" / "io.datasette.llm")
+        raise RuntimeError("LLM_USER_PATH must be set")
     return Path(llm_user_path) / "logs.db"
 
 

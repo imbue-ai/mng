@@ -52,9 +52,10 @@ SERVERS_JSONL_PATH: Final[Path | None] = (
 MESSAGES_EVENTS_PATH: Final[Path | None] = (
     Path(AGENT_STATE_DIR) / "events" / "messages" / "events.jsonl" if AGENT_STATE_DIR else None
 )
-LLM_DB_PATH: Final[Path | None] = (
-    Path(os.environ.get("LLM_USER_PATH", "")) / "logs.db" if os.environ.get("LLM_USER_PATH") else None
-)
+_LLM_USER_PATH: Final[str] = os.environ.get("LLM_USER_PATH", "")
+LLM_DB_PATH: Final[Path | None] = Path(_LLM_USER_PATH) / "logs.db" if _LLM_USER_PATH else None
+if not _LLM_USER_PATH:
+    sys.stderr.write("[web-server] WARNING: LLM_USER_PATH not set, conversation features will be unavailable\n")
 
 # -- Constants --
 

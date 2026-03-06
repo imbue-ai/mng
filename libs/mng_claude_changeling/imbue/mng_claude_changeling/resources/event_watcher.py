@@ -347,7 +347,8 @@ def _get_system_notifications_conversation_id() -> str | None:
     """
     llm_user_path = os.environ.get("LLM_USER_PATH", "")
     if not llm_user_path:
-        llm_user_path = str(Path.home() / ".config" / "io.datasette.llm")
+        logger.warning("LLM_USER_PATH not set, cannot look up system_notifications conversation")
+        return None
     db_path = Path(llm_user_path) / "logs.db"
 
     if not db_path.is_file():

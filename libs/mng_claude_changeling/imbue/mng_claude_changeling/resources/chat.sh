@@ -26,8 +26,12 @@ LLM_TOOLS_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}/commands/llm_tools"
 TALKING_PROMPT="${MNG_AGENT_WORK_DIR:-}/talking/PROMPT.md"
 CONV_DB="${MNG_HOST_DIR}/commands/conversation_db.py"
 
-# Path to the llm database
-_LLM_DB="${LLM_USER_PATH:-$HOME/.config/io.datasette.llm}/logs.db"
+# Path to the llm database (LLM_USER_PATH is always set during provisioning)
+if [ -z "${LLM_USER_PATH:-}" ]; then
+    echo "ERROR: LLM_USER_PATH must be set" >&2
+    exit 1
+fi
+_LLM_DB="${LLM_USER_PATH}/logs.db"
 
 # Configure and source the shared logging library
 _MNG_LOG_TYPE="chat"

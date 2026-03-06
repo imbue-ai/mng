@@ -115,7 +115,9 @@ def gather_extra_context() -> str:
 
         # Full conversation list (from changeling_conversations table in llm DB)
         llm_user_path = os.environ.get("LLM_USER_PATH", "")
-        if llm_user_path:
+        if not llm_user_path:
+            sys.stderr.write("WARNING: LLM_USER_PATH not set, skipping conversation list\n")
+        else:
             db_path = pathlib.Path(llm_user_path) / "logs.db"
             if db_path.is_file():
                 try:
