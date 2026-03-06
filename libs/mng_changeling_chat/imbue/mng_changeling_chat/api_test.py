@@ -17,7 +17,7 @@ from imbue.mng.utils.env_utils import build_source_env_shell_commands
 from imbue.mng_changeling_chat.api import ChatCommandError
 from imbue.mng_changeling_chat.api import _build_chat_env_vars
 from imbue.mng_changeling_chat.api import _build_chat_script_path
-from imbue.mng_changeling_chat.api import _build_conversation_event_paths
+from imbue.mng_changeling_chat.api import _build_conversation_db_and_messages_paths
 from imbue.mng_changeling_chat.api import _build_remote_chat_script
 from imbue.mng_changeling_chat.api import _load_env_file_into_dict
 from imbue.mng_changeling_chat.api import get_latest_conversation_id
@@ -97,19 +97,19 @@ def test_build_remote_chat_script_quotes_conversation_id_with_special_chars(
 
 
 # =========================================================================
-# Tests for _build_conversation_event_paths
+# Tests for _build_conversation_db_and_messages_paths
 # =========================================================================
 
 
-def test_build_conversation_event_paths(
+def test_build_conversation_db_and_messages_paths(
     local_host_and_agent: tuple[Host, TestAgent],
 ) -> None:
     host, agent = local_host_and_agent
 
-    conv_path, msg_path = _build_conversation_event_paths(agent, host)
+    db_path, msg_path = _build_conversation_db_and_messages_paths(agent, host)
 
     agent_state_dir = host.host_dir / "agents" / str(agent.id)
-    assert conv_path == agent_state_dir / "events" / "conversations" / "events.jsonl"
+    assert db_path == agent_state_dir / "llm_data" / "logs.db"
     assert msg_path == agent_state_dir / "events" / "messages" / "events.jsonl"
 
 
@@ -159,6 +159,38 @@ def test_list_conversations_returns_conversations_sorted_by_updated_at(
     assert result[1].conversation_id == "conv-older"
     assert result[0].model == "claude-sonnet-4-6"
     assert result[1].model == "claude-opus-4.6"
+
+
+def test_list_conversations_returns_name_from_tags(
+    local_host_and_agent: tuple[Host, TestAgent],
+) -> None:
+    host, agent = local_host_and_agent
+
+    create_conversation_events(
+        host,
+        agent,
+        [
+            {
+                "timestamp": "2026-03-01T10:00:00Z",
+                "conversation_id": "conv-named",
+                "model": "claude-opus-4.6",
+                "tags": {"name": "My Chat"},
+            },
+            {
+                "timestamp": "2026-03-01T11:00:00Z",
+                "conversation_id": "conv-unnamed",
+                "model": "claude-sonnet-4-6",
+            },
+        ],
+    )
+
+    result = list_conversations_on_agent(agent, host)
+
+    assert len(result) == 2
+    named = next(c for c in result if c.conversation_id == "conv-named")
+    unnamed = next(c for c in result if c.conversation_id == "conv-unnamed")
+    assert named.name == "My Chat"
+    assert unnamed.name == ""
 
 
 def test_list_conversations_uses_message_timestamps_for_updated_at(

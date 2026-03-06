@@ -25,6 +25,7 @@ import html
 import json
 import os
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -51,9 +52,10 @@ SERVERS_JSONL_PATH: Final[Path | None] = (
 MESSAGES_EVENTS_PATH: Final[Path | None] = (
     Path(AGENT_STATE_DIR) / "events" / "messages" / "events.jsonl" if AGENT_STATE_DIR else None
 )
-CONVERSATIONS_EVENTS_PATH: Final[Path | None] = (
-    Path(AGENT_STATE_DIR) / "events" / "conversations" / "events.jsonl" if AGENT_STATE_DIR else None
-)
+_LLM_USER_PATH: Final[str] = os.environ.get("LLM_USER_PATH", "")
+LLM_DB_PATH: Final[Path | None] = Path(_LLM_USER_PATH) / "logs.db" if _LLM_USER_PATH else None
+if not _LLM_USER_PATH:
+    sys.stderr.write("[web-server] WARNING: LLM_USER_PATH not set, conversation features will be unavailable\n")
 
 # -- Constants --
 
@@ -118,28 +120,35 @@ def _register_server(server_name: str, port: int) -> None:
 
 
 def _read_conversations() -> list[dict[str, str]]:
-    """Read conversations from event logs and return sorted by most recent activity."""
+    """Read conversations from the changeling_conversations table and return sorted by most recent activity."""
     conversations_by_id: dict[str, dict[str, str]] = {}
 
-    # Read conversation creation events
-    if CONVERSATIONS_EVENTS_PATH and CONVERSATIONS_EVENTS_PATH.exists():
-        for line in CONVERSATIONS_EVENTS_PATH.read_text().splitlines():
-            line = line.strip()
-            if not line:
-                continue
+    # Read conversations from the llm database
+    if LLM_DB_PATH and LLM_DB_PATH.is_file():
+        try:
+            conn = sqlite3.connect(f"file:{LLM_DB_PATH}?mode=ro", uri=True)
             try:
-                event = json.loads(line)
-                conversation_id = event.get("conversation_id", "")
-                if conversation_id:
+                rows = conn.execute(
+                    "SELECT cc.conversation_id, c.model, cc.created_at, cc.tags "
+                    "FROM changeling_conversations cc "
+                    "LEFT JOIN conversations c ON cc.conversation_id = c.id"
+                ).fetchall()
+                for conversation_id, model, created_at, tags_json in rows:
+                    # Filter out internal conversations (e.g. system_notifications)
+                    tags = json.loads(tags_json) if tags_json else {}
                     conversations_by_id[conversation_id] = {
                         "conversation_id": conversation_id,
-                        "model": event.get("model", "unknown"),
-                        "created_at": event.get("timestamp", ""),
-                        "updated_at": event.get("timestamp", ""),
+                        "name": tags.get("name", ""),
+                        "model": model or "unknown",
+                        "created_at": created_at or "",
+                        "updated_at": created_at or "",
                     }
-            except json.JSONDecodeError as e:
-                _log(f"Skipping malformed conversation event line: {e}")
-                continue
+            except sqlite3.Error as e:
+                _log(f"Failed to query changeling_conversations: {e}")
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            _log(f"Failed to open llm database: {e}")
 
     # Update with latest message timestamps
     if MESSAGES_EVENTS_PATH and MESSAGES_EVENTS_PATH.exists():
@@ -298,15 +307,18 @@ def _render_conversations_page() -> str:
     conv_items = ""
     for conv in conversations:
         conversation_id = _html_escape(conv["conversation_id"])
+        name = _html_escape(conv.get("name", "")) or conversation_id
         model = _html_escape(conv.get("model", ""))
         updated = _html_escape(conv.get("updated_at", ""))
-        detail = model
+        detail = conversation_id
+        if model:
+            detail += f" -- {model}"
         if updated:
             detail += f" -- {updated}"
         conv_items += (
             f'<li class="item">'
             f'<div class="item-info">'
-            f'<span class="item-name">{conversation_id}</span>'
+            f'<span class="item-name">{name}</span>'
             f'<span class="item-detail">{detail}</span>'
             f"</div>"
             f'<a class="link-btn" href="chat?cid={conversation_id}">Open</a>'

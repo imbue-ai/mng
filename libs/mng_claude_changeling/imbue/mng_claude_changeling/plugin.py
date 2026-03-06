@@ -23,6 +23,7 @@ from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import CommandString
 from imbue.mng_claude_changeling.provisioning import build_memory_sync_hooks_config
 from imbue.mng_claude_changeling.provisioning import configure_llm_user_path
+from imbue.mng_claude_changeling.provisioning import create_changeling_conversations_table
 from imbue.mng_claude_changeling.provisioning import create_changeling_symlinks
 from imbue.mng_claude_changeling.provisioning import create_daily_conversation
 from imbue.mng_claude_changeling.provisioning import create_event_log_directories
@@ -125,6 +126,12 @@ class ClaudeChangelingAgent(ClaudeAgent):
     - Web server (main web interface with conversation selector and agent list)
     - Chat ttyd (--url-arg ttyd for conversation terminal access)
     """
+
+    enter_submission_timeout_seconds: float = Field(
+        # increased timeout because we don't want to send duplicate events if we can avoid it
+        default=60.0,
+        description="Timeout in seconds for waiting on the enter submission signal",
+    )
 
     def _get_changeling_config(self) -> ClaudeChangelingConfig:
         """Get the changeling-specific config from this agent.
@@ -262,6 +269,7 @@ class ClaudeChangelingAgent(ClaudeAgent):
         create_event_log_directories(host, agent_state_dir, provisioning)
 
         configure_llm_user_path(host, agent_state_dir, provisioning)
+        create_changeling_conversations_table(host, agent_state_dir, provisioning)
 
         if config.install_llm:
             create_system_notifications_conversation(host, agent_state_dir, provisioning)
