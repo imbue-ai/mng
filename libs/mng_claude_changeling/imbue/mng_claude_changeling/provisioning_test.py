@@ -40,6 +40,8 @@ from imbue.mng_claude_changeling.provisioning import setup_memory_directory
 from imbue.mng_claude_changeling.provisioning import validate_talking_role_constraints
 from imbue.mng_claude_changeling.resources import context_tool as context_tool_module
 from imbue.mng_claude_changeling.resources import extra_context_tool as extra_context_tool_module
+from imbue.mng_claude_changeling.resources.watcher_common import MngNotInstalledError
+from imbue.mng_claude_changeling.resources.watcher_common import get_mng_command
 
 _DEFAULT_PROVISIONING = ProvisioningSettings()
 
@@ -1596,6 +1598,42 @@ def test_gather_context_first_call_messages_with_empty_lines(
 
     result = env.module.gather_context()
     assert "conv-A" in result
+
+
+# -- get_mng_command tests --
+
+
+def test_get_mng_command_returns_binary_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify get_mng_command returns the per-agent mng binary path when it exists."""
+    agent_state_dir = tmp_path / "agent_state"
+    bin_dir = agent_state_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    mng_bin = bin_dir / "mng"
+    mng_bin.write_text("#!/bin/bash\n")
+    mng_bin.chmod(0o755)
+
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(agent_state_dir))
+
+    result = get_mng_command()
+    assert result == [str(mng_bin)]
+
+
+def test_get_mng_command_raises_when_env_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify get_mng_command raises MngNotInstalledError when MNG_AGENT_STATE_DIR is unset."""
+    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
+
+    with pytest.raises(MngNotInstalledError, match="MNG_AGENT_STATE_DIR is not set"):
+        get_mng_command()
+
+
+def test_get_mng_command_raises_when_binary_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify get_mng_command raises MngNotInstalledError when the binary doesn't exist."""
+    agent_state_dir = tmp_path / "agent_state"
+    agent_state_dir.mkdir(parents=True)
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(agent_state_dir))
+
+    with pytest.raises(MngNotInstalledError, match="Per-agent mng binary not found"):
+        get_mng_command()
 
 
 def test_provision_default_content_writes_missing_files() -> None:
