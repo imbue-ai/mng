@@ -336,7 +336,7 @@ def test_resolve_source_location_with_auto_start_enabled(
         to_update(default_create_cli_opts.field_ref().source_path, str(temp_work_dir)),
     )
 
-    result, source_agent_state_dir = _resolve_source_location(
+    result = _resolve_source_location(
         opts,
         agent_and_host_loader=lambda: {},
         mng_ctx=temp_mng_ctx,
@@ -345,7 +345,6 @@ def test_resolve_source_location_with_auto_start_enabled(
 
     assert isinstance(result.host, OnlineHostInterface)
     assert result.path == temp_work_dir
-    assert source_agent_state_dir is None
 
 
 def test_resolve_target_host_with_auto_start_enabled(

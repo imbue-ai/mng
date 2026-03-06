@@ -110,6 +110,12 @@ _retry_on_socket_closed = retry(
 )
 
 
+@pure
+def get_agent_state_dir_path(host_dir: Path, agent_id: AgentId) -> Path:
+    """Compute the state directory path for an agent given the host directory and agent ID."""
+    return host_dir / "agents" / str(agent_id)
+
+
 class HostLocation(FrozenModel):
     """A path on a specific host."""
 
@@ -1464,7 +1470,7 @@ class Host(BaseHost, OnlineHostInterface):
         ):
             resolved = resolve_agent_type(agent_type, self.mng_ctx.config)
 
-            state_dir = self.host_dir / "agents" / str(agent_id)
+            state_dir = get_agent_state_dir_path(self.host_dir, agent_id)
             self._mkdirs([state_dir, state_dir / "events"])
 
             create_time = datetime.now(timezone.utc)
@@ -1525,7 +1531,7 @@ class Host(BaseHost, OnlineHostInterface):
 
     def _get_agent_state_dir(self, agent: AgentInterface) -> Path:
         """Get the state directory for an agent."""
-        return self.host_dir / "agents" / str(agent.id)
+        return get_agent_state_dir_path(self.host_dir, agent.id)
 
     def get_agent_env_path(self, agent: AgentInterface) -> Path:
         """Get the path to the agent's environment file."""

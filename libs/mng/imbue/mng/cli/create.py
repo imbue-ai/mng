@@ -52,6 +52,7 @@ from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.host import Host
 from imbue.mng.hosts.host import HostLocation
+from imbue.mng.hosts.host import get_agent_state_dir_path
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.host import AgentDataOptions
@@ -606,9 +607,6 @@ class _CreateSetup(FrozenModel):
     editor_session: EditorSession | None = Field(default=None, description="Editor session for --edit-message")
     agent_and_host_loader: _CachedAgentHostLoader = Field(description="Lazy loader for agents grouped by host")
     source_location: HostLocation = Field(description="Resolved source location")
-    source_agent_state_dir: Path | None = Field(
-        default=None, description="State dir of the source agent (when cloning via --from-agent)"
-    )
     project_name: str = Field(description="Project name for agent labels")
     host_lifecycle: HostLifecycleOptions = Field(description="Host lifecycle options")
     plugin_cli_params: dict[str, Any] = Field(
@@ -683,9 +681,7 @@ def _setup_create(
     agent_and_host_loader = _CachedAgentHostLoader(mng_ctx=mng_ctx)
 
     # figure out where the source data is coming from
-    source_location, source_agent_state_dir = _resolve_source_location(
-        opts, agent_and_host_loader, mng_ctx, is_start_desired=opts.start_host
-    )
+    source_location = _resolve_source_location(opts, agent_and_host_loader, mng_ctx, is_start_desired=opts.start_host)
 
     # figure out the project label, in case we need that
     project_name = _parse_project_name(source_location, opts, mng_ctx)
@@ -699,7 +695,6 @@ def _setup_create(
         editor_session=editor_session,
         agent_and_host_loader=agent_and_host_loader,
         source_location=source_location,
-        source_agent_state_dir=source_agent_state_dir,
         project_name=project_name,
         host_lifecycle=host_lifecycle,
         plugin_cli_params=plugin_cli_params or {},
@@ -721,13 +716,20 @@ def _create_agent(
         lifecycle=setup.host_lifecycle,
     )
 
+    # Resolve source agent state dir if cloning from an existing agent
+    source_agent_state_dir: Path | None = None
+    if opts.source_agent is not None:
+        source_agent_state_dir = _find_source_agent_state_dir(
+            opts.source_agent, setup.agent_and_host_loader, setup.source_location.host
+        )
+
     # Parse agent options
     agent_opts = _parse_agent_opts(
         opts=opts,
         initial_message=setup.initial_message,
         resume_message=setup.resume_message,
         source_location=setup.source_location,
-        source_agent_state_dir=setup.source_agent_state_dir,
+        source_agent_state_dir=source_agent_state_dir,
         mng_ctx=mng_ctx,
     )
 
@@ -1123,13 +1125,7 @@ def _resolve_source_location(
     mng_ctx: MngContext,
     *,
     is_start_desired: bool,
-) -> tuple[HostLocation, Path | None]:
-    """Resolve the source location and optionally the source agent's state directory.
-
-    Returns (source_location, source_agent_state_dir) where source_agent_state_dir
-    is set when cloning from an existing agent (--from-agent / --source-agent).
-    """
-    source_agent_state_dir: Path | None = None
+) -> HostLocation:
     # figure out the agent source data
     if opts.source is None and opts.source_agent is None and opts.source_host is None:
         # easy, source location is on current host
@@ -1180,24 +1176,7 @@ def _resolve_source_location(
                 mng_ctx,
                 is_start_desired=is_start_desired,
             )
-
-        # If a source agent was specified, compute its state directory
-        if opts.source_agent is not None or (parsed is not None and parsed.agent_name is not None):
-            agent_identifier = opts.source_agent or (parsed.agent_name if parsed else None)
-            if agent_identifier is not None:
-                agents_by_host = agent_and_host_loader()
-                for _host_ref, agent_refs in agents_by_host.items():
-                    for agent_ref in agent_refs:
-                        if (
-                            str(agent_ref.agent_id) == agent_identifier
-                            or str(agent_ref.agent_name) == agent_identifier
-                        ):
-                            source_agent_state_dir = source_location.host.host_dir / "agents" / str(agent_ref.agent_id)
-                            break
-                    if source_agent_state_dir is not None:
-                        break
-
-    return source_location, source_agent_state_dir
+    return source_location
 
 
 def _resolve_target_host(
@@ -1219,6 +1198,20 @@ def _resolve_target_host(
     else:
         resolved_target_host = target_host
     return resolved_target_host
+
+
+def _find_source_agent_state_dir(
+    agent_identifier: str,
+    agent_and_host_loader: Callable[[], dict[DiscoveredHost, list[DiscoveredAgent]]],
+    source_host: OnlineHostInterface,
+) -> Path | None:
+    """Find the state directory for a source agent by name or ID."""
+    agents_by_host = agent_and_host_loader()
+    for _host_ref, agent_refs in agents_by_host.items():
+        for agent_ref in agent_refs:
+            if str(agent_ref.agent_id) == agent_identifier or str(agent_ref.agent_name) == agent_identifier:
+                return get_agent_state_dir_path(source_host.host_dir, agent_ref.agent_id)
+    return None
 
 
 def _find_source_location(
