@@ -11,6 +11,7 @@ from typing import Any
 from loguru import logger
 
 from imbue.imbue_common.pure import pure
+from imbue.mng.agents.event_commands import build_state_transition_command
 from imbue.mng.errors import ConfigError
 from imbue.mng.utils.file_utils import atomic_write
 
@@ -436,6 +437,10 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                         },
                         {
                             "type": "command",
+                            "command": build_state_transition_command("WAITING", "RUNNING"),
+                        },
+                        {
+                            "type": "command",
                             "command": "tmux wait-for -S \"mng-submit-$(tmux display-message -p '#S')\" 2>/dev/null || true",
                         },
                     ]
@@ -448,6 +453,10 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                         {
                             "type": "command",
                             "command": 'rm -f "$MNG_AGENT_STATE_DIR/active"',
+                        },
+                        {
+                            "type": "command",
+                            "command": build_state_transition_command("RUNNING", "WAITING"),
                         },
                     ],
                 }
