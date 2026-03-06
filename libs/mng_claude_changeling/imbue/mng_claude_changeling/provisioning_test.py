@@ -15,8 +15,11 @@ import pytest
 
 from imbue.mng_claude_changeling.conftest import StubCommandResult
 from imbue.mng_claude_changeling.conftest import StubHost
+from imbue.mng_claude_changeling.conftest import create_changeling_conversations_table_in_test_db
+from imbue.mng_claude_changeling.conftest import write_conversation_to_db
 from imbue.mng_claude_changeling.data_types import CommonToolResultEvent
 from imbue.mng_claude_changeling.data_types import ProvisioningSettings
+from imbue.mng_claude_changeling.provisioning import CHANGELING_CONVERSATIONS_TABLE_SQL
 from imbue.mng_claude_changeling.provisioning import TalkingRoleConstraintError
 from imbue.mng_claude_changeling.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_changeling.provisioning import _SERVICE_SCRIPT_FILES
@@ -568,7 +571,7 @@ def test_provision_supporting_services_uses_executable_mode() -> None:
 
     for path, _, mode in host.written_files:
         # Script modules (non-executable) are provisioned with 0644
-        if path.name in ("watcher_common.py",):
+        if path.name in ("watcher_common.py", "conversation_db.py"):
             assert mode == "0644", f"Expected 0644 for module {path.name}, got {mode}"
         else:
             assert mode == "0755", f"Expected 0755 for script {path.name}, got {mode}"
@@ -595,7 +598,6 @@ def test_create_event_log_directories_creates_all_source_dirs() -> None:
     create_event_log_directories(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"), _DEFAULT_PROVISIONING)
 
     for source in (
-        "conversations",
         "messages",
         "scheduled",
         "mng_agents",
@@ -611,6 +613,29 @@ def test_create_event_log_directories_creates_all_source_dirs() -> None:
     assert any("claude_transcript" in c and "mkdir" in c for c in host.executed_commands), (
         "Missing mkdir for logs/claude_transcript"
     )
+
+
+# -- Schema sync tests --
+
+
+def test_conversation_db_schema_matches_provisioning() -> None:
+    """Verify conversation_db.py contains all column definitions from provisioning.py's schema.
+
+    conversation_db.py runs standalone on remote hosts and cannot import from
+    provisioning.py, so the schema is duplicated. This test catches drift by
+    checking that every column definition from the authoritative schema appears
+    in the resource file source.
+    """
+    source = load_changeling_resource("conversation_db.py")
+    # Extract column definitions from the authoritative schema constant.
+    # Each "X TEXT ..." clause must appear in conversation_db.py's source.
+    for fragment in CHANGELING_CONVERSATIONS_TABLE_SQL.split("(", 1)[1].rsplit(")", 1)[0].split(","):
+        fragment = fragment.strip()
+        assert fragment in source, (
+            f"conversation_db.py is missing schema fragment {fragment!r} from "
+            "provisioning.py CHANGELING_CONVERSATIONS_TABLE_SQL. "
+            "These must be kept in sync."
+        )
 
 
 # -- configure_llm_user_path tests --
@@ -645,19 +670,13 @@ def test_create_system_notifications_conversation_runs_inject_and_records_event(
     assert "LLM_USER_PATH=" in inject_commands[0]
     assert "llm_data" in inject_commands[0]
 
-    # Should create conversations directory
-    assert any("conversations" in c and "mkdir" in c for c in host.executed_commands)
-
-    # Should append a conversation_created event using the ID from llm inject output
-    event_commands = [
-        c for c in host.executed_commands if "conversations" in c and "events.jsonl" in c and "echo" in c
-    ]
-    assert len(event_commands) == 1
-    assert "conversation_created" in event_commands[0]
-    assert "fake-conv-id-123" in event_commands[0]
+    # Should insert a record into changeling_conversations via sqlite3
+    db_commands = [c for c in host.executed_commands if "sqlite3" in c and "changeling_conversations" in c]
+    assert len(db_commands) == 1
+    assert "fake-conv-id-123" in db_commands[0]
     # Should be tagged as internal
-    assert '"internal"' in event_commands[0]
-    assert '"system_notifications"' in event_commands[0]
+    assert "internal" in db_commands[0]
+    assert "system_notifications" in db_commands[0]
 
 
 def test_create_system_notifications_conversation_skips_event_on_inject_failure() -> None:
@@ -671,9 +690,9 @@ def test_create_system_notifications_conversation_skips_event_on_inject_failure(
     inject_commands = [c for c in host.executed_commands if "llm inject" in c]
     assert len(inject_commands) == 1
 
-    # Should NOT have written a conversation event (early return on failure)
-    event_commands = [c for c in host.executed_commands if "events.jsonl" in c and "echo" in c]
-    assert len(event_commands) == 0
+    # Should NOT have written a DB record (early return on failure)
+    db_commands = [c for c in host.executed_commands if "sqlite3" in c and "changeling_conversations" in c]
+    assert len(db_commands) == 0
 
 
 # -- create_daily_conversation tests --
@@ -691,13 +710,11 @@ def test_create_daily_conversation_runs_inject_and_records_tagged_event() -> Non
     assert "claude-opus-4.6" in inject_commands[0]
     assert "LLM_USER_PATH=" in inject_commands[0]
 
-    # Should append a conversation_created event with daily tag and parsed CID
-    event_commands = [
-        c for c in host.executed_commands if "conversations" in c and "events.jsonl" in c and "echo" in c
-    ]
-    assert len(event_commands) == 1
-    assert '"daily"' in event_commands[0]
-    assert "fake-conv-id-123" in event_commands[0]
+    # Should insert a record with daily tag into changeling_conversations via sqlite3
+    db_commands = [c for c in host.executed_commands if "sqlite3" in c and "changeling_conversations" in c]
+    assert len(db_commands) == 1
+    assert "daily" in db_commands[0]
+    assert "fake-conv-id-123" in db_commands[0]
 
 
 def test_create_daily_conversation_skips_event_on_inject_failure() -> None:
@@ -707,9 +724,9 @@ def test_create_daily_conversation_skips_event_on_inject_failure() -> None:
     agent_state_dir = Path("/tmp/mng-test/agents/agent-123")
     create_daily_conversation(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING, "claude-opus-4.6")
 
-    # Should NOT have written a conversation event
-    event_commands = [c for c in host.executed_commands if "events.jsonl" in c and "echo" in c]
-    assert len(event_commands) == 0
+    # Should NOT have written a DB record
+    db_commands = [c for c in host.executed_commands if "sqlite3" in c and "changeling_conversations" in c]
+    assert len(db_commands) == 0
 
 
 # -- mng availability check tests --
@@ -1472,19 +1489,22 @@ def test_extra_context_tool_with_transcript(extra_context_env: tuple[Any, Path])
     assert "5 of 5" in result
 
 
-def test_extra_context_tool_with_conversations(extra_context_env: tuple[Any, Path]) -> None:
-    """Verify gather_extra_context reads conversation events."""
-    module, data_dir = extra_context_env
+def test_extra_context_tool_with_conversations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context reads conversations from the DB."""
+    llm_data_dir = tmp_path / "llm_data"
+    db_path = llm_data_dir / "logs.db"
+    monkeypatch.setenv("LLM_USER_PATH", str(llm_data_dir))
 
-    conv_dir = data_dir / "events" / "conversations"
-    conv_dir.mkdir(parents=True)
-    conv_file = conv_dir / "events.jsonl"
-    conv_file.write_text(
-        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
-        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4.6"}\n'
-        '{"timestamp":"2026-01-01T00:01:00Z","type":"conversation_created","event_id":"c2",'
-        '"source":"conversations","conversation_id":"conv-2","model":"claude-sonnet-4-6"}\n'
-    )
+    create_changeling_conversations_table_in_test_db(db_path)
+    write_conversation_to_db(db_path, "conv-1", model="claude-opus-4.6", created_at="2026-01-01T00:00:00Z")
+    write_conversation_to_db(db_path, "conv-2", model="claude-sonnet-4-6", created_at="2026-01-01T00:01:00Z")
+
+    module = _load_fresh_extra_context_tool()
+    _setup_uv_not_found(tmp_path, monkeypatch)
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
 
     result = module.gather_extra_context()
     assert "All Conversations" in result
@@ -1531,31 +1551,29 @@ def test_extra_context_tool_with_empty_transcript(extra_context_env: tuple[Any, 
     assert "Extended Inner Monologue" not in result
 
 
-def test_extra_context_tool_conversations_with_malformed_json(extra_context_env: tuple[Any, Path]) -> None:
-    """Verify gather_extra_context skips malformed conversation lines."""
-    module, data_dir = extra_context_env
+def test_extra_context_tool_conversations_empty_db(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context handles an empty changeling_conversations table."""
+    llm_data_dir = tmp_path / "llm_data"
+    llm_data_dir.mkdir(parents=True)
+    db_path = llm_data_dir / "logs.db"
+    monkeypatch.setenv("LLM_USER_PATH", str(llm_data_dir))
 
-    conv_dir = data_dir / "events" / "conversations"
-    conv_dir.mkdir(parents=True)
-    conv_file = conv_dir / "events.jsonl"
-    conv_file.write_text(
-        "not valid json\n"
-        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
-        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4.6"}\n'
-    )
+    create_changeling_conversations_table_in_test_db(db_path)
+
+    module = _load_fresh_extra_context_tool()
+    _setup_uv_not_found(tmp_path, monkeypatch)
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
 
     result = module.gather_extra_context()
-    assert "conv-1" in result
+    assert "All Conversations" not in result
 
 
-def test_extra_context_tool_conversations_missing_key(extra_context_env: tuple[Any, Path]) -> None:
-    """Verify gather_extra_context skips conversations lines missing conversation_id."""
+def test_extra_context_tool_conversations_no_db(extra_context_env: tuple[Any, Path]) -> None:
+    """Verify gather_extra_context works when no llm DB exists."""
     module, data_dir = extra_context_env
-
-    conv_dir = data_dir / "events" / "conversations"
-    conv_dir.mkdir(parents=True)
-    conv_file = conv_dir / "events.jsonl"
-    conv_file.write_text('{"timestamp":"2026-01-01T00:00:00Z","type":"test","event_id":"c1"}\n')
 
     result = module.gather_extra_context()
     assert "All Conversations" not in result
@@ -1575,43 +1593,26 @@ def test_extra_context_tool_transcript_with_many_entries(extra_context_env: tupl
     assert "last 50 of 100" in result
 
 
-def test_extra_context_tool_conversations_updates_existing_conversation(
-    extra_context_env: tuple[Any, Path],
+def test_extra_context_tool_conversations_shows_current_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify gather_extra_context uses the latest event for each conversation."""
-    module, data_dir = extra_context_env
+    """Verify gather_extra_context shows the current model from the DB."""
+    llm_data_dir = tmp_path / "llm_data"
+    llm_data_dir.mkdir(parents=True)
+    db_path = llm_data_dir / "logs.db"
+    monkeypatch.setenv("LLM_USER_PATH", str(llm_data_dir))
 
-    conv_dir = data_dir / "events" / "conversations"
-    conv_dir.mkdir(parents=True)
-    conv_file = conv_dir / "events.jsonl"
-    conv_file.write_text(
-        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
-        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4.6"}\n'
-        '{"timestamp":"2026-01-01T00:01:00Z","type":"model_changed","event_id":"c2",'
-        '"source":"conversations","conversation_id":"conv-1","model":"claude-sonnet-4-6"}\n'
-    )
+    create_changeling_conversations_table_in_test_db(db_path)
+    write_conversation_to_db(db_path, "conv-1", model="claude-sonnet-4-6", created_at="2026-01-01T00:00:00Z")
+
+    module = _load_fresh_extra_context_tool()
+    _setup_uv_not_found(tmp_path, monkeypatch)
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
 
     result = module.gather_extra_context()
     assert "All Conversations" in result
     assert "claude-sonnet-4-6" in result
-
-
-def test_extra_context_tool_conversations_with_empty_lines(extra_context_env: tuple[Any, Path]) -> None:
-    """Verify gather_extra_context skips empty lines in conversations file."""
-    module, data_dir = extra_context_env
-
-    conv_dir = data_dir / "events" / "conversations"
-    conv_dir.mkdir(parents=True)
-    conv_file = conv_dir / "events.jsonl"
-    conv_file.write_text(
-        "\n"
-        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
-        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4.6"}\n'
-        "\n"
-    )
-
-    result = module.gather_extra_context()
-    assert "conv-1" in result
 
 
 def test_gather_context_first_call_messages_with_empty_lines(
