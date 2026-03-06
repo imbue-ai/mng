@@ -50,6 +50,11 @@ def _make_headless_agent(
     return agent, host
 
 
+def _patch_agent_as_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patch HeadlessClaude.get_lifecycle_state to return STOPPED so stream_output terminates."""
+    monkeypatch.setattr(HeadlessClaude, "get_lifecycle_state", lambda self: AgentLifecycleState.STOPPED)
+
+
 # =============================================================================
 # Tests for HeadlessClaude overrides
 # =============================================================================
@@ -194,9 +199,9 @@ def test_stream_output_yields_text_deltas(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stream_output should parse stream-json and yield text chunks."""
+    _patch_agent_as_stopped(monkeypatch)
     agent, host = _make_headless_agent(local_provider, tmp_path)
 
-    # Write some stream-json output to the expected path
     agent_dir = host.host_dir / "agents" / str(agent.id)
     agent_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = agent_dir / "stdout.jsonl"
@@ -207,8 +212,6 @@ def test_stream_output_yields_text_deltas(
     ]
     stdout_path.write_text("\n".join(lines) + "\n")
 
-    # Mock get_lifecycle_state to return STOPPED so stream_output exits
-    monkeypatch.setattr(HeadlessClaude, "get_lifecycle_state", lambda self: AgentLifecycleState.STOPPED)
     chunks = list(agent.stream_output())
 
     assert chunks == ["Hello ", "world!"]
@@ -220,6 +223,7 @@ def test_stream_output_handles_empty_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stream_output should handle an empty output file gracefully."""
+    _patch_agent_as_stopped(monkeypatch)
     agent, host = _make_headless_agent(local_provider, tmp_path)
 
     agent_dir = host.host_dir / "agents" / str(agent.id)
@@ -227,7 +231,6 @@ def test_stream_output_handles_empty_file(
     stdout_path = agent_dir / "stdout.jsonl"
     stdout_path.write_text("")
 
-    monkeypatch.setattr(HeadlessClaude, "get_lifecycle_state", lambda self: AgentLifecycleState.STOPPED)
     chunks = list(agent.stream_output())
 
     assert chunks == []
@@ -239,17 +242,16 @@ def test_stream_output_handles_file_without_trailing_newline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stream_output should not drop a partial line at the end of the file when there is no trailing newline."""
+    _patch_agent_as_stopped(monkeypatch)
     agent, host = _make_headless_agent(local_provider, tmp_path)
 
     agent_dir = host.host_dir / "agents" / str(agent.id)
     agent_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = agent_dir / "stdout.jsonl"
 
-    # Write content without a trailing newline so the last line ends up in line_buffer
     content = _make_stream_json_line("no trailing newline")
     stdout_path.write_text(content)
 
-    monkeypatch.setattr(HeadlessClaude, "get_lifecycle_state", lambda self: AgentLifecycleState.STOPPED)
     chunks = list(agent.stream_output())
 
     assert chunks == ["no trailing newline"]
@@ -261,9 +263,9 @@ def test_stream_output_returns_when_agent_stopped_and_no_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stream_output should return cleanly when agent is stopped and no file exists."""
+    _patch_agent_as_stopped(monkeypatch)
     agent, _host = _make_headless_agent(local_provider, tmp_path)
 
-    monkeypatch.setattr(HeadlessClaude, "get_lifecycle_state", lambda self: AgentLifecycleState.STOPPED)
     chunks = list(agent.stream_output())
 
     assert chunks == []

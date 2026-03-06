@@ -396,16 +396,22 @@ class AgentInterface(MutableModel, ABC):
 class HeadlessAgentMixin(ABC):
     """Mixin for agent types that run headlessly (no TUI, no interactive input).
 
-    Headless agents produce output to a file and expose it via stream_output().
-    This mixin serves as a marker interface so callers can check for headless
-    capability without depending on a specific agent implementation.
+    Headless agents produce their output non-interactively and expose it
+    via output(). This mixin serves as a marker interface so callers can
+    check for headless capability without depending on a specific agent
+    implementation.
     """
 
     @abstractmethod
-    def stream_output(self) -> Iterator[str]:
-        """Stream text output from the headless agent.
+    def output(self) -> str:
+        """Wait for the agent to finish and return its complete output."""
+        ...
 
-        Yields text chunks as they become available. Returns when the agent
-        process exits and all output has been consumed.
-        """
+
+class StreamingHeadlessAgentMixin(HeadlessAgentMixin):
+    """Headless agent that can also stream output incrementally."""
+
+    @abstractmethod
+    def stream_output(self) -> Iterator[str]:
+        """Yield output chunks as they become available."""
         ...

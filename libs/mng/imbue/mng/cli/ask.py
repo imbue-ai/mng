@@ -33,10 +33,11 @@ from imbue.mng.errors import BaseMngError
 from imbue.mng.errors import MngError
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.agent import AgentInterface
-from imbue.mng.interfaces.agent import HeadlessAgentMixin
+from imbue.mng.interfaces.agent import StreamingHeadlessAgentMixin
 from imbue.mng.interfaces.host import AgentLabelOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
@@ -248,8 +249,10 @@ def _destroy_on_exit(host: OnlineHostInterface, agent: AgentInterface) -> Iterat
 
 
 @contextmanager
-def _headless_claude_output(mng_ctx: MngContext, prompt: str, system_prompt: str) -> Iterator[Iterator[str]]:
-    """Create a HeadlessClaude agent, yield its output stream, and destroy it on exit.
+def _headless_claude_output(
+    mng_ctx: MngContext, prompt: str, system_prompt: str
+) -> Iterator[StreamingHeadlessAgentMixin]:
+    """Create a HeadlessClaude agent, yield it, and destroy it on exit.
 
     Creates a temporary directory as the work path (no git branch creation),
     and passes claude args for headless operation (--system-prompt, --output-format
@@ -262,33 +265,33 @@ def _headless_claude_output(mng_ctx: MngContext, prompt: str, system_prompt: str
     host = host_interface
 
     with tempfile.TemporaryDirectory(prefix="mng-ask-") as tmp_dir:
-        # Each arg is shell-quoted because assemble_command joins them with
-        # spaces into a command string that is executed by the shell inside
-        # tmux.  Without quoting, special characters in the prompt or system
-        # prompt (backticks, $, quotes, newlines, etc.) would be interpreted
-        # by the shell.
-        agent_args = tuple(
-            shlex.quote(a)
-            for a in (
-                "--system-prompt",
-                system_prompt,
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--include-partial-messages",
-                "--tools",
-                "",
-                "--no-session-persistence",
-                prompt,
-            )
+        # Write prompt and system prompt to files in the work dir so the
+        # shell command can read them via $(cat ...).  Passing them inline
+        # as agent_args would exceed tmux's command length limit.
+        work_path = Path(tmp_dir)
+        (work_path / ".mng-system-prompt").write_text(system_prompt)
+        (work_path / ".mng-prompt").write_text(prompt)
+
+        agent_args = (
+            "--system-prompt",
+            '"$(cat "$MNG_AGENT_WORK_DIR/.mng-system-prompt")"',
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--include-partial-messages",
+            "--tools",
+            '""',
+            "--no-session-persistence",
+            '"$(cat "$MNG_AGENT_WORK_DIR/.mng-prompt")"',
         )
 
-        source_location = HostLocation(host=host, path=Path(tmp_dir))
+        source_location = HostLocation(host=host, path=work_path)
         agent_options = CreateAgentOptions(
             agent_type=AgentTypeName("headless_claude"),
             agent_args=agent_args,
             label_options=AgentLabelOptions(labels={"internal": "ask"}),
-            target_path=Path(tmp_dir),
+            target_path=work_path,
+            name=AgentName("ask"),
         )
 
         result = api_create(
@@ -301,9 +304,9 @@ def _headless_claude_output(mng_ctx: MngContext, prompt: str, system_prompt: str
 
         agent = result.agent
         with _destroy_on_exit(host, agent):
-            if not isinstance(agent, HeadlessAgentMixin):
-                raise MngError(f"Expected headless agent with stream_output(), got {type(agent).__name__}")
-            yield agent.stream_output()
+            if not isinstance(agent, StreamingHeadlessAgentMixin):
+                raise MngError(f"Expected streaming headless agent, got {type(agent).__name__}")
+            yield agent
 
 
 class HeadlessClaudeBackend(ClaudeBackendInterface):
@@ -312,8 +315,8 @@ class HeadlessClaudeBackend(ClaudeBackendInterface):
     mng_ctx: MngContext
 
     def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
-        with _headless_claude_output(self.mng_ctx, prompt, system_prompt) as chunks:
-            yield from chunks
+        with _headless_claude_output(self.mng_ctx, prompt, system_prompt) as agent:
+            yield from agent.stream_output()
 
 
 def _accumulate_chunks(chunks: Iterator[str]) -> str:
