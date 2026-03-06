@@ -41,28 +41,26 @@ from uuid import uuid4
 from loguru import logger
 
 try:
+    from imbue.mng_claude_changeling.resources.watcher_common import DEFAULT_CEL_FILTER
     from imbue.mng_claude_changeling.resources.watcher_common import load_watchers_section
     from imbue.mng_claude_changeling.resources.watcher_common import require_env
     from imbue.mng_claude_changeling.resources.watcher_common import setup_watcher_logging
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
+    from watcher_common import DEFAULT_CEL_FILTER  # type: ignore[no-redef]
     from watcher_common import load_watchers_section  # type: ignore[no-redef]
     from watcher_common import require_env  # type: ignore[no-redef]
     from watcher_common import setup_watcher_logging  # type: ignore[no-redef]
 
+
+# FIXME: the below comment is stupid--the defaults should simply be moved to watcher_common, which *can* be imported from data_types.py
+#  (just like we're doing for DEFAULT_CEL_FILTER)
 
 # -- Constants --
 # NOTE: These defaults must be kept in sync with the Field defaults in
 # data_types.py WatcherSettings. They are duplicated here because this
 # script runs standalone on the host and cannot import from data_types.py.
 
-_DEFAULT_CEL_FILTER: Final[str] = (
-    'source != "common_transcript"'
-    ' && source != "conversations" && source != "delivery_failures"'
-    " && ("
-    '!source.startsWith("logs/") || (source.startsWith("logs/") && (level == "ERROR" || level == "WARNING"))'
-    ")"
-)
 
 _DEFAULT_BURST_SIZE: Final[int] = 5
 _DEFAULT_MAX_MESSAGES_PER_MINUTE: Final[int] = 10
@@ -90,7 +88,7 @@ _BACKOFF_MAX_SECONDS: Final[float] = 60.0
 class _EventWatcherSettings:
     """Parsed event watcher settings from settings.toml."""
 
-    cel_filter: str = _DEFAULT_CEL_FILTER
+    cel_filter: str = DEFAULT_CEL_FILTER
     burst_size: int = _DEFAULT_BURST_SIZE
     max_messages_per_minute: int = _DEFAULT_MAX_MESSAGES_PER_MINUTE
     high_rate_warning_threshold: int = _DEFAULT_HIGH_RATE_WARNING_THRESHOLD
@@ -103,7 +101,7 @@ def _load_watcher_settings(agent_work_dir: Path) -> _EventWatcherSettings:
     if not watchers:
         return _EventWatcherSettings()
     return _EventWatcherSettings(
-        cel_filter=watchers.get("event_cel_filter", _DEFAULT_CEL_FILTER),
+        cel_filter=watchers.get("event_cel_filter", DEFAULT_CEL_FILTER),
         burst_size=watchers.get("event_burst_size", _DEFAULT_BURST_SIZE),
         max_messages_per_minute=watchers.get("max_event_messages_per_minute", _DEFAULT_MAX_MESSAGES_PER_MINUTE),
         high_rate_warning_threshold=watchers.get(

@@ -12,6 +12,7 @@ from imbue.imbue_common.primitives import NonEmptyStr
 from imbue.imbue_common.primitives import NonNegativeInt
 from imbue.imbue_common.primitives import PositiveFloat
 from imbue.imbue_common.primitives import PositiveInt
+from imbue.mng_claude_changeling.resources.watcher_common import DEFAULT_CEL_FILTER
 
 
 class ConversationId(NonEmptyStr):
@@ -246,19 +247,8 @@ class WatcherSettings(FrozenModel):
         default=PositiveInt(5),
         description="Poll interval for the transcript watcher (seconds).",
     )
-    watched_event_sources: tuple[str, ...] = Field(
-        default=("messages", "scheduled", "mng_agents", "stop"),
-        description="Event sources monitored by the event watcher. "
-        "Deprecated: use event_cel_filter instead for CEL-based filtering via mng events.",
-    )
     event_cel_filter: str = Field(
-        default=(
-            'source != "common_transcript"'
-            ' && source != "conversations" && source != "delivery_failures"'
-            " && ("
-            '!source.startsWith("logs/") || (source.startsWith("logs/") && (level == "ERROR" || level == "WARNING"))'
-            ")"
-        ),
+        default=DEFAULT_CEL_FILTER,
         description="CEL filter expression passed to 'mng events --filter'. "
         "Controls which event sources the event watcher receives.",
     )

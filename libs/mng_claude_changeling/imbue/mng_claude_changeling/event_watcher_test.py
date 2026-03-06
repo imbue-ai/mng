@@ -14,9 +14,9 @@ from imbue.mng_claude_changeling.conftest import EventWatcherSubprocessCapture
 from imbue.mng_claude_changeling.conftest import write_changelings_settings_toml
 from imbue.mng_claude_changeling.data_types import WatcherSettings
 from imbue.mng_claude_changeling.resources import event_watcher as event_watcher_module
+from imbue.mng_claude_changeling.resources.event_watcher import DEFAULT_CEL_FILTER
 from imbue.mng_claude_changeling.resources.event_watcher import _CHAT_PAIR_TIMEOUT_SECONDS
 from imbue.mng_claude_changeling.resources.event_watcher import _DEFAULT_BURST_SIZE
-from imbue.mng_claude_changeling.resources.event_watcher import _DEFAULT_CEL_FILTER
 from imbue.mng_claude_changeling.resources.event_watcher import _DEFAULT_HIGH_RATE_WARNING_THRESHOLD
 from imbue.mng_claude_changeling.resources.event_watcher import _DEFAULT_MAX_DELIVERY_RETRIES
 from imbue.mng_claude_changeling.resources.event_watcher import _DEFAULT_MAX_MESSAGES_PER_MINUTE
@@ -62,7 +62,7 @@ class _FakeClock:
 def test_defaults_match_between_data_types_and_event_watcher() -> None:
     """Verify that event_watcher.py constants stay in sync with WatcherSettings defaults."""
     model_defaults = WatcherSettings()
-    assert model_defaults.event_cel_filter == _DEFAULT_CEL_FILTER
+    assert model_defaults.event_cel_filter == DEFAULT_CEL_FILTER
     assert model_defaults.event_burst_size == _DEFAULT_BURST_SIZE
     assert model_defaults.max_event_messages_per_minute == _DEFAULT_MAX_MESSAGES_PER_MINUTE
     assert model_defaults.high_rate_warning_threshold_per_minute == _DEFAULT_HIGH_RATE_WARNING_THRESHOLD

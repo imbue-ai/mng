@@ -18,12 +18,30 @@ from collections.abc import Callable
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import Final
 from uuid import uuid4
 
 from loguru import logger
 from watchdog.events import FileSystemEvent
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+
+DEFAULT_CEL_FILTER: Final[str] = (
+    # only include events that are:
+    # not from the common_transcript (to avoid seeing our own thoughts)
+    'source != "common_transcript"'
+    # and not from delivery_failures (which is about the delivery of messages to the core thinking loop, so it would never see these anyway)
+    ' && source != "delivery_failures"'
+    # and they're not about servers coming online (that's just startup noise from mng)
+    ' && source != "servers"'
+    # and either:
+    " && ("
+    # are normal events (eg, not logs):
+    '!source.startsWith("logs/") || '
+    # or they are logs, but they're ERROR or WARNING level (to catch important log messages without overwhelming the stream):
+    '(source.startsWith("logs/") && (level == "ERROR" || level == "WARNING"))'
+    ")"
+)
 
 
 def setup_watcher_logging(watcher_name: str, log_dir: Path) -> None:

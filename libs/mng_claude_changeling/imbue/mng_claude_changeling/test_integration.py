@@ -567,7 +567,6 @@ def test_event_watcher_reads_settings_for_watched_sources(
     # Write changelings.toml with custom watcher settings (both legacy and new fields)
     settings_content = (
         "[watchers]\n"
-        'watched_event_sources = ["messages", "stop"]\n'
         "event_poll_interval_seconds = 7\n"
         'event_cel_filter = "source == \\"messages\\""\n'
         "event_burst_size = 3\n"
@@ -586,7 +585,6 @@ s = tomllib.loads(p.read_text()) if p.exists() else {{}}
 w = s.get('watchers', {{}})
 print(json.dumps({{
     'poll': w.get('event_poll_interval_seconds', 3),
-    'sources': w.get('watched_event_sources', ['messages', 'scheduled', 'mng_agents', 'stop']),
     'cel_filter': w.get('event_cel_filter', ''),
     'burst_size': w.get('event_burst_size', 5),
     'max_messages_per_minute': w.get('max_event_messages_per_minute', 10),
@@ -602,7 +600,6 @@ print(json.dumps({{
     assert result.returncode == 0
     parsed = json.loads(result.stdout.strip())
     assert parsed["poll"] == 7
-    assert parsed["sources"] == ["messages", "stop"]
     assert parsed["cel_filter"] == 'source == "messages"'
     assert parsed["burst_size"] == 3
     assert parsed["max_messages_per_minute"] == 20
