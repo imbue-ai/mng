@@ -1120,15 +1120,36 @@ class Host(BaseHost, OnlineHostInterface):
         target_path: Path,
     ) -> None:
         """Copy .git/info/exclude from source to target if it exists."""
-        exclude_path = Path(".git") / "info" / "exclude"
+        # Resolve the git common dir on the source so this works in worktrees,
+        # where .git is a file rather than a directory.
+        if source_host.is_local:
+            try:
+                result = self.mng_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "-C", str(source_path), "rev-parse", "--git-common-dir"],
+                )
+            except ProcessError:
+                logger.trace("Could not resolve git common dir in source, skipping info/exclude transfer")
+                return
+            git_common_dir = Path(result.stdout.strip())
+        else:
+            result = source_host.execute_command("git rev-parse --git-common-dir", cwd=source_path)
+            if not result.success:
+                logger.trace("Could not resolve git common dir in source, skipping info/exclude transfer")
+                return
+            git_common_dir = Path(result.stdout.strip())
+        if not git_common_dir.is_absolute():
+            git_common_dir = source_path / git_common_dir
+
+        source_exclude_path = git_common_dir / "info" / "exclude"
+        target_exclude_path = target_path / ".git" / "info" / "exclude"
         try:
-            content = source_host.read_file(source_path / exclude_path)
-        except FileNotFoundError:
-            logger.trace("No .git/info/exclude in source, skipping")
+            content = source_host.read_file(source_exclude_path)
+        except (FileNotFoundError, NotADirectoryError):
+            logger.trace("No info/exclude in source, skipping")
             return
 
         with log_span("Copying .git/info/exclude to target"):
-            self.write_file(target_path / exclude_path, content)
+            self.write_file(target_exclude_path, content)
 
     def _git_push_to_target(
         self,
