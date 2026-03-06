@@ -27,6 +27,7 @@ from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.pure import pure
 from imbue.mng import hookimpl
 from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
@@ -202,12 +203,12 @@ def _collect_claude_home_dir_files(claude_dir: Path) -> dict[str, Path]:
 def _build_settings_json_content(sync_local: bool) -> str:
     """Build settings.json content for remote/deploy per-agent config dirs.
 
+    Used for remote hosts and deploy only. Local hosts symlink settings.json
+    from ~/.claude/ instead, preserving the user's exact settings.
+
     Uses the local file as a base when sync_local is True and the file exists,
     otherwise uses generated defaults. Forces skipDangerousModePermissionPrompt=True
     and disables fastMode (not supported via the API on remote hosts).
-
-    Not used for local hosts -- those copy ~/.claude/settings.json as-is to
-    preserve the user's exact settings.
     """
     local_path = Path.home() / ".claude" / "settings.json"
     if sync_local and local_path.exists():
@@ -235,9 +236,11 @@ def _build_claude_json_for_agent(
     Returns the dict so callers can do further modifications (e.g. keychain merge)
     before serializing.
     """
-    local_path = Path.home() / ".claude.json"
-    if sync_local and local_path.exists():
-        data: dict[str, Any] = json.loads(local_path.read_text())
+    if sync_local:
+        local_config = read_claude_config(get_claude_config_path())
+        data: dict[str, Any] = (
+            local_config if local_config else _generate_claude_json(version, current_time=current_time)
+        )
     else:
         data = _generate_claude_json(version, current_time=current_time)
     data["bypassPermissionsModeAccepted"] = True
@@ -437,6 +440,7 @@ def _delete_macos_keychain_credential(label: str, concurrency_group: Concurrency
     return result.returncode == 0
 
 
+@pure
 def _compute_keychain_label_suffix(config_dir: Path) -> str:
     """Compute the keychain label suffix Claude Code uses for a given CLAUDE_CONFIG_DIR.
 
@@ -453,6 +457,7 @@ def _write_macos_keychain_credential(label: str, value: str, concurrency_group: 
     Returns True if the credential was written successfully.
     """
     account = getpass.getuser()
+    # Remove any existing entry first -- add-generic-password fails if one already exists
     try:
         concurrency_group.run_process_to_completion(
             ["security", "delete-generic-password", "-s", label, "-a", account],
@@ -525,6 +530,50 @@ def _provision_remote_credentials(
             logger.debug("Skipped .credentials.json (file does not exist, no keychain credentials)")
     else:
         logger.debug("Skipped .credentials.json (file does not exist)")
+
+
+def _provision_remote_api_key(
+    host: OnlineHostInterface,
+    config_dir: Path,
+    claude_json_data: dict[str, Any],
+    config: "ClaudeAgentConfig",
+    concurrency_group: ConcurrencyGroup,
+) -> None:
+    """Inject primaryApiKey from the macOS keychain into the remote .claude.json if needed.
+
+    Re-reads and rewrites .claude.json on the remote host if an API key is found
+    in the keychain but wasn't in the synced local config.
+    """
+    if claude_json_data.get("primaryApiKey"):
+        return
+    if not config.convert_macos_credentials or not is_macos():
+        return
+    keychain_api_key = _read_macos_keychain_credential("Claude Code", concurrency_group)
+    if keychain_api_key is None:
+        return
+    logger.info("Merging macOS keychain API key into remote per-agent .claude.json...")
+    claude_json_data["primaryApiKey"] = keychain_api_key
+    host.write_text_file(config_dir / ".claude.json", json.dumps(claude_json_data, indent=2) + "\n")
+
+
+def _sync_local_user_resources(host: OnlineHostInterface, config_dir: Path) -> None:
+    """Sync user resources from ~/.claude/ into the per-agent config dir.
+
+    Symlinks or copies settings.json, skills/, agents/, commands/, plugins/
+    depending on _SYMLINK_LOCAL_USER_RESOURCES.
+    """
+    home_claude = Path.home() / ".claude"
+    for item_name in _CLAUDE_HOME_SYNC_ITEMS:
+        source = home_claude / item_name
+        if not source.exists():
+            continue
+        dest = config_dir / item_name
+        if _SYMLINK_LOCAL_USER_RESOURCES:
+            host.execute_command(f"ln -sf {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0)
+        elif source.is_dir():
+            host.execute_command(f"cp -r {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0)
+        else:
+            host.execute_command(f"cp {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0)
 
 
 def _provision_background_scripts(host: OnlineHostInterface) -> None:
@@ -876,8 +925,8 @@ class ClaudeAgent(BaseAgent):
             # Determine trust path based on copy mode
             copy_mode = options.git.copy_mode if options.git else None
             if copy_mode in (WorkDirCopyMode.WORKTREE, WorkDirCopyMode.COPY):
-                git_common_dir = find_git_common_dir(self.work_dir, mng_ctx.concurrency_group)
-                trust_path = git_common_dir.parent if git_common_dir is not None else self.work_dir
+                source_path = self._find_git_source_path(mng_ctx.concurrency_group)
+                trust_path = source_path if source_path is not None else self.work_dir
             else:
                 trust_path = self.work_dir
             check_claude_dialogs_dismissed(get_claude_config_path(), trust_path)
@@ -1029,6 +1078,17 @@ class ClaudeAgent(BaseAgent):
         # The bypass-permissions warning is reliably suppressed by
         # skipDangerousModePermissionPrompt in settings.json instead.
 
+    def _find_git_source_path(self, concurrency_group: ConcurrencyGroup) -> Path | None:
+        """Find the source repo path for the agent's work_dir, if it's a git worktree/copy.
+
+        Returns the parent of the git common dir (the source repo root),
+        or None if work_dir is not inside a git repo.
+        """
+        git_common_dir = find_git_common_dir(self.work_dir, concurrency_group)
+        if git_common_dir is None:
+            return None
+        return git_common_dir.parent
+
     def _setup_per_agent_config_dir(
         self,
         host: OnlineHostInterface,
@@ -1068,37 +1128,16 @@ class ClaudeAgent(BaseAgent):
         config_dir: Path,
     ) -> None:
         """Set up the per-agent config dir on a local host."""
-        # 1. Generate per-agent .claude.json
         claude_json_data = self._build_per_agent_claude_json(options, config)
-        config_json_path = config_dir / ".claude.json"
-        host.write_text_file(config_json_path, json.dumps(claude_json_data, indent=2) + "\n")
+        host.write_text_file(config_dir / ".claude.json", json.dumps(claude_json_data, indent=2) + "\n")
 
-        # 2. Provision credentials into the per-agent config dir
         if config.convert_macos_credentials and is_macos():
             _provision_keychain_credentials(config_dir, self.mng_ctx.concurrency_group)
         else:
             _provision_file_credentials(host, config_dir)
 
-        # 3. Sync user resources from ~/.claude/ into the per-agent config dir
         if config.sync_home_settings:
-            home_claude = Path.home() / ".claude"
-            for item_name in _CLAUDE_HOME_SYNC_ITEMS:
-                source = home_claude / item_name
-                if not source.exists():
-                    continue
-                dest = config_dir / item_name
-                if _SYMLINK_LOCAL_USER_RESOURCES:
-                    host.execute_command(
-                        f"ln -sf {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0
-                    )
-                elif source.is_dir():
-                    host.execute_command(
-                        f"cp -r {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0
-                    )
-                else:
-                    host.execute_command(
-                        f"cp {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0
-                    )
+            _sync_local_user_resources(host, config_dir)
 
     def _setup_remote_config_dir(
         self,
@@ -1134,15 +1173,10 @@ class ClaudeAgent(BaseAgent):
         if realpath_result.success and realpath_result.stdout.strip():
             resolved_work_dir = Path(realpath_result.stdout.strip())
         claude_json_data = _build_claude_json_for_agent(config.sync_claude_json, resolved_work_dir, config.version)
-        # If the local file lacks primaryApiKey, try the macOS keychain
-        if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
-            keychain_api_key = _read_macos_keychain_credential("Claude Code", mng_ctx.concurrency_group)
-            if keychain_api_key is not None:
-                logger.info("Merging macOS keychain API key into per-agent .claude.json...")
-                claude_json_data["primaryApiKey"] = keychain_api_key
         host.write_text_file(config_dir / ".claude.json", json.dumps(claude_json_data, indent=2) + "\n")
 
-        # 4. Ship credentials
+        # 4. Ship credentials (API key via .claude.json, OAuth via .credentials.json)
+        _provision_remote_api_key(host, config_dir, claude_json_data, config, mng_ctx.concurrency_group)
         if config.sync_claude_credentials:
             _provision_remote_credentials(
                 host, config_dir, mng_ctx.concurrency_group, config.convert_macos_credentials
@@ -1177,9 +1211,9 @@ class ClaudeAgent(BaseAgent):
 
         # For worktree/copy mode, extend trust from the source to the work_dir
         if copy_mode in (WorkDirCopyMode.WORKTREE, WorkDirCopyMode.COPY):
-            git_common_dir = find_git_common_dir(self.work_dir, self.mng_ctx.concurrency_group)
-            if git_common_dir is not None:
-                source_path = git_common_dir.parent.resolve()
+            source_path = self._find_git_source_path(self.mng_ctx.concurrency_group)
+            if source_path is not None:
+                source_path = source_path.resolve()
                 global_projects = global_config.get("projects", {})
                 source_config = find_project_config(global_projects, source_path)
                 if source_config is not None:
@@ -1219,9 +1253,7 @@ class ClaudeAgent(BaseAgent):
             source_path: Path | None = None
             copy_mode = options.git.copy_mode if options.git else None
             if copy_mode in (WorkDirCopyMode.WORKTREE, WorkDirCopyMode.COPY):
-                git_common_dir = find_git_common_dir(self.work_dir, mng_ctx.concurrency_group)
-                if git_common_dir is not None:
-                    source_path = git_common_dir.parent
+                source_path = self._find_git_source_path(mng_ctx.concurrency_group)
 
             if config.trust_working_directory:
                 # Auto-approve all dialogs for agents that opt into trust

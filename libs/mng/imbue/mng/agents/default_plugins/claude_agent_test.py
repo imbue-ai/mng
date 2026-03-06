@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -197,6 +198,31 @@ def _write_all_dialogs_dismissed(work_dir: Path) -> None:
         },
     }
     config_path.write_text(json.dumps(config))
+
+
+_CLAUDE_AGENT_MODULE = "imbue.mng.agents.default_plugins.claude_agent"
+
+
+@contextmanager
+def _mock_all_dialog_prompts(
+    trust_accepted: bool = True,
+    effort_accepted: bool = True,
+    onboarding_accepted: bool = True,
+):
+    """Mock all interactive dialog prompts with the given return values.
+
+    Yields a dict of mock names to mock objects for assertion.
+    """
+    with (
+        patch(f"{_CLAUDE_AGENT_MODULE}._prompt_user_for_trust", return_value=trust_accepted) as mock_trust,
+        patch(
+            f"{_CLAUDE_AGENT_MODULE}._prompt_user_for_effort_callout_dismissal", return_value=effort_accepted
+        ) as mock_effort,
+        patch(
+            f"{_CLAUDE_AGENT_MODULE}._prompt_user_for_onboarding_completion", return_value=onboarding_accepted
+        ) as mock_onboarding,
+    ):
+        yield {"trust": mock_trust, "effort": mock_effort, "onboarding": mock_onboarding}
 
 
 _WORKTREE_OPTIONS = CreateAgentOptions(
@@ -1097,26 +1123,12 @@ def test_provision_prompts_for_all_dialogs_when_interactive(
         interactive_mng_ctx,
     )
 
-    with (
-        patch(
-            "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_trust",
-            return_value=True,
-        ) as mock_trust_prompt,
-        patch(
-            "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_effort_callout_dismissal",
-            return_value=True,
-        ) as mock_effort_prompt,
-        patch(
-            "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_onboarding_completion",
-            return_value=True,
-        ) as mock_onboarding_prompt,
-    ):
+    with _mock_all_dialog_prompts() as mocks:
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
-    # Verify all prompts fired
-    mock_trust_prompt.assert_called_once_with(source_path)
-    mock_effort_prompt.assert_called_once()
-    mock_onboarding_prompt.assert_called_once()
+    mocks["trust"].assert_called_once_with(source_path)
+    mocks["effort"].assert_called_once()
+    mocks["onboarding"].assert_called_once()
 
     # Verify dialogs were resolved in the global config (user intent)
     config_path = Path.home() / ".claude.json"
@@ -1163,10 +1175,7 @@ def test_provision_raises_when_user_declines_trust(
         interactive_mng_ctx,
     )
 
-    with patch(
-        "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_trust",
-        return_value=False,
-    ):
+    with _mock_all_dialog_prompts(trust_accepted=False):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
             agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
@@ -1550,23 +1559,14 @@ def test_provision_prompts_for_dialog_dismissal_when_interactive(
     # Write trust but without effortCalloutDismissed or hasCompletedOnboarding
     _write_claude_trust_without_dialog_dismissed(source_path)
 
-    with (
-        patch(
-            "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_effort_callout_dismissal",
-            return_value=True,
-        ) as mock_effort_prompt,
-        patch(
-            "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_onboarding_completion",
-            return_value=True,
-        ) as mock_onboarding_prompt,
-    ):
+    with _mock_all_dialog_prompts() as mocks:
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
-    # Verify user was prompted for all undismissed dialogs
-    mock_effort_prompt.assert_called_once()
-    mock_onboarding_prompt.assert_called_once()
+    # Trust was already set, so trust prompt should not fire
+    mocks["trust"].assert_not_called()
+    mocks["effort"].assert_called_once()
+    mocks["onboarding"].assert_called_once()
 
-    # Verify all dialogs were dismissed in the global config
     config_path = Path.home() / ".claude.json"
     config = json.loads(config_path.read_text())
     assert config["effortCalloutDismissed"] is True
@@ -1589,10 +1589,7 @@ def test_provision_raises_when_user_declines_dialog_dismissal(
     # Write trust but without effortCalloutDismissed
     _write_claude_trust_without_dialog_dismissed(source_path)
 
-    with patch(
-        "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_effort_callout_dismissal",
-        return_value=False,
-    ):
+    with _mock_all_dialog_prompts(effort_accepted=False):
         with pytest.raises(ClaudeEffortCalloutNotDismissedError):
             agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
