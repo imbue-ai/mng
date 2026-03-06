@@ -34,7 +34,7 @@ def test_destroy_single_agent(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 435782",
                 "--source",
                 str(temp_work_dir),
@@ -83,7 +83,7 @@ def test_destroy_single_agent_via_session(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 435783",
                 "--source",
                 str(temp_work_dir),
@@ -136,7 +136,7 @@ def test_destroy_with_confirmation(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 679415",
                 "--source",
                 str(temp_work_dir),
@@ -189,7 +189,7 @@ def test_destroy_blocks_running_agent_without_force(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 934827",
                 "--source",
                 str(temp_work_dir),
@@ -262,7 +262,7 @@ def test_destroy_prints_errors_if_any_identifier_not_found(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 782341",
                 "--source",
                 str(temp_work_dir),
@@ -314,7 +314,7 @@ def test_destroy_dry_run(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 541286",
                 "--source",
                 str(temp_work_dir),
@@ -370,7 +370,7 @@ def test_destroy_multiple_agents(
                 [
                     "--name",
                     agent_name,
-                    "--agent-cmd",
+                    "--command",
                     "sleep 892736",
                     "--source",
                     str(temp_work_dir),
@@ -543,7 +543,7 @@ def test_destroy_remove_created_branch_deletes_branch(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 135790",
                 "--source",
                 str(temp_git_repo),
@@ -592,7 +592,7 @@ def test_destroy_without_remove_created_branch_leaves_branch(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 246801",
                 "--source",
                 str(temp_git_repo),
@@ -639,7 +639,7 @@ def test_destroy_remove_created_branch_graceful_when_no_branch(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 357912",
                 "--source",
                 str(temp_work_dir),

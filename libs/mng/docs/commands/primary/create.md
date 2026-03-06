@@ -6,8 +6,8 @@
 **Synopsis:**
 
 ```text
-mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
-    [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
+mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [-w WINDOW_NAME=COMMAND]
+    [--label KEY=VALUE] [--host-label KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
@@ -43,7 +43,7 @@ mng create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE] [AGENT_ARGS]...
 ## Arguments
 
 - `NAME`: Name for the agent (auto-generated if not provided)
-- `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`
+- `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--type`
 - `AGENT_ARGS`: Additional arguments passed to the agent
 
 **Options:**
@@ -54,12 +54,13 @@ mng create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE] [AGENT_ARGS]...
 | ---- | ---- | ----------- | ------- |
 | `-t`, `--template` | text | Use a named template from create_templates config [repeatable, stacks in order] | None |
 | `-n`, `--name` | text | Agent name (alternative to positional argument) [default: auto-generated] | None |
-| `--agent-id` | text | Explicit agent ID [default: auto-generated] | None |
+| `--id` | text | Explicit agent ID [default: auto-generated] | None |
 | `--name-style` | choice (`english` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `animals` &#x7C; `scientists` &#x7C; `demons`) | Auto-generated name style | `english` |
-| `--agent-type` | text | Which type of agent to run [default: claude] | None |
-| `--agent-cmd`, `--agent-command` | text | Run a literal command using the generic agent type (mutually exclusive with --agent-type) | None |
-| `-c`, `--add-cmd`, `--add-command` | text | Run extra command in additional window. Use name="command" to set window name. Note: ALL_UPPERCASE names (e.g., FOO="bar") are treated as env var assignments, not window names | None |
+| `--type` | text | Which type of agent to run [default: claude] | None |
+| `--command` | text | Run a literal command using the generic agent type (mutually exclusive with --type) | None |
+| `-w`, `--extra-window` | text | Run extra command in additional window. Use name="command" to set window name. Note: ALL_UPPERCASE names (e.g., FOO="bar") are treated as env var assignments, not window names | None |
 | `--user` | text | Override which user to run the agent as [default: current user for local, provider-defined or root for remote] | None |
+| `--label` | text | Agent label KEY=VALUE [repeatable] [experimental] | None |
 
 ## Host Options
 
@@ -70,8 +71,7 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--in`, `--new-host` | text | Create a new host using provider (docker, modal, ...) | None |
 | `--host`, `--target-host` | text | Use an existing host (by name or ID) [default: local] | None |
 | `--project` | text | Project name for the agent (sets the 'project' label) [default: derived from git remote origin or folder name] | None |
-| `--label` | text | Agent label KEY=VALUE [repeatable] [experimental] | None |
-| `--tag` | text | Host metadata tag KEY=VALUE [repeatable] | None |
+| `--host-label` | text | Host metadata label KEY=VALUE [repeatable] | None |
 | `--host-name` | text | Name for the new host | None |
 | `--host-name-style` | choice (`astronomy` &#x7C; `places` &#x7C; `cities` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `scientists`) | Auto-generated host name style | `astronomy` |
 
@@ -83,7 +83,6 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--connect`, `--no-connect` | boolean | Connect to the agent after creation [default: connect] | `True` |
 | `--await-ready`, `--no-await-ready` | boolean | Wait until agent is ready before returning [default: no-await-ready if --no-connect] | None |
 | `--await-agent-stopped`, `--no-await-agent-stopped` | boolean | Wait until agent has completely finished running before exiting. Useful for testing and scripting. First waits for agent to become ready, then waits for it to stop. [default: no-await-agent-stopped] | None |
-| `--ensure-clean`, `--no-ensure-clean` | boolean | Abort if working tree is dirty | `True` |
 | `--snapshot-source`, `--no-snapshot-source` | boolean | Snapshot source agent first [default: yes if --source-agent and not local] | None |
 | `--copy-work-dir`, `--no-copy-work-dir` | boolean | Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect] | None |
 | `--auto-start`, `--no-auto-start` | boolean | Automatically start offline hosts (source and target) before proceeding | `True` |
@@ -99,8 +98,6 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--rsync`, `--no-rsync` | boolean | Use rsync for file transfer [default: yes if rsync-args are present or if git is disabled] | None |
 | `--rsync-args` | text | Additional arguments to pass to rsync | None |
 | `--include-git`, `--no-include-git` | boolean | Include .git directory | `True` |
-| `--include-unclean`, `--exclude-unclean` | boolean | Include uncommitted files [default: include if --no-ensure-clean] | None |
-| `--include-gitignored`, `--no-include-gitignored` | boolean | Include gitignored files | `False` |
 
 ## Agent Target (where to put the new agent)
 
@@ -123,14 +120,17 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--new-branch-prefix` | text | Prefix for auto-generated branch names | `mng/` |
 | `--depth` | integer | Shallow clone depth [default: full] | None |
 | `--shallow-since` | text | Shallow clone since date | None |
+| `--ensure-clean`, `--no-ensure-clean` | boolean | Abort if working tree is dirty | `True` |
+| `--include-unclean`, `--exclude-unclean` | boolean | Include uncommitted files [default: include if --no-ensure-clean] | None |
+| `--include-gitignored`, `--no-include-gitignored` | boolean | Include gitignored files | `False` |
 
 ## Agent Environment Variables
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--env`, `--agent-env` | text | Set environment variable KEY=VALUE | None |
-| `--env-file`, `--agent-env-file` | path | Load env | None |
-| `--pass-env`, `--pass-agent-env` | text | Forward variable from shell | None |
+| `--env` | text | Set environment variable KEY=VALUE | None |
+| `--env-file` | path | Load env | None |
+| `--pass-env` | text | Forward variable from shell | None |
 
 ## Agent Provisioning
 
@@ -161,12 +161,10 @@ See [Provision Options](../secondary/provision.md) for full details.
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--snapshot` | text | Use existing snapshot instead of building | None |
-| `-b`, `--build`, `--build-arg` | text | Build argument as key=value or --key=value (e.g., -b gpu=h100 -b cpu=2) [repeatable] | None |
-| `--build-args` | text | Space-separated build arguments (e.g., 'gpu=h100 cpu=2') | None |
-| `-s`, `--start`, `--start-arg` | text | Argument for start [repeatable] | None |
-| `--start-args` | text | Space-separated start arguments (alternative to -s) | None |
+| `-b`, `--build` | text | Build argument as key=value or --key=value (e.g., -b gpu=h100 -b cpu=2) [repeatable] | None |
+| `-s`, `--start` | text | Argument for start [repeatable] | None |
 
-## New Host Lifecycle
+## Host Lifecycle
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -205,8 +203,6 @@ See [connect options](./connect.md) for full details (only applies if `--connect
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
-| `--json` | boolean | Alias for --format json | `False` |
-| `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
 | `--log-file` | path | Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json) | None |
@@ -352,7 +348,7 @@ $ mng create my-agent --no-connect
 **Add extra tmux windows**
 
 ```bash
-$ mng create my-agent -c server="npm run dev"
+$ mng create my-agent -w server="npm run dev"
 ```
 
 **Reuse existing agent or create if not found**

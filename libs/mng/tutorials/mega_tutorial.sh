@@ -52,16 +52,16 @@ mng create my-task --in modal
 # see more details below in "CREATING AGENTS REMOTELY" for relevant options
 
 # you can run *any* literal command instead of a named agent type:
-mng create my-task --agent-command python -- my_script.py
+mng create my-task --command python -- my_script.py
 # remember that the arguments to the "agent" (or command) come after the `--` separator
 
 # this enables some pretty interesting use cases, like running servers or other programs (besides AI agents)
 # this make debugging easy--you can snapshot when a task is complete, then later connect to that exact machine state:
-mng create my-task --agent-command python --idle-mode run --idle-timeout 60 -- my_long_running_script.py extra-args
+mng create my-task --command python --idle-mode run --idle-timeout 60 -- my_long_running_script.py extra-args
 # see "RUNNING NON-AGENT PROCESSES" below for more details
 
 # alternatively, you can simply add extra tmux windows that run alongside your agent:
-mng create my-task --add-command server="npm run dev" --add-command logs="tail -f app.log"
+mng create my-task -w server="npm run dev" -w logs="tail -f app.log"
 # that command automatically starts two tmux windows named "server" and "logs" that run those commands (in addition to the main window that runs the agent)
 
 ## SENDING MESSAGES ON LAUNCH
@@ -86,7 +86,7 @@ mng create my-task --project my-project
 # mng doesn't require git at all--if there's no git repo, it will just use the files from the folder as the source data
 mkdir -p /tmp/my_random_folder
 echo "print('hello world')" > /tmp/my_random_folder/script.py
-mng create my-task --source-path /tmp/my_random_folder --agent-command python -- script.py
+mng create my-task --source-path /tmp/my_random_folder --command python -- script.py
 
 # however, if you do use git, mng makes that convenient
 # by default, it creates a new git branch for each agent (so that their changes don't conflict with each other):
@@ -149,30 +149,29 @@ mng create my-task --host my-dev-box
 
 # generally though, you'll want to construct a new Modal host for each agent.
 # build arguments let you customize that new remote host (eg, GPU type, memory, base Docker image for Modal):
-mng create my-task --in modal --build-arg cpu=4 --build-arg memory=16 --build-arg image=python:3.12
-# (-b is an alternative forms of --build-arg; see "mng create --help" for all provider-specific build args)
+mng create my-task --in modal -b cpu=4 -b memory=16 -b image=python:3.12
+# see "mng create --help" for all provider-specific build args
 # some other useful Modal build args: --region, --timeout, --offline (blocks network), --secret, --cidr-allowlist, --context-dir
 
 # the most important build args for Modal are probably "--file" and "--context-dir",
 # which let you specify a custom Dockerfile and build context directory (respectively) for building the host environment.
 # This is how you can get custom dependencies, files, and setup steps on your Modal hosts. For example:
-mng create my-task --in modal --build-args "file=./Dockerfile.agent context-dir=./agent-context"
+mng create my-task --in modal -b file=./Dockerfile.agent -b context-dir=./agent-context
 # that command builds a Modal host using the Dockerfile at ./Dockerfile.agent and the build context at ./agent-context
 # (which is where the Dockerfile can COPY files from, and also where build args are evaluated from)
-# that command also demonstrates how to pass multiple build args in a single --build-args string (instead of using multiple --build-arg flags)
 
 # you can name the host separately from the agent:
 mng create my-task --in modal --host-name my-modal-box
 # (--host-name-style and --name-style control auto-generated name styles for hosts and agents respectively)
 
 # you can mount persistent Modal volumes in order to share data between hosts, or have it be available even when they are offline (or after they are destroyed):
-mng create my-task --in modal --build-arg volume=my-data:/data
+mng create my-task --in modal -b volume=my-data:/data
 
 # you can use an existing snapshot instead of building a new host from scratch:
 mng create my-task --in modal --snapshot snap-123abc
 
 # some providers (like docker), take "start" args as well as build args:
-mng create my-task --in docker --start-arg "--gpus all"
+mng create my-task --in docker -s "--gpus all"
 # these args are passed to "docker run", whereas the build args are passed to "docker build".
 
 # you can specify the target path where the agent's work directory will be mounted:
@@ -244,7 +243,7 @@ mng create my-task --in modal --retry 5 --retry-delay 10s --ready-timeout 30
 mng create my-task --connect-command "my_script.sh"
 
 # you can add labels to organize your agents and tags for host metadata:
-mng create my-task --label team=backend --tag env=staging
+mng create my-task --label team=backend --host-label env=staging
 
 ## CREATING AND USING AGENTS PROGRAMMATICALLY
 

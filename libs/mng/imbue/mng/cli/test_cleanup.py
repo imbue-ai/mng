@@ -169,7 +169,7 @@ def _create_agent(
         [
             "--name",
             agent_name,
-            "--agent-cmd",
+            "--command",
             "sleep 728451",
             "--source",
             str(temp_work_dir),
