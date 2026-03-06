@@ -1,10 +1,3 @@
-"""HeadlessClaude agent type for non-interactive Claude usage.
-
-This agent type runs `claude --print` in a tmux session, making headless
-claude a first-class citizen of the agent system. Agents are visible in
-`mng list`, have state directories, and get destroyed when done.
-"""
-
 from __future__ import annotations
 
 import json
