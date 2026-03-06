@@ -5,6 +5,7 @@ from collections.abc import Callable
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Final
 from typing import assert_never
 from typing import cast
 
@@ -99,6 +100,8 @@ from imbue.mng.utils.logging import remove_console_handlers
 from imbue.mng.utils.name_generator import generate_agent_name
 from imbue.mng.utils.polling import wait_for
 
+_DEFAULT_NEW_BRANCH_PATTERN: Final[str] = "mng/*"
+
 
 class _CachedAgentHostLoader(MutableModel):
     """Lazy loader that caches agents grouped by host on first access."""
@@ -190,9 +193,7 @@ class CreateCliOptions(CommonCliOptions):
     include_git: bool
     include_unclean: bool | None
     include_gitignored: bool
-    base_branch: str | None
-    new_branch: str | None
-    new_branch_prefix: str
+    branch: str
     depth: int | None
     shallow_since: str | None
     agent_env: tuple[str, ...]
@@ -390,27 +391,18 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option(
     "--worktree",
     is_flag=True,
-    help="Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires --new-branch (which is the default)",
+    help="Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires a new branch in --branch (which is the default)",
 )
 @optgroup.group("Agent Git Configuration")
-@optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
 @optgroup.option(
-    "--new-branch",
-    "new_branch",
-    is_flag=False,
-    flag_value="",
-    default="",
-    help="Create a fresh branch (named TEXT if provided, otherwise auto-generated) [default: new branch]",
-)
-@optgroup.option(
-    "--no-new-branch",
-    "new_branch",
-    flag_value=None,
-    is_flag=True,
-    help="Do not create a new branch; use the current branch directly. Incompatible with --worktree",
-)
-@optgroup.option(
-    "--new-branch-prefix", default="mng/", show_default=True, help="Prefix for auto-generated branch names"
+    "--branch",
+    default=f":{_DEFAULT_NEW_BRANCH_PATTERN}",
+    show_default=True,
+    help="Branch spec as [BASE][:NEW]. "
+    "BASE defaults to current branch. "
+    "NEW creates a fresh branch (* is replaced by agent name). "
+    "Omit :NEW to use BASE directly without creating a branch. "
+    f"Empty NEW (e.g. 'main:') defaults to {_DEFAULT_NEW_BRANCH_PATTERN}.",
 )
 @optgroup.option("--depth", type=int, help="Shallow clone depth [default: full]")
 @optgroup.option("--shallow-since", help="Shallow clone since date")
@@ -705,7 +697,7 @@ def _create_agent(
     )
 
     # Parse agent options
-    agent_opts = _parse_agent_opts(
+    agent_opts, has_explicit_base = _parse_agent_opts(
         opts=opts,
         initial_message=setup.initial_message,
         resume_message=setup.resume_message,
@@ -754,13 +746,11 @@ def _create_agent(
             return CreateAgentResult(agent=agent, host=host), connection_opts
 
     # If ensure-clean is set, verify the source work_dir is clean.
-    # Skip the check when using worktree mode with an explicit --base-branch, since the
+    # Skip the check when using worktree mode with an explicit base branch, since the
     # agent will be created from that branch and uncommitted changes in the current
     # working tree are irrelevant.
     is_worktree_from_other_branch = (
-        agent_opts.git is not None
-        and agent_opts.git.copy_mode == WorkDirCopyMode.WORKTREE
-        and opts.base_branch is not None
+        agent_opts.git is not None and agent_opts.git.copy_mode == WorkDirCopyMode.WORKTREE and has_explicit_base
     )
     if opts.ensure_clean and not is_worktree_from_other_branch:
         _ensure_clean_work_dir(setup.source_location)
@@ -1272,7 +1262,7 @@ def _parse_agent_opts(
     resume_message: str | None,
     source_location: HostLocation,
     mng_ctx: MngContext,
-) -> CreateAgentOptions:
+) -> tuple[CreateAgentOptions, bool]:
     # Get agent name from positional argument or --name flag, otherwise auto-generate
     parsed_agent_name: AgentName
     if opts.positional_name:
@@ -1312,15 +1302,12 @@ def _parse_agent_opts(
         else:
             copy_mode = WorkDirCopyMode.COPY
 
-    # Parse git options
-    # new_branch: None = no new branch, "" = auto-generate name, "name" = use specified name
-    is_new_branch = opts.new_branch is not None
+    # Parse --branch flag: [BASE_BRANCH][:NEW_BRANCH]
+    base_branch, new_branch_name, has_explicit_base = _parse_branch_flag(opts.branch, parsed_agent_name)
 
-    # --worktree requires a new branch; error if --no-new-branch is used with --worktree
-    if copy_mode == WorkDirCopyMode.WORKTREE and not is_new_branch:
-        raise UserInputError("--worktree requires a new branch. Cannot use --no-new-branch with --worktree.")
-
-    new_branch = opts.new_branch
+    # --worktree requires a new branch
+    if copy_mode == WorkDirCopyMode.WORKTREE and new_branch_name is None:
+        raise UserInputError("--worktree requires a new branch. Use --branch BASE:NEW instead of --branch BASE.")
 
     # if the user didn't specify whether to include unclean, then infer from ensure_clean
     if opts.include_unclean is None:
@@ -1335,10 +1322,8 @@ def _parse_agent_opts(
     else:
         git = AgentGitOptions(
             copy_mode=copy_mode,
-            base_branch=opts.base_branch or _get_current_git_branch(source_location, mng_ctx),
-            is_new_branch=is_new_branch,
-            new_branch_name=new_branch if new_branch else None,
-            new_branch_prefix=opts.new_branch_prefix,
+            base_branch=base_branch or _get_current_git_branch(source_location, mng_ctx),
+            new_branch_name=new_branch_name,
             depth=opts.depth,
             shallow_since=opts.shallow_since,
             is_git_synced=opts.include_git,
@@ -1454,7 +1439,7 @@ def _parse_agent_opts(
         label_options=label_options,
         provisioning=provisioning,
     )
-    return agent_opts
+    return agent_opts, has_explicit_base
 
 
 def _parse_host_lifecycle_options(opts: CreateCliOptions) -> HostLifecycleOptions:
@@ -1553,6 +1538,30 @@ def _parse_target_host(
 
 
 # === Parsing Functions ===
+
+
+@pure
+def _parse_branch_flag(branch: str, agent_name: AgentName) -> tuple[str | None, str | None, bool]:
+    """Parse a --branch flag value in [BASE_BRANCH][:NEW_BRANCH] format.
+
+    Returns (base_branch, new_branch_name, has_explicit_base) where:
+    - base_branch is None if not specified (meaning "current branch")
+    - new_branch_name is None if no colon is present (meaning "no new branch")
+    - new_branch_name has any * replaced with the agent name
+    - has_explicit_base is True if a non-empty base branch was specified
+    """
+    if ":" not in branch:
+        # No colon: just a base branch, no new branch
+        return (branch or None, None, bool(branch))
+
+    base, new = branch.split(":", 1)
+    if not new:
+        new = _DEFAULT_NEW_BRANCH_PATTERN
+    if new.count("*") > 1:
+        raise UserInputError("--branch: at most one '*' is allowed in the new branch name")
+
+    resolved_new = new.replace("*", str(agent_name))
+    return (base or None, resolved_new, bool(base))
 
 
 class ParsedSourceString(FrozenModel):
@@ -1678,7 +1687,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     one_line_description="Create and run an agent",
     synopsis="""mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
-    [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
+    [--[no-]rsync] [--rsync-args <ARGS>] [--branch [BASE][:NEW]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]
