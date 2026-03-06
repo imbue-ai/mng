@@ -193,8 +193,7 @@ class CreateCliOptions(CommonCliOptions):
     base_branch: str | None
     new_branch: str | None
     new_branch_prefix: str
-    depth: int | None
-    shallow_since: str | None
+    clone_arg: tuple[str, ...]
     agent_env: tuple[str, ...]
     agent_env_file: tuple[str, ...]
     pass_agent_env: tuple[str, ...]
@@ -412,8 +411,11 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option(
     "--new-branch-prefix", default="mng/", show_default=True, help="Prefix for auto-generated branch names"
 )
-@optgroup.option("--depth", type=int, help="Shallow clone depth [default: full]")
-@optgroup.option("--shallow-since", help="Shallow clone since date")
+@optgroup.option(
+    "--clone-arg",
+    multiple=True,
+    help="Extra argument to pass to 'git clone' (e.g. --clone-arg=--depth=1) [repeatable]",
+)
 @optgroup.group("Agent Environment Variables")
 @optgroup.option("--env", "--agent-env", "agent_env", multiple=True, help="Set environment variable KEY=VALUE")
 @optgroup.option(
@@ -1339,8 +1341,7 @@ def _parse_agent_opts(
             is_new_branch=is_new_branch,
             new_branch_name=new_branch if new_branch else None,
             new_branch_prefix=opts.new_branch_prefix,
-            depth=opts.depth,
-            shallow_since=opts.shallow_since,
+            clone_args=opts.clone_arg,
             is_git_synced=opts.include_git,
             is_include_unclean=is_include_unclean,
             is_include_gitignored=opts.include_gitignored,

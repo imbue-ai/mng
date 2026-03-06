@@ -121,8 +121,7 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--new-branch` | text | Create a fresh branch (named TEXT if provided, otherwise auto-generated) [default: new branch] | `` |
 | `--no-new-branch` | boolean | Do not create a new branch; use the current branch directly. Incompatible with --worktree | None |
 | `--new-branch-prefix` | text | Prefix for auto-generated branch names | `mng/` |
-| `--depth` | integer | Shallow clone depth [default: full] | None |
-| `--shallow-since` | text | Shallow clone since date | None |
+| `--clone-arg` | text | Extra argument to pass to 'git clone' (e.g. --clone-arg=--depth=1) [repeatable] | None |
 
 ## Agent Environment Variables
 

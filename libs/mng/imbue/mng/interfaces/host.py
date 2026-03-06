@@ -500,13 +500,9 @@ class AgentGitOptions(FrozenModel):
         default="mng/",
         description="Prefix for auto-generated branch names",
     )
-    depth: int | None = Field(
-        default=None,
-        description="Shallow clone depth (None for full clone)",
-    )
-    shallow_since: str | None = Field(
-        default=None,
-        description="Shallow clone since date",
+    clone_args: tuple[str, ...] = Field(
+        default=(),
+        description="Extra arguments to pass to 'git clone'",
     )
     is_include_unclean: bool = Field(
         # the default is true because we should not assume that git is even being used
