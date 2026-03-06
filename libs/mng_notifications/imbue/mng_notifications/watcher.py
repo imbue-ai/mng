@@ -1,112 +1,107 @@
+import json
 import threading
-import time
-from collections.abc import Mapping
-from collections.abc import Sequence
+from pathlib import Path
 
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.imbue_common.pure import pure
-from imbue.mng.api.list import list_agents
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.errors import MngError
-from imbue.mng.interfaces.data_types import AgentDetails
-from imbue.mng.primitives import AgentId
-from imbue.mng.primitives import AgentLifecycleState
-from imbue.mng.primitives import ErrorBehavior
 from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.notifier import Notifier
 from imbue.mng_notifications.notifier import build_execute_command
 
 
-@pure
-def detect_waiting_transitions(
-    previous_states: Mapping[AgentId, AgentLifecycleState],
-    current_agents: Sequence[AgentDetails],
-) -> list[AgentDetails]:
-    """Return agents that have just transitioned from RUNNING to WAITING."""
-    transitioned: list[AgentDetails] = []
-    for agent in current_agents:
-        prev = previous_states.get(agent.id)
-        if prev == AgentLifecycleState.RUNNING and agent.state == AgentLifecycleState.WAITING:
-            transitioned.append(agent)
-    return transitioned
-
-
-@pure
-def build_state_map(current_agents: Sequence[AgentDetails]) -> dict[AgentId, AgentLifecycleState]:
-    """Build a mapping of agent ID to lifecycle state from the current agent list."""
-    return {agent.id: agent.state for agent in current_agents}
-
-
 def watch_for_waiting_agents(
     mng_ctx: MngContext,
-    interval_seconds: float,
-    include_filters: tuple[str, ...],
-    exclude_filters: tuple[str, ...],
     plugin_config: NotificationsPluginConfig,
     notifier: Notifier,
     stop_event: threading.Event | None = None,
 ) -> None:
-    """Poll agents and send notifications when RUNNING -> WAITING transitions occur.
+    """Watch agent event files for RUNNING -> WAITING transitions and send notifications.
 
-    Runs until stop_event is set (if provided) or until interrupted.
+    Monitors all agent state directories under the host dir for
+    agent_state_transition events. Runs until stop_event is set or interrupted.
     """
     if stop_event is None:
         stop_event = threading.Event()
 
-    previous_states: dict[AgentId, AgentLifecycleState] = {}
+    agents_dir = mng_ctx.config.default_host_dir / "agents"
+    logger.info("Watching for agent state transitions in {}", agents_dir)
 
-    agents = _poll_agents(mng_ctx, include_filters, exclude_filters)
-    if agents is not None:
-        previous_states = build_state_map(agents)
-        logger.info("Tracking {} agent(s)", len(previous_states))
+    tracked_sizes: dict[Path, int] = {}
 
     while not stop_event.is_set():
-        time.sleep(interval_seconds)
-        if stop_event.is_set():
-            break
+        event_files = _find_agent_event_files(agents_dir)
 
-        agents = _poll_agents(mng_ctx, include_filters, exclude_filters)
-        if agents is None:
-            continue
+        for event_file in event_files:
+            new_content = _read_new_content(event_file, tracked_sizes)
+            if new_content:
+                _process_events(
+                    new_content,
+                    plugin_config,
+                    notifier,
+                    mng_ctx.concurrency_group,
+                )
 
-        transitioned = detect_waiting_transitions(previous_states, agents)
-        for agent in transitioned:
-            _notify_agent_waiting(agent, plugin_config, notifier, mng_ctx.concurrency_group)
-
-        previous_states = build_state_map(agents)
+        stop_event.wait(timeout=1.0)
 
 
-def _poll_agents(
-    mng_ctx: MngContext,
-    include_filters: tuple[str, ...],
-    exclude_filters: tuple[str, ...],
-) -> list[AgentDetails] | None:
-    """Poll all agents. Returns None if the poll fails."""
+def _find_agent_event_files(agents_dir: Path) -> list[Path]:
+    """Find all mng_agents event files across agent state directories."""
+    if not agents_dir.exists():
+        return []
+    return list(agents_dir.glob("*/events/mng_agents/events.jsonl"))
+
+
+def _read_new_content(event_file: Path, tracked_sizes: dict[Path, int]) -> str:
+    """Read any new content appended to an event file since last check."""
     try:
-        result = list_agents(
-            mng_ctx,
-            is_streaming=False,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            error_behavior=ErrorBehavior.CONTINUE,
-        )
-        return result.agents
-    except MngError:
-        logger.opt(exception=True).debug("Failed to poll agents")
-        return None
+        current_size = event_file.stat().st_size
+    except OSError:
+        return ""
+
+    last_size = tracked_sizes.get(event_file, 0)
+    if current_size <= last_size:
+        tracked_sizes[event_file] = current_size
+        return ""
+
+    try:
+        with event_file.open() as f:
+            f.seek(last_size)
+            new_content = f.read()
+    except OSError:
+        return ""
+
+    tracked_sizes[event_file] = current_size
+    return new_content
 
 
-def _notify_agent_waiting(
-    agent: AgentDetails,
+def _process_events(
+    content: str,
     plugin_config: NotificationsPluginConfig,
     notifier: Notifier,
     cg: ConcurrencyGroup,
 ) -> None:
-    """Send a notification that an agent has transitioned to WAITING."""
-    title = "Agent waiting"
-    message = f"{agent.name} is waiting for input"
-    execute_command = build_execute_command(str(agent.name), plugin_config)
-    logger.info("{} ({}): RUNNING -> WAITING", agent.name, agent.id)
-    notifier.notify(title, message, execute_command, cg)
+    """Parse JSONL content and send notifications for RUNNING -> WAITING transitions."""
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        if event.get("type") != "agent_state_transition":
+            continue
+        if event.get("from_state") != "RUNNING" or event.get("to_state") != "WAITING":
+            continue
+
+        agent_name = event.get("agent_name", "unknown")
+        agent_id = event.get("agent_id", "unknown")
+        logger.info("{} ({}): RUNNING -> WAITING", agent_name, agent_id)
+
+        title = "Agent waiting"
+        message = f"{agent_name} is waiting for input"
+        execute_command = build_execute_command(agent_name, plugin_config)
+        notifier.notify(title, message, execute_command, cg)
