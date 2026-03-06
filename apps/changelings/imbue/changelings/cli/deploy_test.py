@@ -633,6 +633,16 @@ def test_resolve_agent_type_raises_when_missing(tmp_path: Path) -> None:
         _resolve_agent_type(repo_dir, None)
 
 
+def test_resolve_agent_type_raises_on_malformed_toml(tmp_path: Path) -> None:
+    """Verify _resolve_agent_type raises with a clear message for malformed TOML."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "changelings.toml").write_text("this is not valid [toml = ")
+
+    with pytest.raises(MissingAgentTypeError, match="Failed to parse"):
+        _resolve_agent_type(repo_dir, None)
+
+
 # --- Tests for _parse_add_path ---
 
 

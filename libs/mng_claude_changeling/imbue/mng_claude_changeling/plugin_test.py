@@ -17,6 +17,7 @@ from imbue.mng_claude_changeling.plugin import EVENT_WATCHER_COMMAND
 from imbue.mng_claude_changeling.plugin import EVENT_WATCHER_WINDOW_NAME
 from imbue.mng_claude_changeling.plugin import WEB_SERVER_WINDOW_NAME
 from imbue.mng_claude_changeling.plugin import get_agent_type_from_params
+from imbue.mng_claude_changeling.plugin import inject_role_env_var
 from imbue.mng_claude_changeling.plugin import inject_supporting_services
 from imbue.mng_claude_changeling.plugin import override_command_options
 
@@ -191,3 +192,62 @@ def test_web_server_command_is_parseable_as_named_command() -> None:
 def test_adds_chat_ttyd_service(changeling_create_params: dict[str, Any]) -> None:
     entries = [c for c in changeling_create_params["add_command"] if CHAT_TTYD_WINDOW_NAME in c]
     assert len(entries) == 1
+
+
+# -- assemble_command tests --
+
+
+def test_assemble_command_is_defined_on_changeling_agent() -> None:
+    """Verify that ClaudeChangelingAgent overrides assemble_command.
+
+    The override prepends 'cd "$ROLE" &&' to the parent's result. We verify
+    the method exists as an override (not inherited) and that the source
+    contains the expected cd pattern.
+    """
+    import inspect
+
+    # Verify it's defined directly on ClaudeChangelingAgent (not inherited)
+    assert "assemble_command" in ClaudeChangelingAgent.__dict__
+
+    source = inspect.getsource(ClaudeChangelingAgent.assemble_command)
+    assert 'cd "$ROLE"' in source
+    assert "super().assemble_command" in source
+
+
+# -- inject_role_env_var tests --
+
+
+def test_inject_role_env_var_adds_role() -> None:
+    """Verify that inject_role_env_var adds ROLE=thinking to agent_env."""
+    params: dict[str, Any] = {}
+    inject_role_env_var(params)
+    assert "ROLE=thinking" in params["agent_env"]
+
+
+def test_inject_role_env_var_preserves_existing() -> None:
+    """Verify that existing agent_env entries are preserved."""
+    params: dict[str, Any] = {"agent_env": ("FOO=bar",)}
+    inject_role_env_var(params)
+    assert "ROLE=thinking" in params["agent_env"]
+    assert "FOO=bar" in params["agent_env"]
+
+
+def test_inject_role_env_var_user_override_takes_precedence() -> None:
+    """Verify that user-provided ROLE comes after the default (later values win)."""
+    params: dict[str, Any] = {"agent_env": ("ROLE=working",)}
+    inject_role_env_var(params)
+    # Default "ROLE=thinking" is first, user's "ROLE=working" is second
+    env = params["agent_env"]
+    assert env[0] == "ROLE=thinking"
+    assert env[1] == "ROLE=working"
+
+
+def test_override_command_options_injects_role_env_var() -> None:
+    """Verify that the override_command_options hook injects the ROLE env var."""
+    params: dict[str, Any] = {"add_command": (), "agent_type": "claude-changeling"}
+    override_command_options(
+        command_name="create",
+        command_class=_DummyCommandClass,
+        params=params,
+    )
+    assert "ROLE=thinking" in params.get("agent_env", ())

@@ -238,11 +238,15 @@ def _resolve_agent_type(temp_dir: Path, cli_agent_type: str | None) -> str:
     if changelings_toml.exists():
         try:
             raw = tomllib.loads(changelings_toml.read_text())
-            agent_type = raw.get("agent_type")
-            if agent_type is not None:
-                return str(agent_type)
-        except tomllib.TOMLDecodeError:
-            pass
+        except tomllib.TOMLDecodeError as e:
+            raise MissingAgentTypeError(
+                "Failed to parse changelings.toml: {}. Fix the syntax error or provide --agent-type on the CLI.".format(
+                    e
+                )
+            ) from e
+        agent_type = raw.get("agent_type")
+        if agent_type is not None:
+            return str(agent_type)
 
     raise MissingAgentTypeError(
         "No agent type specified. Either provide --agent-type on the CLI, "
