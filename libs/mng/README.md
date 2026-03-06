@@ -34,8 +34,7 @@ mng --help
 **mng is fast:**
 ```bash
 > time mng local-hello  --message "Just say hello" --no-connect
-Agent creation started in background (PID: 709262)
-Agent name: local-hello
+Done.
 
 real    0m1.472s
 user    0m1.181s

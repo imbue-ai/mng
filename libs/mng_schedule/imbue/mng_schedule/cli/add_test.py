@@ -14,102 +14,53 @@ class TestAutoFixCreateArgs:
     """Tests for auto_fix_create_args."""
 
     def test_adds_headless_when_missing(self) -> None:
-        result = auto_fix_create_args("my-agent", "trigger-1", ssh_public_key=None)
+        result = auto_fix_create_args("my-agent", "trigger-1")
         parts = shlex.split(result)
         assert "--headless" in parts
 
     def test_skips_headless_when_already_present(self) -> None:
-        result = auto_fix_create_args("my-agent --headless", "trigger-1", ssh_public_key=None)
+        result = auto_fix_create_args("my-agent --headless", "trigger-1")
         parts = shlex.split(result)
         assert parts.count("--headless") == 1
 
     def test_adds_no_connect_when_missing(self) -> None:
-        result = auto_fix_create_args("my-agent", "trigger-1", ssh_public_key=None)
+        result = auto_fix_create_args("my-agent", "trigger-1")
         parts = shlex.split(result)
         assert "--no-connect" in parts
 
     def test_skips_no_connect_when_connect_present(self) -> None:
-        result = auto_fix_create_args("my-agent --connect", "trigger-1", ssh_public_key=None)
+        result = auto_fix_create_args("my-agent --connect", "trigger-1")
         parts = shlex.split(result)
         assert "--no-connect" not in parts
         assert "--connect" in parts
 
     def test_skips_no_connect_when_no_connect_already_present(self) -> None:
-        result = auto_fix_create_args("my-agent --no-connect", "trigger-1", ssh_public_key=None)
+        result = auto_fix_create_args("my-agent --no-connect", "trigger-1")
         parts = shlex.split(result)
         assert parts.count("--no-connect") == 1
 
-    def test_adds_await_ready_when_missing(self) -> None:
-        result = auto_fix_create_args("my-agent", "trigger-1", ssh_public_key=None)
-        parts = shlex.split(result)
-        assert "--await-ready" in parts
-
-    def test_skips_await_ready_when_already_present(self) -> None:
-        result = auto_fix_create_args("my-agent --await-ready", "trigger-1", ssh_public_key=None)
-        parts = shlex.split(result)
-        assert parts.count("--await-ready") == 1
-
-    def test_skips_await_ready_when_no_await_ready_present(self) -> None:
-        result = auto_fix_create_args("my-agent --no-await-ready", "trigger-1", ssh_public_key=None)
-        parts = shlex.split(result)
-        assert "--await-ready" not in parts
-        assert "--no-await-ready" in parts
-
-    def test_adds_authorized_key_when_ssh_key_provided(self) -> None:
-        result = auto_fix_create_args("my-agent", "trigger-1", ssh_public_key="ssh-rsa AAAAB3... user@host")
-        parts = shlex.split(result)
-        assert "--authorized-key" in parts
-        key_idx = parts.index("--authorized-key")
-        assert parts[key_idx + 1] == "ssh-rsa AAAAB3... user@host"
-
-    def test_skips_authorized_key_when_already_present(self) -> None:
-        result = auto_fix_create_args(
-            "my-agent --authorized-key existing-key",
-            "trigger-1",
-            ssh_public_key="ssh-rsa AAAAB3... user@host",
-        )
-        parts = shlex.split(result)
-        assert parts.count("--authorized-key") == 1
-        key_idx = parts.index("--authorized-key")
-        assert parts[key_idx + 1] == "existing-key"
-
-    def test_skips_authorized_key_when_present_in_equals_form(self) -> None:
-        result = auto_fix_create_args(
-            "my-agent --authorized-key=existing-key",
-            "trigger-1",
-            ssh_public_key="ssh-rsa AAAAB3... user@host",
-        )
-        parts = shlex.split(result)
-        # Should not add a duplicate --authorized-key
-        assert sum(1 for p in parts if p.startswith("--authorized-key")) == 1
-
-    def test_skips_authorized_key_when_no_ssh_key(self) -> None:
-        result = auto_fix_create_args("my-agent", "trigger-1", ssh_public_key=None)
-        parts = shlex.split(result)
-        assert "--authorized-key" not in parts
-
     def test_adds_schedule_tag(self) -> None:
-        result = auto_fix_create_args("my-agent", "nightly-build", ssh_public_key=None)
+        result = auto_fix_create_args("my-agent", "nightly-build")
         parts = shlex.split(result)
         assert "--tag" in parts
         tag_idx = parts.index("--tag")
         assert parts[tag_idx + 1] == "SCHEDULE=nightly-build"
 
     def test_skips_schedule_tag_when_already_present(self) -> None:
-        result = auto_fix_create_args("my-agent --tag SCHEDULE=custom", "nightly-build", ssh_public_key=None)
+        result = auto_fix_create_args("my-agent --tag SCHEDULE=custom", "nightly-build")
         parts = shlex.split(result)
         assert parts.count("--tag") == 1
         tag_idx = parts.index("--tag")
         assert parts[tag_idx + 1] == "SCHEDULE=custom"
 
     def test_skips_schedule_tag_when_present_in_equals_form(self) -> None:
-        result = auto_fix_create_args("my-agent --tag=SCHEDULE=custom", "nightly-build", ssh_public_key=None)
+        result = auto_fix_create_args("my-agent --tag=SCHEDULE=custom", "nightly-build")
         parts = shlex.split(result)
         # Should not add a duplicate --tag SCHEDULE=...
         assert sum(1 for p in parts if "SCHEDULE=" in p) == 1
 
     def test_preserves_passthrough_args(self) -> None:
-        result = auto_fix_create_args("my-agent --reuse -- --model opus", "trigger-1", ssh_public_key=None)
+        result = auto_fix_create_args("my-agent --reuse -- --model opus", "trigger-1")
         parts = shlex.split(result)
         assert "--" in parts
         separator_idx = parts.index("--")
@@ -118,20 +69,17 @@ class TestAutoFixCreateArgs:
         assert "opus" in parts[separator_idx + 1 :]
         # Auto-fixed args should be before --
         assert "--no-connect" in parts[:separator_idx]
-        assert "--await-ready" in parts[:separator_idx]
 
     def test_handles_empty_args(self) -> None:
-        result = auto_fix_create_args("", "trigger-1", ssh_public_key=None)
+        result = auto_fix_create_args("", "trigger-1")
         parts = shlex.split(result)
         assert "--no-connect" in parts
-        assert "--await-ready" in parts
         assert "--tag" in parts
 
     def test_preserves_existing_args(self) -> None:
         result = auto_fix_create_args(
             "my-agent --type claude --message 'fix bugs' --in modal",
             "trigger-1",
-            ssh_public_key=None,
         )
         parts = shlex.split(result)
         assert "my-agent" in parts
