@@ -32,7 +32,6 @@ class MessageRole(NonEmptyStr):
 # Event sources write to events/<SOURCE>/events.jsonl (proper EventEnvelope format).
 # Log sources write to logs/<SOURCE>/events.jsonl (raw format, not EventEnvelope).
 
-SOURCE_CONVERSATIONS: Final[EventSource] = EventSource("conversations")
 SOURCE_MESSAGES: Final[EventSource] = EventSource("messages")
 SOURCE_SCHEDULED: Final[EventSource] = EventSource("scheduled")
 SOURCE_MNG_AGENTS: Final[EventSource] = EventSource("mng_agents")
@@ -40,21 +39,6 @@ SOURCE_STOP: Final[EventSource] = EventSource("stop")
 SOURCE_MONITOR: Final[EventSource] = EventSource("monitor")
 SOURCE_DELIVERY_FAILURES: Final[EventSource] = EventSource("delivery_failures")
 SOURCE_COMMON_TRANSCRIPT: Final[EventSource] = EventSource("common_transcript")
-
-
-class ConversationEvent(EventEnvelope):
-    """An event in events/conversations/events.jsonl tracking conversation lifecycle.
-
-    Emitted when a conversation is created or its model is changed.
-    Tags are optional key/value metadata (e.g. ``{"daily": "2026-03-04"}``).
-    """
-
-    conversation_id: ConversationId
-    model: ChatModel
-    tags: dict[str, str] = Field(
-        default_factory=dict,
-        description="Optional key/value tags for categorizing conversations.",
-    )
 
 
 class MessageEvent(EventEnvelope):

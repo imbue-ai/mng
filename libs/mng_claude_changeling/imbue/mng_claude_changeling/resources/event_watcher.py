@@ -26,6 +26,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -335,47 +336,53 @@ def _write_notification_event(events_dir: Path, message: str, level: str = "WARN
 _CHAT_NOTIFICATION_TIMEOUT_SECONDS: Final[float] = 30.0
 
 
-def _get_system_notifications_conversation_id(events_dir: Path) -> str | None:
-    """Read the first conversation_id from events/conversations/events.jsonl.
+def _get_system_notifications_conversation_id() -> str | None:
+    """Read the system_notifications conversation ID from the changeling_conversations table.
 
-    The system_notifications conversation is always created first during
-    provisioning, so its ID is the first entry in the conversations event log.
-
-    Returns None if the file does not exist or contains no valid entries.
+    Looks for a conversation tagged with ``{"internal": "system_notifications"}``
+    in the llm database at ``$LLM_USER_PATH/logs.db``.
+    Falls back to None if the database or table does not exist.
     """
-    conversations_file = events_dir / "conversations" / "events.jsonl"
+    llm_user_path = os.environ.get("LLM_USER_PATH", "")
+    if not llm_user_path:
+        logger.warning("LLM_USER_PATH not set, cannot look up system_notifications conversation")
+        return None
+    db_path = Path(llm_user_path) / "logs.db"
+
+    if not db_path.is_file():
+        logger.debug("LLM database not found at {}", db_path)
+        return None
+
     try:
-        if not conversations_file.is_file():
-            return None
-        with conversations_file.open() as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                    conversation_id = event.get("conversation_id")
-                    if conversation_id:
-                        return str(conversation_id)
-                except (json.JSONDecodeError, KeyError):
-                    continue
-    except OSError as exc:
-        logger.warning("Failed to read conversations file for notification CID: {}", exc)
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT conversation_id FROM changeling_conversations "
+                "WHERE json_extract(tags, '$.internal') = 'system_notifications'",
+            ).fetchall()
+            if rows:
+                return str(rows[0][0])
+        except sqlite3.Error as exc:
+            logger.debug("Failed to query changeling_conversations: {}", exc)
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError) as exc:
+        logger.warning("Failed to read system_notifications conversation from DB: {}", exc)
     return None
 
 
 def _send_chat_notification(events_dir: Path, message: str) -> bool:
     """Send a notification as a chat message via ``llm``.
 
-    Uses the system_notifications conversation (the first conversation
-    created during provisioning) so that all system notifications appear
+    Uses the system_notifications conversation (found by tag in the
+    changeling_conversations table) so that all system notifications appear
     in the same thread. The message is sent as the user prompt; the model
     response is discarded.
 
     Returns True on success, False if ``llm`` is not available or fails.
     This is best-effort: the caller should not depend on success.
     """
-    conversation_id = _get_system_notifications_conversation_id(events_dir)
+    conversation_id = _get_system_notifications_conversation_id()
     if conversation_id is None:
         logger.warning("No system_notifications conversation found, skipping chat notification")
         return False

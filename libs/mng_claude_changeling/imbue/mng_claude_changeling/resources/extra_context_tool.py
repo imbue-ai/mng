@@ -5,6 +5,8 @@ deeper context information beyond what gather_context() returns.
 
 All event data follows the standard envelope format with timestamp, type,
 event_id, and source fields. Events are read from events/<source>/events.jsonl.
+Conversation metadata is read from the changeling_conversations table in the
+llm sqlite database at $LLM_USER_PATH/logs.db.
 
 Settings are read from $MNG_AGENT_WORK_DIR/changelings.toml.
 Missing file or keys fall back to built-in defaults.
@@ -17,6 +19,7 @@ where they cannot import from each other or from the mng_claude_changeling packa
 import json
 import os
 import pathlib
+import sqlite3
 import subprocess
 import sys
 import time
@@ -62,7 +65,7 @@ def gather_extra_context() -> str:
     Returns a formatted string with:
     - Current mng agent list (active agents and their states)
     - Extended inner monologue history (from events/transcript/events.jsonl)
-    - Full conversation list (from events/conversations/events.jsonl)
+    - Full conversation list (from changeling_conversations table in the llm DB)
 
     Use this when you need deeper context than gather_context() provides.
     """
@@ -110,32 +113,34 @@ def gather_extra_context() -> str:
             except OSError as e:
                 print(f"WARNING: failed to read transcript file {transcript}: {e}", file=sys.stderr)
 
-        # Full conversation list (from events/conversations/events.jsonl)
-        conversations_file = agent_data_dir / "events" / "conversations" / "events.jsonl"
-        if conversations_file.exists():
-            try:
-                lines = conversations_file.read_text().strip().split("\n")
-                conversations: dict[str, dict[str, str]] = {}
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        continue
+        # Full conversation list (from changeling_conversations table in llm DB)
+        llm_user_path = os.environ.get("LLM_USER_PATH", "")
+        if not llm_user_path:
+            sys.stderr.write("WARNING: LLM_USER_PATH not set, skipping conversation list\n")
+        else:
+            db_path = pathlib.Path(llm_user_path) / "logs.db"
+            if db_path.is_file():
+                try:
+                    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
                     try:
-                        event = json.loads(line)
-                        conversation_id = event["conversation_id"]
-                        conversations[conversation_id] = event
-                    except (json.JSONDecodeError, KeyError) as e:
-                        print(f"WARNING: malformed conversation event: {e}", file=sys.stderr)
-                        continue
-                if conversations:
-                    conv_lines = []
-                    for conversation_id, event in conversations.items():
-                        conv_lines.append(
-                            f"  {conversation_id}: model={event.get('model', '?')}, created={event.get('timestamp', '?')}"
-                        )
-                    sections.append("## All Conversations\n" + "\n".join(conv_lines))
-            except OSError as e:
-                print(f"WARNING: failed to read conversations file {conversations_file}: {e}", file=sys.stderr)
+                        rows = conn.execute(
+                            "SELECT cc.conversation_id, c.model, cc.created_at "
+                            "FROM changeling_conversations cc "
+                            "LEFT JOIN conversations c ON cc.conversation_id = c.id"
+                        ).fetchall()
+                        if rows:
+                            conv_lines = []
+                            for conversation_id, model, created_at in rows:
+                                conv_lines.append(
+                                    f"  {conversation_id}: model={model or '?'}, created={created_at or '?'}"
+                                )
+                            sections.append("## All Conversations\n" + "\n".join(conv_lines))
+                    except sqlite3.Error as e:
+                        print(f"WARNING: failed to query changeling_conversations: {e}", file=sys.stderr)
+                    finally:
+                        conn.close()
+                except (sqlite3.Error, OSError) as e:
+                    print(f"WARNING: failed to open llm database: {e}", file=sys.stderr)
 
     return "\n\n".join(sections) if sections else "No extra context available."
 
