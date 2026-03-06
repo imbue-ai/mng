@@ -20,13 +20,11 @@ def build_state_transition_command(from_state: str, to_state: str) -> str:
     Requires MNG_AGENT_STATE_DIR, MNG_AGENT_ID, and MNG_AGENT_NAME
     to be set in the environment.
     """
-    # Try /proc/sys/kernel/random/uuid (Linux), fall back to uuidgen (macOS).
+    # Uses /dev/urandom for event ID generation, matching chat.sh's generate_event_id().
     # The printf >> append is atomic under PIPE_BUF.
     return (
         '_MNG_TS=$(date -u +"%Y-%m-%dT%H:%M:%S.000000000Z");'
-        ' _MNG_EID="evt-$(cat /proc/sys/kernel/random/uuid 2>/dev/null'
-        " || uuidgen | tr '[:upper:]' '[:lower:]'"
-        ' || echo "$$-$RANDOM-$RANDOM")";'
+        ' _MNG_EID="evt-$(head -c 16 /dev/urandom | xxd -p)";'
         ' mkdir -p "$MNG_AGENT_STATE_DIR/events/mng_agents";'
         " printf"
         ' \'{"timestamp":"%s","type":"agent_state_transition","event_id":"%s",'
