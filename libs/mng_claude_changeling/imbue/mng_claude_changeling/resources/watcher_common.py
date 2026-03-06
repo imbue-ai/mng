@@ -1,9 +1,10 @@
-"""Shared utilities for changeling watcher scripts.
+"""Shared utilities for changeling supporting service scripts.
 
-This module is provisioned alongside the watcher scripts (event_watcher.py,
-conversation_watcher.py, transcript_watcher.py) to $MNG_HOST_DIR/commands/
-and imported by them at runtime. It provides the common watchdog integration,
-logging, and polling infrastructure that all watchers share.
+This module is provisioned alongside the supporting service scripts
+(event_watcher.py, conversation_watcher.py, transcript_watcher.py) to
+$MNG_HOST_DIR/commands/ and imported by them at runtime. It provides the
+common watchdog integration, logging, and polling infrastructure that all
+supporting services share.
 """
 
 from __future__ import annotations
@@ -156,11 +157,11 @@ def read_event_ids_from_jsonl(file_path: Path) -> set[str]:
 
 
 def load_watchers_section(agent_work_dir: Path) -> dict[str, Any]:
-    """Load the [watchers] section from .changelings/settings.toml.
+    """Load the [watchers] section from changelings.toml.
 
     Returns an empty dict on any error (missing file, corrupt TOML, etc.).
     """
-    settings_path = agent_work_dir / ".changelings" / "settings.toml"
+    settings_path = agent_work_dir / "changelings.toml"
     try:
         if not settings_path.exists():
             return {}

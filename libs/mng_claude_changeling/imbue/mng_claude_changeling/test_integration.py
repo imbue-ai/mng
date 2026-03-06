@@ -40,14 +40,14 @@ from imbue.mng_claude_changeling.provisioning import _DEFAULT_SKILL_DIRS
 from imbue.mng_claude_changeling.provisioning import _DEFAULT_THINKING_DIR_FILES
 from imbue.mng_claude_changeling.provisioning import _DEFAULT_WORK_DIR_FILES
 from imbue.mng_claude_changeling.provisioning import _LLM_TOOL_FILES
-from imbue.mng_claude_changeling.provisioning import _SCRIPT_FILES
+from imbue.mng_claude_changeling.provisioning import _SERVICE_SCRIPT_FILES
 from imbue.mng_claude_changeling.provisioning import compute_claude_project_dir_name
 from imbue.mng_claude_changeling.provisioning import create_changeling_symlinks
 from imbue.mng_claude_changeling.provisioning import create_event_log_directories
 from imbue.mng_claude_changeling.provisioning import load_changeling_resource
-from imbue.mng_claude_changeling.provisioning import provision_changeling_scripts
 from imbue.mng_claude_changeling.provisioning import provision_default_content
 from imbue.mng_claude_changeling.provisioning import provision_llm_tools
+from imbue.mng_claude_changeling.provisioning import provision_supporting_services
 from imbue.mng_claude_changeling.provisioning import setup_memory_directory
 from imbue.mng_claude_changeling.resources.conversation_watcher import _sync_messages
 
@@ -151,14 +151,14 @@ def test_provisioning_creates_event_log_directories(
 
 
 @pytest.mark.timeout(30)
-def test_provisioning_writes_changeling_scripts_to_host(
+def test_provisioning_writes_supporting_services_to_host(
     local_shell_host: LocalShellHost,
 ) -> None:
     """Verify that provisioning writes all scripts with correct permissions."""
-    provision_changeling_scripts(cast(Any, local_shell_host), _DEFAULT_PROVISIONING)
+    provision_supporting_services(cast(Any, local_shell_host), _DEFAULT_PROVISIONING)
 
     commands_dir = local_shell_host.host_dir / "commands"
-    for script_name in _SCRIPT_FILES:
+    for script_name in _SERVICE_SCRIPT_FILES:
         script_path = commands_dir / script_name
         assert script_path.exists(), f"Expected {script_name} to be written"
         assert script_path.stat().st_mode & 0o111, f"Expected {script_name} to be executable"
@@ -429,7 +429,7 @@ def test_chat_script_list_handles_malformed_events(chat_env: ChatScriptEnv) -> N
     assert "malformed" in result.stderr.lower() or "warning" in result.stderr.lower()
 
 
-# -- Watcher script syntax tests --
+# -- Supporting service script syntax tests --
 
 
 @pytest.mark.timeout(30)
@@ -604,10 +604,9 @@ def test_event_watcher_reads_settings_for_watched_sources(
     """Verify that the event watcher script reads settings from settings.toml."""
 
     work_dir = local_shell_host.host_dir / "work"
-    changelings_dir = work_dir / ".changelings"
-    changelings_dir.mkdir(parents=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write a settings.toml with custom watcher settings (both legacy and new fields)
+    # Write changelings.toml with custom watcher settings (both legacy and new fields)
     settings_content = (
         "[watchers]\n"
         'watched_event_sources = ["messages", "stop"]\n'
@@ -617,13 +616,14 @@ def test_event_watcher_reads_settings_for_watched_sources(
         "max_event_messages_per_minute = 20\n"
         "high_rate_warning_threshold_per_minute = 15\n"
     )
-    (changelings_dir / "settings.toml").write_text(settings_content)
+    settings_path = work_dir / "changelings.toml"
+    settings_path.write_text(settings_content)
 
     # The event watcher reads settings via a Python snippet at startup.
     # Test that the Python settings-reading logic produces the expected output.
     settings_reader = f"""
 import tomllib, pathlib, json
-p = pathlib.Path('{changelings_dir}/settings.toml')
+p = pathlib.Path('{settings_path}')
 s = tomllib.loads(p.read_text()) if p.exists() else {{}}
 w = s.get('watchers', {{}})
 print(json.dumps({{

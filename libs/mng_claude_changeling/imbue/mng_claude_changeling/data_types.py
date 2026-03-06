@@ -163,7 +163,7 @@ class CommonToolResultEvent(EventEnvelope):
 
 
 # -- Settings types --
-# These model the structure of .changelings/settings.toml.
+# These model the structure of changelings.toml.
 # Each section corresponds to a TOML table.
 
 
@@ -311,7 +311,7 @@ class ProvisioningSettings(FrozenModel):
 
 
 class ClaudeChangelingSettings(FrozenModel):
-    """Top-level settings loaded from .changelings/settings.toml.
+    """Top-level settings loaded from changelings.toml.
 
     All fields have defaults, so an empty or missing settings file
     produces a valid settings object with the standard defaults.

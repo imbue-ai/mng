@@ -44,27 +44,27 @@ def test_settings_from_full_toml() -> None:
 
 def test_load_settings_returns_defaults_when_file_missing() -> None:
     host = StubHost(command_results={"test -f": StubCommandResult(success=False)})
-    settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
+    settings = load_settings_from_host(cast(Any, host), Path("/work"))
     assert settings == ClaudeChangelingSettings()
 
 
 def test_load_settings_parses_toml_from_host() -> None:
     toml_content = '[chat]\nmodel = "claude-sonnet-4-6"\n'
-    host = StubHost(text_file_contents={"settings.toml": toml_content})
-    settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
+    host = StubHost(text_file_contents={"changelings.toml": toml_content})
+    settings = load_settings_from_host(cast(Any, host), Path("/work"))
     assert settings.chat.model == ChatModel("claude-sonnet-4-6")
 
 
 def test_load_settings_returns_defaults_on_invalid_toml() -> None:
-    host = StubHost(text_file_contents={"settings.toml": "not valid toml {{{"})
-    settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
+    host = StubHost(text_file_contents={"changelings.toml": "not valid toml {{{"})
+    settings = load_settings_from_host(cast(Any, host), Path("/work"))
     assert settings == ClaudeChangelingSettings()
 
 
 def test_load_settings_returns_defaults_on_read_failure() -> None:
     # Host says file exists but read_text_file raises
     host = StubHost()
-    settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
+    settings = load_settings_from_host(cast(Any, host), Path("/work"))
     # File check passes (default success), but read_text_file raises FileNotFoundError
     # which is caught. Defaults returned.
     assert settings.chat.model is None

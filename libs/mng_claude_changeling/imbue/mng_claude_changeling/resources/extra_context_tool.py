@@ -6,7 +6,7 @@ deeper context information beyond what gather_context() returns.
 All event data follows the standard envelope format with timestamp, type,
 event_id, and source fields. Events are read from events/<source>/events.jsonl.
 
-Settings are read from $MNG_AGENT_WORK_DIR/.changelings/settings.toml.
+Settings are read from $MNG_AGENT_WORK_DIR/changelings.toml.
 Missing file or keys fall back to built-in defaults.
 
 NOTE: _format_extra_events() is duplicated in context_tool.py because these
@@ -23,7 +23,7 @@ import time
 
 
 def _load_extra_settings() -> dict:
-    """Load settings from .changelings/settings.toml in the agent's work dir.
+    """Load settings from changelings.toml in the agent's work dir.
 
     NOTE: This is the same logic as _load_settings in context_tool.py,
     renamed to avoid duplicate tool registration by llm --functions.
@@ -36,7 +36,7 @@ def _load_extra_settings() -> dict:
     work_dir = os.environ.get("MNG_AGENT_WORK_DIR", "")
     if not work_dir:
         return {}
-    settings_path = pathlib.Path(work_dir) / ".changelings" / "settings.toml"
+    settings_path = pathlib.Path(work_dir) / "changelings.toml"
     if not settings_path.exists():
         return {}
     try:

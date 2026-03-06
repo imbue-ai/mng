@@ -32,7 +32,7 @@ When deploying, `mng create` is invoked with `-t entrypoint` to apply this templ
 
 ## Settings
 
-Changelings read per-deployment settings from `.changelings/settings.toml` in the agent work directory (`$MNG_AGENT_WORK_DIR/.changelings/settings.toml`). This file is optional -- if it does not exist, all settings use their built-in defaults.
+Changelings read per-deployment settings from `changelings.toml` in the agent work directory (`$MNG_AGENT_WORK_DIR/changelings.toml`). This file is optional -- if it does not exist, all settings use their built-in defaults.
 
 The settings are modeled by `ClaudeChangelingSettings` in `imbue.mng_claude_changeling.data_types`. Available sections and their defaults:
 
