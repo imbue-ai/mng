@@ -1170,7 +1170,7 @@ def run_kanpan(mng_ctx: MngContext) -> None:  # pragma: no cover
     commands = _build_command_map(mng_ctx)
 
     # Build footer keybindings, visually separating mark-related from action commands
-    mark_keys = {_BUILTIN_COMMAND_KEY_UNMARK, _BUILTIN_COMMAND_KEY_EXECUTE}
+    mark_keys = {_BUILTIN_COMMAND_KEY_UNMARK}
     mark_parts = [f"{key}: {cmd.name}" for key, cmd in commands.items() if cmd.markable or key in mark_keys]
     mark_parts.append("U: unmark all")
     action_parts = [f"{key}: {cmd.name}" for key, cmd in commands.items() if not cmd.markable and key not in mark_keys]
