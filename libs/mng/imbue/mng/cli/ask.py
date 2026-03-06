@@ -1,4 +1,3 @@
-import json
 import shlex
 import subprocess
 import sys
@@ -6,6 +5,8 @@ import tempfile
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import assert_never
@@ -15,7 +16,8 @@ from click_option_group import optgroup
 from loguru import logger
 
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.imbue_common.pure import pure
+from imbue.mng.api.create import create as api_create
+from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
@@ -26,7 +28,18 @@ from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_info
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import BaseMngError
 from imbue.mng.errors import MngError
+from imbue.mng.hosts.host import HostLocation
+from imbue.mng.interfaces.agent import AgentInterface
+from imbue.mng.interfaces.agent import HeadlessAgentMixin
+from imbue.mng.interfaces.host import AgentLabelOptions
+from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.primitives import AgentTypeName
+from imbue.mng.primitives import HostName
+from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import OutputFormat
 
 _QUERY_PREFIX: Final[str] = (
@@ -209,125 +222,98 @@ _EXECUTE_QUERY_PREFIX: Final[str] = (
     "user: "
 )
 
-_PROCESS_WAIT_TIMEOUT_SECONDS: Final[int] = 10
-
 
 class ClaudeBackendInterface(MutableModel, ABC):
-    """Abstraction over the claude subprocess for testability."""
+    """Abstraction over the claude backend for testability."""
 
     @abstractmethod
     def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
         """Send a prompt to claude and yield response text chunks."""
 
 
-@pure
-def _extract_text_delta(line: str) -> str | None:
-    """Extract text from a stream-json content_block_delta event.
-
-    Returns the delta text if the line is a content_block_delta with a text_delta,
-    or None otherwise.
-    """
+@contextmanager
+def _destroy_on_exit(host: OnlineHostInterface, agent: AgentInterface) -> Iterator[None]:
+    """Stop and destroy an agent on exit, suppressing cleanup errors."""
     try:
-        parsed = json.loads(line)
-    except (json.JSONDecodeError, ValueError):
-        return None
-
-    if parsed.get("type") != "stream_event":
-        return None
-
-    event = parsed.get("event")
-    if not isinstance(event, dict):
-        return None
-
-    if event.get("type") != "content_block_delta":
-        return None
-
-    delta = event.get("delta")
-    if not isinstance(delta, dict):
-        return None
-
-    if delta.get("type") != "text_delta":
-        return None
-
-    text = delta.get("text")
-    if isinstance(text, str):
-        return text
-
-    return None
+        yield
+    finally:
+        try:
+            host.stop_agents([agent.id])
+        except (OSError, BaseMngError):
+            logger.debug("Failed to stop ask agent {}", agent.name)
+        try:
+            host.destroy_agent(agent)
+        except (OSError, BaseMngError):
+            logger.debug("Failed to destroy ask agent {}", agent.name)
 
 
-class SubprocessClaudeBackend(ClaudeBackendInterface):
-    """Runs claude in a subprocess from an empty temp directory with streaming."""
+@contextmanager
+def _headless_claude_output(mng_ctx: MngContext, prompt: str, system_prompt: str) -> Iterator[Iterator[str]]:
+    """Create a HeadlessClaude agent, yield its output stream, and destroy it on exit.
+
+    Creates a temporary directory as the work path (no git branch creation),
+    and passes claude args for headless operation (--system-prompt, --output-format
+    stream-json, --tools "", --no-session-persistence).
+    """
+    provider = get_provider_instance(LOCAL_PROVIDER_NAME, mng_ctx)
+    host_interface = provider.get_host(HostName("localhost"))
+    if not isinstance(host_interface, OnlineHostInterface):
+        raise MngError("Local host is not online")
+    host = host_interface
+
+    with tempfile.TemporaryDirectory(prefix="mng-ask-") as tmp_dir:
+        # Each arg is shell-quoted because assemble_command joins them with
+        # spaces into a command string that is executed by the shell inside
+        # tmux.  Without quoting, special characters in the prompt or system
+        # prompt (backticks, $, quotes, newlines, etc.) would be interpreted
+        # by the shell.
+        agent_args = tuple(
+            shlex.quote(a)
+            for a in (
+                "--system-prompt",
+                system_prompt,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--include-partial-messages",
+                "--tools",
+                "",
+                "--no-session-persistence",
+                prompt,
+            )
+        )
+
+        source_location = HostLocation(host=host, path=Path(tmp_dir))
+        agent_options = CreateAgentOptions(
+            agent_type=AgentTypeName("headless_claude"),
+            agent_args=agent_args,
+            label_options=AgentLabelOptions(labels={"internal": "ask"}),
+            target_path=Path(tmp_dir),
+        )
+
+        result = api_create(
+            source_location=source_location,
+            target_host=host,
+            agent_options=agent_options,
+            mng_ctx=mng_ctx,
+            create_work_dir=False,
+        )
+
+        agent = result.agent
+        with _destroy_on_exit(host, agent):
+            if not isinstance(agent, HeadlessAgentMixin):
+                raise MngError(f"Expected headless agent with stream_output(), got {type(agent).__name__}")
+            yield agent.stream_output()
+
+
+class HeadlessClaudeBackend(ClaudeBackendInterface):
+    """Runs claude via a HeadlessClaude agent for proper agent lifecycle management."""
+
+    mng_ctx: MngContext
 
     def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
-        with tempfile.TemporaryDirectory(prefix="mng-ask-") as tmp_dir:
-            try:
-                process = subprocess.Popen(
-                    [
-                        "claude",
-                        "--print",
-                        "--system-prompt",
-                        system_prompt,
-                        "--output-format",
-                        "stream-json",
-                        "--verbose",
-                        "--include-partial-messages",
-                        "--tools",
-                        "",
-                        "--no-session-persistence",
-                        prompt,
-                    ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    stdin=subprocess.DEVNULL,
-                    text=True,
-                    cwd=tmp_dir,
-                )
-            except FileNotFoundError:
-                raise MngError(
-                    "claude is not installed or not found in PATH. "
-                    "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code/overview"
-                ) from None
-
-            assert process.stdout is not None
-
-            try:
-                # Stream text deltas from stdout
-                is_error = False
-                for line in process.stdout:
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-
-                    # Check for result events that indicate completion status
-                    try:
-                        parsed = json.loads(stripped)
-                        if parsed.get("type") == "result" and parsed.get("is_error"):
-                            is_error = True
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-
-                    text = _extract_text_delta(stripped)
-                    if text is not None:
-                        yield text
-
-                # Wait for process to finish and check exit code
-                process.wait(timeout=_PROCESS_WAIT_TIMEOUT_SECONDS)
-
-                if is_error or process.returncode != 0:
-                    assert process.stderr is not None
-                    stderr_content = process.stderr.read().strip()
-                    detail = stderr_content or "unknown error (no output captured)"
-                    raise MngError(f"claude failed (exit code {process.returncode}): {detail}")
-            finally:
-                # Ensure the subprocess is cleaned up if the generator exits early
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=_PROCESS_WAIT_TIMEOUT_SECONDS)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
+        with _headless_claude_output(self.mng_ctx, prompt, system_prompt) as chunks:
+            yield from chunks
 
 
 def _accumulate_chunks(chunks: Iterator[str]) -> str:
@@ -413,7 +399,7 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
 
 def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
     """Implementation of ask command (extracted for exception handling)."""
-    _mng_ctx, output_opts, opts = setup_command_context(
+    mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="ask",
         command_class=AskCliOptions,
@@ -429,7 +415,7 @@ def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     emit_info("Thinking...", output_opts.output_format)
 
-    backend = SubprocessClaudeBackend()
+    backend = HeadlessClaudeBackend(mng_ctx=mng_ctx)
     system_prompt = _build_ask_context()
     chunks = backend.query(prompt=query_string, system_prompt=system_prompt)
 
