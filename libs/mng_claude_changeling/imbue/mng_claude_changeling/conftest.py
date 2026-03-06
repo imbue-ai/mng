@@ -322,7 +322,7 @@ def create_fake_mng_binary(agent_state_dir: Path) -> Path:
     """Create a fake mng binary at <agent_state_dir>/bin/mng.
 
     This satisfies the get_mng_command() check that the per-agent mng
-    binary exists. The binary is a no-op shell script.
+    binary exists. The binary delegates to the system mng.
 
     Returns the path to the fake mng binary.
     """
@@ -335,7 +335,7 @@ def create_fake_mng_binary(agent_state_dir: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def _ensure_fake_mng_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _ensure_fake_mng_binary() -> None:
     """Ensure a fake mng binary exists at $MNG_AGENT_STATE_DIR/bin/mng.
 
     This autouse fixture creates the fake binary for any test that has

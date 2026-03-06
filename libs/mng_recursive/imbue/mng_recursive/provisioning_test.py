@@ -260,6 +260,52 @@ def test_agent_package_mode_builds_correct_command() -> None:
     assert str(agent_state_dir / "bin") in install_cmd
 
 
+def test_agent_editable_local_mode_builds_correct_command(tmp_path: Path) -> None:
+    """Editable local mode should install from the source tree with per-agent UV_TOOL_DIR/UV_TOOL_BIN_DIR."""
+    # Set up a fake monorepo structure
+    repo_root = tmp_path / "monorepo"
+    libs_dir = repo_root / "libs"
+    (libs_dir / "mng").mkdir(parents=True)
+    (libs_dir / "mng_recursive").mkdir(parents=True)
+    (libs_dir / "mng_pair").mkdir(parents=True)
+    (libs_dir / "imbue_common").mkdir(parents=True)
+
+    host_dir = Path("/tmp/mng-test/host")
+    host = _make_mock_host(is_local=True, host_dir=host_dir)
+    host.execute_command.return_value = _make_command_result(True)
+    ctx = _make_mock_mng_ctx(
+        plugin_config=RecursivePluginConfig(install_mode=MngInstallMode.EDITABLE),
+    )
+    agent = _make_mock_agent(mng_ctx=ctx)
+
+    with patch("imbue.mng_recursive.provisioning._get_mng_repo_root") as mock_root:
+        mock_root.return_value = repo_root
+        provision_mng_for_agent(agent=agent, host=host, mng_ctx=ctx)
+
+    # Find the uv tool install call
+    install_calls = [call for call in host.execute_command.call_args_list if "uv tool install" in str(call)]
+    assert len(install_calls) >= 1
+    install_cmd = str(install_calls[0])
+
+    # Should use editable install from the source tree
+    assert "-e libs/mng" in install_cmd
+
+    # Should include mng_ prefixed plugins as --with-editable
+    assert "--with-editable libs/mng_recursive" in install_cmd
+    assert "--with-editable libs/mng_pair" in install_cmd
+
+    # Should NOT include non-mng libs (like imbue_common)
+    assert "imbue_common" not in install_cmd
+
+    # Should have per-agent UV_TOOL_DIR and UV_TOOL_BIN_DIR
+    agent_state_dir = host_dir / "agents" / "agent-123"
+    assert str(agent_state_dir / "tools") in install_cmd
+    assert str(agent_state_dir / "bin") in install_cmd
+
+    # Should cd to the repo root
+    assert str(repo_root) in install_cmd
+
+
 def test_agent_skip_mode_does_nothing() -> None:
     """provision_mng_for_agent should skip when install_mode is SKIP."""
     host = _make_mock_host()
