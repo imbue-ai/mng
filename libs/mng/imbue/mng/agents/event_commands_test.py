@@ -2,18 +2,21 @@
 
 import json
 import subprocess
-from collections.abc import Callable
 from pathlib import Path
 
 from imbue.mng.agents.event_commands import build_state_transition_command
 
 
-def test_build_state_transition_command_produces_valid_jsonl(
-    tmp_path: Path, run_event_command: Callable[[str], subprocess.CompletedProcess[str]]
-) -> None:
+def _run_bash(command: str, env: dict[str, str]) -> None:
+    """Run a shell command and assert it succeeds."""
+    result = subprocess.run(["bash", "-c", command], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, f"Command failed: {result.stderr}"
+
+
+def test_build_state_transition_command_produces_valid_jsonl(tmp_path: Path, agent_event_env: dict[str, str]) -> None:
     """The generated shell command should produce a valid JSONL line with the correct schema."""
     command = build_state_transition_command("RUNNING", "WAITING")
-    run_event_command(command)
+    _run_bash(command, agent_event_env)
 
     event_file = tmp_path / "events" / "mng_agents" / "events.jsonl"
     assert event_file.exists()
@@ -32,12 +35,10 @@ def test_build_state_transition_command_produces_valid_jsonl(
     assert event["event_id"].startswith("evt-")
 
 
-def test_build_state_transition_command_waiting_to_running(
-    tmp_path: Path, run_event_command: Callable[[str], subprocess.CompletedProcess[str]]
-) -> None:
+def test_build_state_transition_command_waiting_to_running(tmp_path: Path, agent_event_env: dict[str, str]) -> None:
     """The WAITING->RUNNING transition should produce the correct from/to states."""
     command = build_state_transition_command("WAITING", "RUNNING")
-    run_event_command(command)
+    _run_bash(command, agent_event_env)
 
     event_file = tmp_path / "events" / "mng_agents" / "events.jsonl"
     event = json.loads(event_file.read_text().splitlines()[0])
@@ -47,14 +48,14 @@ def test_build_state_transition_command_waiting_to_running(
 
 
 def test_build_state_transition_command_appends_multiple_events(
-    tmp_path: Path, run_event_command: Callable[[str], subprocess.CompletedProcess[str]]
+    tmp_path: Path, agent_event_env: dict[str, str]
 ) -> None:
     """Running the command twice should append two JSONL lines."""
     cmd1 = build_state_transition_command("WAITING", "RUNNING")
     cmd2 = build_state_transition_command("RUNNING", "WAITING")
     combined = f"{cmd1}\n{cmd2}"
 
-    run_event_command(combined)
+    _run_bash(combined, agent_event_env)
 
     event_file = tmp_path / "events" / "mng_agents" / "events.jsonl"
     lines = event_file.read_text().splitlines()

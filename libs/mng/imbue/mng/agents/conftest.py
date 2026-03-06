@@ -1,6 +1,4 @@
 import os
-import subprocess
-from collections.abc import Callable
 from pathlib import Path
 from typing import Generator
 
@@ -27,22 +25,15 @@ def interactive_mng_ctx(
 
 
 @pytest.fixture
-def run_event_command(tmp_path: Path) -> Callable[[str], subprocess.CompletedProcess[str]]:
-    """Return a callable that runs a shell command with standard agent env vars.
+def agent_event_env(tmp_path: Path) -> dict[str, str]:
+    """Environment variables for running agent event shell commands.
 
-    Sets MNG_AGENT_STATE_DIR, MNG_AGENT_ID, and MNG_AGENT_NAME in the
-    subprocess environment and asserts that the command succeeds.
+    Sets MNG_AGENT_STATE_DIR (to tmp_path), MNG_AGENT_ID, and
+    MNG_AGENT_NAME on top of the current process environment.
     """
-    env = {
+    return {
         **os.environ,
         "MNG_AGENT_STATE_DIR": str(tmp_path),
         "MNG_AGENT_ID": "agent-test-fixture",
         "MNG_AGENT_NAME": "test-agent",
     }
-
-    def _run(command: str) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(["bash", "-c", command], env=env, capture_output=True, text=True)
-        assert result.returncode == 0, f"Command failed: {result.stderr}"
-        return result
-
-    return _run
