@@ -1032,3 +1032,26 @@ def write_discovery_snapshot_to_path(events_path: Path, agent_names: Sequence[st
         "hosts": hosts,
     }
     events_path.write_text(json.dumps(event) + "\n")
+
+
+def write_core_agent_env_file(
+    host_dir: Path,
+    agent_id: AgentId,
+    agent_name: AgentName,
+    work_dir: Path,
+) -> None:
+    """Write core MNG env vars to an agent's env file.
+
+    Use in tests that call create_agent_state + start_agents without
+    provisioning. In production, provisioning writes this file, but tests
+    that skip provisioning need it for $MNG_AGENT_STATE_DIR to resolve.
+    """
+    state_dir = host_dir / "agents" / str(agent_id)
+    env_path = state_dir / "env"
+    env_path.write_text(
+        f"MNG_HOST_DIR={host_dir}\n"
+        f"MNG_AGENT_ID={agent_id}\n"
+        f"MNG_AGENT_NAME={agent_name}\n"
+        f"MNG_AGENT_STATE_DIR={state_dir}\n"
+        f"MNG_AGENT_WORK_DIR={work_dir}\n"
+    )

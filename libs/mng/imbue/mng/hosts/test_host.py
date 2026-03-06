@@ -56,6 +56,7 @@ from imbue.mng.utils.polling import wait_for
 from imbue.mng.utils.testing import capture_tmux_pane_contents
 from imbue.mng.utils.testing import generate_ssh_keypair
 from imbue.mng.utils.testing import local_sshd
+from imbue.mng.utils.testing import write_core_agent_env_file
 
 
 @pytest.fixture
@@ -672,18 +673,24 @@ def test_unset_vars_applied_during_agent_start(
             command=CommandString("sleep 736249 &"),
         ),
     )
+    write_core_agent_env_file(per_host_dir, agent.id, agent.name, agent.work_dir)
 
     host.start_agents([agent.id])
 
     session_name = f"{mng_test_prefix}{agent.name}"
 
-    # Wait for the tmux session to exist
+    # Wait for the tmux session to exist and the command to actually start running.
+    # The pane shows "run.sh" (not the raw command), so we also check ps for the
+    # backgrounded sleep process to confirm the script executed.
     def session_ready() -> bool:
         result = host.execute_command(f"tmux has-session -t '{session_name}'")
         if not result.success:
             return False
         pane_content = capture_tmux_pane_content(host, session_name)
-        return pane_content is not None and "sleep 736249" in pane_content
+        if pane_content is None or "run.sh" not in pane_content:
+            return False
+        ps_result = host.execute_command("ps -eo args= 2>/dev/null")
+        return ps_result.success and "sleep 736249" in ps_result.stdout
 
     wait_for(session_ready, timeout=30.0, poll_interval=0.5, error_message="tmux session not ready")
 
