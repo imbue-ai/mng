@@ -25,6 +25,7 @@ import pluggy
 import pytest
 from click.testing import CliRunner
 
+from imbue.mng.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mng.cli.create import create
 from imbue.mng.cli.list import list_command
 from imbue.mng.utils.testing import tmux_session_cleanup
@@ -41,7 +42,6 @@ from imbue.mng_claude_changeling.provisioning import _DEFAULT_THINKING_DIR_FILES
 from imbue.mng_claude_changeling.provisioning import _DEFAULT_WORK_DIR_FILES
 from imbue.mng_claude_changeling.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_changeling.provisioning import _SCRIPT_FILES
-from imbue.mng_claude_changeling.provisioning import compute_claude_project_dir_name
 from imbue.mng_claude_changeling.provisioning import create_changeling_symlinks
 from imbue.mng_claude_changeling.provisioning import create_event_log_directories
 from imbue.mng_claude_changeling.provisioning import load_changeling_resource
@@ -328,7 +328,7 @@ def test_provisioning_syncs_memory_directory(
 
     assert memory_dir.is_dir(), "memory dir should exist"
 
-    project_dir_name = compute_claude_project_dir_name(abs_work_dir)
+    project_dir_name = encode_claude_project_dir_name(Path(abs_work_dir))
     project_memory = Path.home() / ".claude" / "projects" / project_dir_name / "memory"
     assert project_memory.is_dir(), "Claude project memory should be a real directory"
     assert not project_memory.is_symlink(), "Claude project memory should NOT be a symlink"

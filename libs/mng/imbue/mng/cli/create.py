@@ -5,6 +5,7 @@ from collections.abc import Callable
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from typing import assert_never
 from typing import cast
 
@@ -51,6 +52,7 @@ from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.host import Host
 from imbue.mng.hosts.host import HostLocation
+from imbue.mng.hosts.host import get_agent_state_dir_path
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.host import AgentDataOptions
@@ -575,8 +577,13 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     resolved_opts = opts.model_copy_update(*overrides) if overrides else opts
 
+    # Collect plugin-registered CLI params so they can be merged into plugin_data
+    plugin_cli_params: dict[str, Any] = {
+        k: v for k, v in ctx.meta.get("plugin_cli_params", {}).items() if v is not None
+    }
+
     # Setup (validation, editor session, source resolution, etc.)
-    setup = _setup_create(mng_ctx, output_opts, resolved_opts, logging_config)
+    setup = _setup_create(mng_ctx, output_opts, resolved_opts, logging_config, plugin_cli_params)
 
     # Create agent
     result = _create_agent(mng_ctx, output_opts, resolved_opts, setup)
@@ -602,6 +609,9 @@ class _CreateSetup(FrozenModel):
     source_location: HostLocation = Field(description="Resolved source location")
     project_name: str = Field(description="Project name for agent labels")
     host_lifecycle: HostLifecycleOptions = Field(description="Host lifecycle options")
+    plugin_cli_params: dict[str, Any] = Field(
+        default_factory=dict, description="Plugin-registered CLI params to merge into plugin_data"
+    )
 
 
 def _setup_create(
@@ -609,6 +619,7 @@ def _setup_create(
     output_opts: OutputOptions,
     opts: CreateCliOptions,
     logging_config: LoggingConfig,
+    plugin_cli_params: dict[str, Any] | None = None,
 ) -> _CreateSetup:
     """Validate options, resolve messages, start editor session, resolve source location."""
     # Validate that both --message and --message-file are not provided
@@ -686,6 +697,7 @@ def _setup_create(
         source_location=source_location,
         project_name=project_name,
         host_lifecycle=host_lifecycle,
+        plugin_cli_params=plugin_cli_params or {},
     )
 
 
@@ -704,14 +716,29 @@ def _create_agent(
         lifecycle=setup.host_lifecycle,
     )
 
+    # Resolve source agent state dir if cloning from an existing agent
+    source_agent_state_dir: Path | None = None
+    if opts.source_agent is not None:
+        source_agent_state_dir = _find_source_agent_state_dir(
+            opts.source_agent, setup.agent_and_host_loader, setup.source_location.host
+        )
+
     # Parse agent options
     agent_opts = _parse_agent_opts(
         opts=opts,
         initial_message=setup.initial_message,
         resume_message=setup.resume_message,
         source_location=setup.source_location,
+        source_agent_state_dir=source_agent_state_dir,
         mng_ctx=mng_ctx,
     )
+
+    # Merge plugin-registered CLI params into plugin_data so plugin hooks can access them
+    if setup.plugin_cli_params:
+        merged = {**agent_opts.plugin_data, **setup.plugin_cli_params}
+        agent_opts = agent_opts.model_copy_update(
+            to_update(agent_opts.field_ref().plugin_data, merged),
+        )
 
     # parse the connection options
     connection_opts = ConnectionOptions(
@@ -1173,6 +1200,20 @@ def _resolve_target_host(
     return resolved_target_host
 
 
+def _find_source_agent_state_dir(
+    agent_identifier: str,
+    agent_and_host_loader: Callable[[], dict[DiscoveredHost, list[DiscoveredAgent]]],
+    source_host: OnlineHostInterface,
+) -> Path | None:
+    """Find the state directory for a source agent by name or ID."""
+    agents_by_host = agent_and_host_loader()
+    for _host_ref, agent_refs in agents_by_host.items():
+        for agent_ref in agent_refs:
+            if str(agent_ref.agent_id) == agent_identifier or str(agent_ref.agent_name) == agent_identifier:
+                return get_agent_state_dir_path(source_host.host_dir, agent_ref.agent_id)
+    return None
+
+
 def _find_source_location(
     source: str | None, source_agent: str | None, source_host: str | None, source_path: str | None
 ) -> SourceLocation:
@@ -1272,6 +1313,7 @@ def _parse_agent_opts(
     resume_message: str | None,
     source_location: HostLocation,
     mng_ctx: MngContext,
+    source_agent_state_dir: Path | None = None,
 ) -> CreateAgentOptions:
     # Get agent name from positional argument or --name flag, otherwise auto-generate
     parsed_agent_name: AgentName
@@ -1433,6 +1475,8 @@ def _parse_agent_opts(
         # Automatically use the "generic" agent type when --agent-cmd is provided
         resolved_agent_type = "generic"
 
+    is_clone = opts.source_agent is not None
+
     agent_opts = CreateAgentOptions(
         agent_id=AgentId(opts.agent_id) if opts.agent_id else None,
         agent_type=AgentTypeName(resolved_agent_type) if resolved_agent_type else None,
@@ -1453,6 +1497,7 @@ def _parse_agent_opts(
         permissions=permissions,
         label_options=label_options,
         provisioning=provisioning,
+        source_agent_state_dir=source_agent_state_dir if is_clone else None,
     )
     return agent_opts
 

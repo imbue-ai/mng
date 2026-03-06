@@ -110,6 +110,12 @@ _retry_on_socket_closed = retry(
 )
 
 
+@pure
+def get_agent_state_dir_path(host_dir: Path, agent_id: AgentId) -> Path:
+    """Compute the state directory path for an agent given the host directory and agent ID."""
+    return host_dir / "agents" / str(agent_id)
+
+
 class HostLocation(FrozenModel):
     """A path on a specific host."""
 
@@ -1464,7 +1470,7 @@ class Host(BaseHost, OnlineHostInterface):
         ):
             resolved = resolve_agent_type(agent_type, self.mng_ctx.config)
 
-            state_dir = self.host_dir / "agents" / str(agent_id)
+            state_dir = get_agent_state_dir_path(self.host_dir, agent_id)
             self._mkdirs([state_dir, state_dir / "events"])
 
             create_time = datetime.now(timezone.utc)
@@ -1525,7 +1531,7 @@ class Host(BaseHost, OnlineHostInterface):
 
     def _get_agent_state_dir(self, agent: AgentInterface) -> Path:
         """Get the state directory for an agent."""
-        return self.host_dir / "agents" / str(agent.id)
+        return get_agent_state_dir_path(self.host_dir, agent.id)
 
     def get_agent_env_path(self, agent: AgentInterface) -> Path:
         """Get the path to the agent's environment file."""
@@ -1560,16 +1566,19 @@ class Host(BaseHost, OnlineHostInterface):
         env_vars["MNG_AGENT_WORK_DIR"] = str(agent.work_dir)
         env_vars["LLM_USER_PATH"] = str(agent_state_dir / "llm_data")
 
-        # 2. Add programmatic defaults
+        # 2. Agent-type-specific env vars (e.g., CLAUDE_CONFIG_DIR)
+        env_vars.update(agent.get_extra_env_vars())
+
+        # 3. Add programmatic defaults
         env_vars["GIT_BASE_BRANCH"] = (options.git.base_branch if options.git else None) or ""
 
-        # 3. Load from env_files
+        # 4. Load from env_files
         for env_file in options.environment.env_files:
             content = env_file.read_text()
             file_vars = parse_env_file(content)
             env_vars.update(file_vars)
 
-        # 4. Add explicit env_vars
+        # 5. Add explicit env_vars
         for env_var in options.environment.env_vars:
             env_vars[env_var.key] = env_var.value
 

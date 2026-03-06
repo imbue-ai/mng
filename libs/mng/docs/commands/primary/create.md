@@ -87,6 +87,7 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--snapshot-source`, `--no-snapshot-source` | boolean | Snapshot source agent first [default: yes if --source-agent and not local] | None |
 | `--copy-work-dir`, `--no-copy-work-dir` | boolean | Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect] | None |
 | `--auto-start`, `--no-auto-start` | boolean | Automatically start offline hosts (source and target) before proceeding | `True` |
+| `--adopt-session` | text | Adopt an existing Claude Code session by ID into this agent. Searches for the session in the current Claude config directory and copies it into the new agent's per-agent config. | None |
 
 ## Agent Source Data (what to include in the new agent)
 

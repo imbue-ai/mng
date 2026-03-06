@@ -13,6 +13,7 @@ from typing import cast
 
 import pytest
 
+from imbue.mng.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mng_claude_changeling.conftest import StubCommandResult
 from imbue.mng_claude_changeling.conftest import StubHost
 from imbue.mng_claude_changeling.data_types import CommonToolResultEvent
@@ -22,7 +23,6 @@ from imbue.mng_claude_changeling.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_changeling.provisioning import _SCRIPT_FILES
 from imbue.mng_claude_changeling.provisioning import _is_recursive_plugin_registered
 from imbue.mng_claude_changeling.provisioning import build_memory_sync_hooks_config
-from imbue.mng_claude_changeling.provisioning import compute_claude_project_dir_name
 from imbue.mng_claude_changeling.provisioning import configure_llm_user_path
 from imbue.mng_claude_changeling.provisioning import create_changeling_symlinks
 from imbue.mng_claude_changeling.provisioning import create_daily_conversation
@@ -343,12 +343,12 @@ def test_conversion_tool_result_validates_against_pydantic_schema() -> None:
 # -- Memory linker content tests --
 
 
-def test_compute_claude_project_dir_name_replaces_slashes() -> None:
-    assert compute_claude_project_dir_name("/home/user/project") == "-home-user-project"
+def test_encode_claude_project_dir_name_replaces_slashes() -> None:
+    assert encode_claude_project_dir_name(Path("/home/user/project")) == "-home-user-project"
 
 
-def test_compute_claude_project_dir_name_replaces_dots() -> None:
-    assert compute_claude_project_dir_name("/home/user/.changelings/agent") == "-home-user--changelings-agent"
+def test_encode_claude_project_dir_name_replaces_dots() -> None:
+    assert encode_claude_project_dir_name(Path("/home/user/.changelings/agent")) == "-home-user--changelings-agent"
 
 
 def _run_setup_memory(
@@ -1376,12 +1376,12 @@ def test_provision_llm_tools_uses_correct_mode() -> None:
         assert mode == "0644"
 
 
-def test_compute_claude_project_dir_name_simple_path() -> None:
-    assert compute_claude_project_dir_name("/tmp/foo") == "-tmp-foo"
+def test_encode_claude_project_dir_name_simple_path() -> None:
+    assert encode_claude_project_dir_name(Path("/tmp/foo")) == "-tmp-foo"
 
 
-def test_compute_claude_project_dir_name_no_dots_or_slashes() -> None:
-    assert compute_claude_project_dir_name("simple") == "simple"
+def test_encode_claude_project_dir_name_no_dots_or_slashes() -> None:
+    assert encode_claude_project_dir_name(Path("simple")) == "simple"
 
 
 # -- Extra context tool tests --
