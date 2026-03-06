@@ -143,8 +143,6 @@ def _read_conversations() -> list[dict[str, str]]:
                 ).fetchall()
                 for conversation_id, model, created_at, tags_json in rows:
                     tags = json.loads(tags_json) if tags_json else {}
-                    if "internal" in tags:
-                        continue
                     conversations_by_id[conversation_id] = {
                         "conversation_id": conversation_id,
                         "name": tags.get("name", ""),

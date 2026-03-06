@@ -301,6 +301,8 @@ def _create_mng_agent(
             "changeling=true",
             "--disable-plugin",
             "ttyd",
+            "--",
+            "--dangerously-skip-permissions",
         ]
 
         for env_var in pass_env:
