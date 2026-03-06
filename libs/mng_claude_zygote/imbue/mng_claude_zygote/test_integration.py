@@ -4,7 +4,7 @@ Tests the plugin end-to-end by creating real agents in temporary git repos,
 verifying provisioning creates the expected filesystem structures, and
 exercising the chat and watcher scripts.
 
-These tests use --agent-cmd to override the default Claude command with
+These tests use --agent-command to override the default Claude command with
 a simple sleep process, since Claude Code is not available in CI. This
 still exercises all the provisioning, symlink creation, and tmux window
 injection logic that the plugin provides.
@@ -84,7 +84,7 @@ def _create_agent_in_session(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--agent-command",
                 "sleep 847291",
                 "--source",
                 str(source_dir),
