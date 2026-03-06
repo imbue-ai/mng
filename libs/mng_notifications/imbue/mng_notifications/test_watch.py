@@ -1,15 +1,12 @@
+import json
 import threading
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from imbue.mng.api.list import ListResult
-from imbue.mng.api.list import list_agents as real_list_agents
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.host import CreateAgentOptions
-from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
@@ -18,21 +15,18 @@ from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.utils.polling import wait_for
 from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.mock_notifier_test import RecordingNotifier
-from imbue.mng_notifications.testing import patch_list_agents
 from imbue.mng_notifications.watcher import watch_for_waiting_agents
 
 
 @pytest.mark.tmux
 @pytest.mark.acceptance
-def test_watcher_detects_running_to_waiting_transition(
+def test_watcher_detects_running_to_waiting_via_event(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     tmp_path: Path,
     temp_mng_ctx: MngContext,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Create a real agent, simulate RUNNING -> WAITING via the active file,
-    and verify the watcher sends a notification."""
+    """Create a real agent, write a state transition event, and verify the watcher sends a notification."""
     host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
@@ -49,26 +43,6 @@ def test_watcher_detects_running_to_waiting_transition(
     )
     host.start_agents([agent.id])
 
-    agent_state_dir = temp_host_dir / "agents" / str(agent.id)
-    active_file = agent_state_dir / "active"
-    active_file.touch()
-
-    wait_for(
-        lambda: agent.get_lifecycle_state() == AgentLifecycleState.RUNNING,
-        timeout=5,
-        error_message="Agent did not reach RUNNING state",
-    )
-
-    # Wrap list_agents to signal when the initial poll completes
-    polled_event = threading.Event()
-
-    def signaling_list_agents(mng_ctx: Any, **kwargs: Any) -> ListResult:
-        result = real_list_agents(mng_ctx, **kwargs)
-        polled_event.set()
-        return result
-
-    patch_list_agents(monkeypatch, signaling_list_agents)
-
     notifier = RecordingNotifier()
     stop_event = threading.Event()
 
@@ -76,9 +50,6 @@ def test_watcher_detects_running_to_waiting_transition(
         target=watch_for_waiting_agents,
         kwargs={
             "mng_ctx": temp_mng_ctx,
-            "interval_seconds": 0.5,
-            "include_filters": (),
-            "exclude_filters": (),
             "plugin_config": NotificationsPluginConfig(),
             "notifier": notifier,
             "stop_event": stop_event,
@@ -87,15 +58,29 @@ def test_watcher_detects_running_to_waiting_transition(
     watcher_thread.start()
 
     try:
-        polled_event.wait(timeout=5)
-
-        active_file.unlink()
+        # Write a RUNNING -> WAITING transition event to the agent's event file
+        events_dir = temp_host_dir / "agents" / str(agent.id) / "events" / "mng_agents"
+        events_dir.mkdir(parents=True, exist_ok=True)
+        event_file = events_dir / "events.jsonl"
+        event = json.dumps(
+            {
+                "timestamp": "2026-01-01T00:00:00Z",
+                "type": "agent_state_transition",
+                "event_id": "evt-test123",
+                "source": "mng_agents",
+                "agent_id": str(agent.id),
+                "agent_name": str(agent.name),
+                "from_state": "RUNNING",
+                "to_state": "WAITING",
+            }
+        )
+        event_file.write_text(event + "\n")
 
         wait_for(
             lambda: len(notifier.calls) > 0,
             timeout=5,
             poll_interval=0.3,
-            error_message="Watcher did not send notification for RUNNING -> WAITING",
+            error_message="Watcher did not send notification for RUNNING -> WAITING event",
         )
 
         assert notifier.calls[0][0] == "Agent waiting"

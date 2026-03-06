@@ -630,6 +630,20 @@ def test_build_readiness_hooks_config_has_hook(hook_name: str, expected_substrin
         assert substring in hook["command"], f"Expected '{substring}' in {hook_name} hook command"
 
 
+def test_build_readiness_hooks_config_has_user_prompt_submit_state_transition() -> None:
+    """build_readiness_hooks_config should emit WAITING->RUNNING transition on UserPromptSubmit."""
+    config = build_readiness_hooks_config()
+
+    hooks = config["hooks"]["UserPromptSubmit"][0]["hooks"]
+    # State transition hook is the second hook (after touch active, before tmux signal)
+    transition_hook = hooks[1]
+    assert transition_hook["type"] == "command"
+    assert "agent_state_transition" in transition_hook["command"]
+    assert "WAITING" in transition_hook["command"]
+    assert "RUNNING" in transition_hook["command"]
+    assert "mng_agents" in transition_hook["command"]
+
+
 def test_build_readiness_hooks_config_has_notification_idle_hook() -> None:
     """build_readiness_hooks_config should include Notification idle_prompt hook that removes active and permissions_waiting files."""
     config = build_readiness_hooks_config()
@@ -669,6 +683,21 @@ def test_get_lifecycle_state_returns_waiting_when_permissions_waiting(
     ):
         with patch.object(BaseAgent, "get_lifecycle_state", return_value=state):
             assert agent.get_lifecycle_state() == state
+
+
+def test_build_readiness_hooks_config_has_notification_state_transition() -> None:
+    """build_readiness_hooks_config should emit RUNNING->WAITING transition on Notification/idle_prompt."""
+    config = build_readiness_hooks_config()
+
+    hook_group = config["hooks"]["Notification"][0]
+    hooks = hook_group["hooks"]
+    # State transition hook is the second hook (after rm active)
+    transition_hook = hooks[1]
+    assert transition_hook["type"] == "command"
+    assert "agent_state_transition" in transition_hook["command"]
+    assert "RUNNING" in transition_hook["command"]
+    assert "WAITING" in transition_hook["command"]
+    assert "mng_agents" in transition_hook["command"]
 
 
 def test_get_expected_process_name_returns_claude(

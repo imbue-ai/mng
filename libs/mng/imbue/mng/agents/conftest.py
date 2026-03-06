@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Generator
 
@@ -21,3 +22,18 @@ def interactive_mng_ctx(
     cg = ConcurrencyGroup(name="test-interactive")
     with cg:
         yield make_mng_ctx(temp_config, plugin_manager, temp_profile_dir, is_interactive=True, concurrency_group=cg)
+
+
+@pytest.fixture
+def agent_event_env(tmp_path: Path) -> dict[str, str]:
+    """Environment variables for running agent event shell commands.
+
+    Sets MNG_AGENT_STATE_DIR (to tmp_path), MNG_AGENT_ID, and
+    MNG_AGENT_NAME on top of the current process environment.
+    """
+    return {
+        **os.environ,
+        "MNG_AGENT_STATE_DIR": str(tmp_path),
+        "MNG_AGENT_ID": "agent-test-fixture",
+        "MNG_AGENT_NAME": "test-agent",
+    }
