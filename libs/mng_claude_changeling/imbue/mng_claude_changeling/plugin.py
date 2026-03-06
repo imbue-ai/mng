@@ -40,8 +40,8 @@ from imbue.mng_ttyd.plugin import build_ttyd_server_command
 AGENT_TTYD_WINDOW_NAME: Final[str] = "agent"
 AGENT_TTYD_SERVER_NAME: Final[str] = AGENT_TTYD_WINDOW_NAME
 
-# Bash wrapper that starts ttyd attached to the agent's own tmux session.
-# This allows users to interact with the Claude agent via a web browser.
+# Bash wrapper that starts ttyd attached to the role agent's own tmux session.
+# This allows users to interact with the role agent via a web browser.
 #
 # How it works:
 # 1. Gets the current tmux session name (the agent's session)
@@ -56,8 +56,8 @@ _AGENT_TTYD_INVOCATION = (
 
 AGENT_TTYD_COMMAND: Final[str] = build_ttyd_server_command(_AGENT_TTYD_INVOCATION, AGENT_TTYD_SERVER_NAME)
 
-# Watcher tmux window names and commands.
-# These are run as additional tmux windows alongside the primary agent.
+# Supporting service tmux window names and commands.
+# These are run as additional tmux windows alongside the primary role agent.
 CONV_WATCHER_WINDOW_NAME: Final[str] = "conv_watcher"
 CONV_WATCHER_COMMAND: Final[str] = "python3 $MNG_HOST_DIR/commands/conversation_watcher.py"
 
@@ -107,7 +107,7 @@ class ClaudeChangelingConfig(ClaudeAgentConfig):
 
 
 class ClaudeChangelingAgent(ClaudeAgent):
-    """Base agent for changeling agents built on Claude Code.
+    """Base agent class for changeling role agents built on Claude Code.
 
     Inherits all Claude Code functionality (session management, provisioning,
     TUI interaction, etc.) and extends it with changeling-specific setup:
@@ -115,13 +115,14 @@ class ClaudeChangelingAgent(ClaudeAgent):
     During provisioning:
     - Installs the llm toolchain (llm, llm-anthropic, llm-live-chat)
     - Symlinks .claude/ to the active role's .claude/ directory
-    - Provisions watcher scripts and chat utilities
+    - Provisions supporting service scripts and chat utilities
     - Sets up event log directories (events/<source>/events.jsonl)
     - Syncs per-role memory/ into Claude project memory via hooks
 
-    Via tmux windows (injected by override_command_options):
+    Via tmux windows (injected by override_command_options), the following
+    supporting services run alongside the role agent:
     - Conversation watcher (syncs llm DB to events/messages/events.jsonl)
-    - Event watcher (sends new events to primary agent via mng message)
+    - Event watcher (sends new events to primary role agent via mng message)
     - Web server (main web interface with conversation selector and agent list)
     - Chat ttyd (--url-arg ttyd for conversation terminal access)
     """
@@ -239,12 +240,12 @@ class ClaudeChangelingAgent(ClaudeAgent):
 
 
 def inject_changeling_windows(params: dict[str, Any]) -> None:
-    """Inject all changeling tmux windows into the create command parameters.
+    """Inject all changeling supporting service tmux windows into the create command parameters.
 
     Adds:
-    - Agent ttyd (web terminal for the primary agent's tmux session)
+    - Agent ttyd (web terminal for the primary role agent's tmux session)
     - Conversation watcher (syncs llm DB to JSONL files)
-    - Event watcher (sends new events to primary agent via mng message)
+    - Event watcher (sends new events to primary role agent via mng message)
     - Web server (main web interface with conversation selector and agent list)
     - Chat ttyd (--url-arg ttyd for conversation access)
     - Transcript watcher (converts claude_transcript to common_transcript)
@@ -288,10 +289,10 @@ def override_command_options(
     command_class: type,
     params: dict[str, Any],
 ) -> None:
-    """Add changeling tmux windows when creating claude-changeling agents (or subtypes).
+    """Add changeling supporting service windows when creating claude-changeling role agents (or subtypes).
 
     Injects: agent ttyd, conversation watcher, event watcher, web server,
-    and chat ttyd.
+    and chat ttyd as supporting services.
 
     Matches any agent type whose registered class is ClaudeChangelingAgent or
     a subclass of it (e.g. elena-code, custom changeling types).
