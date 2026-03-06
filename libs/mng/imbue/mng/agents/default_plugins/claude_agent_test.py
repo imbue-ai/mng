@@ -18,7 +18,6 @@ from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mng.agents.default_plugins.claude_agent import _build_install_command_hint
 from imbue.mng.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
-from imbue.mng.agents.default_plugins.claude_agent import _get_claude_project_dir
 from imbue.mng.agents.default_plugins.claude_agent import _get_claude_version
 from imbue.mng.agents.default_plugins.claude_agent import _has_api_credentials_available
 from imbue.mng.agents.default_plugins.claude_agent import _install_claude
@@ -30,7 +29,6 @@ from imbue.mng.agents.default_plugins.claude_agent import register_cli_options
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
 from imbue.mng.agents.default_plugins.claude_config import build_readiness_hooks_config
-from imbue.mng.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mng.api.testing import FakeHost
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import EnvVar
@@ -2163,8 +2161,8 @@ def test_on_before_create_skips_when_no_adopt_session() -> None:
     assert on_before_create(args=args) is None
 
 
-def test_on_before_create_sets_source_work_dir() -> None:
-    """on_before_create should set source_work_dir to cwd when adopt_session is present."""
+def test_on_before_create_requires_from_agent() -> None:
+    """on_before_create should raise UserInputError when --adopt-session is used without --from-agent."""
     args = OnBeforeCreateArgs(
         agent_options=CreateAgentOptions(
             agent_type=AgentTypeName("claude"),
@@ -2173,24 +2171,21 @@ def test_on_before_create_sets_source_work_dir() -> None:
         target_host=NewHostOptions(provider=ProviderInstanceName("local")),
         create_work_dir=True,
     )
-    result = on_before_create(args=args)
-    assert result is not None
-    assert result.agent_options.source_work_dir == Path.cwd()
+    with pytest.raises(UserInputError, match="--adopt-session requires --from-agent"):
+        on_before_create(args=args)
 
 
-def test_on_before_create_preserves_existing_source_work_dir() -> None:
-    """on_before_create should not override source_work_dir if already set."""
-    existing_path = Path("/some/other/path")
+def test_on_before_create_passes_with_from_agent() -> None:
+    """on_before_create should pass when --adopt-session is used with --from-agent."""
     args = OnBeforeCreateArgs(
         agent_options=CreateAgentOptions(
             agent_type=AgentTypeName("claude"),
             plugin_data={"adopt_session": "some-id"},
-            source_work_dir=existing_path,
+            source_agent_state_dir=Path("/some/agent/state"),
         ),
         target_host=NewHostOptions(provider=ProviderInstanceName("local")),
         create_work_dir=True,
     )
-    # No changes needed when source_work_dir is already set
     result = on_before_create(args=args)
     assert result is None
 
@@ -2225,80 +2220,24 @@ def test_on_after_provisioning_skips_when_no_adopt_session(
     agent.on_after_provisioning(host=host, options=options, mng_ctx=temp_mng_ctx)
 
 
-def test_on_after_provisioning_adopts_specific_session(
+def test_on_after_provisioning_writes_session_id(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
-    """on_after_provisioning should copy session data and set the session ID."""
-    config = ClaudeAgentConfig(check_installation=False, trust_working_directory=True)
-    agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx, agent_config=config)
-    _init_git_with_gitignore(agent.work_dir)
+    """on_after_provisioning should write the session ID to the agent state dir."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
 
-    # Set up the source project directory with a session
-    source_path = tmp_path / "source_work"
-    source_path.mkdir()
-    source_project_dir = _get_claude_project_dir(source_path)
-    source_project_dir.mkdir(parents=True)
-
-    target_session_id = "adopt-test-session-id"
-    (source_project_dir / f"{target_session_id}.jsonl").write_text('{"type":"message"}\n')
-
-    # Create the agent state dir
     agent_state_dir = agent._get_agent_dir()
     agent_state_dir.mkdir(parents=True, exist_ok=True)
 
+    target_session_id = "adopt-test-session-id"
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         plugin_data={"adopt_session": target_session_id},
-        source_work_dir=source_path,
     )
 
-    # provision() sets up the config dir, on_after_provisioning() copies session data
-    agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
     agent.on_after_provisioning(host=host, options=options, mng_ctx=temp_mng_ctx)
 
-    # Verify the session ID was written
     assert (agent_state_dir / "claude_session_id").read_text() == target_session_id
-
-    # Verify the session file was copied to the per-agent config dir's project dir
-    config_dir = agent.get_claude_config_dir()
-    dest_project_dir = config_dir / "projects" / encode_claude_project_dir_name(agent.work_dir)
-    assert (dest_project_dir / f"{target_session_id}.jsonl").exists()
-
-
-def test_on_after_provisioning_raises_when_source_path_missing(
-    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
-) -> None:
-    """on_after_provisioning should raise PluginMngError when source_work_dir is None."""
-    agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
-
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-        plugin_data={"adopt_session": "some-id"},
-        source_work_dir=None,
-    )
-
-    with pytest.raises(PluginMngError, match="source_work_dir is required"):
-        agent.on_after_provisioning(host=host, options=options, mng_ctx=temp_mng_ctx)
-
-
-def test_on_after_provisioning_raises_when_session_not_found(
-    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
-) -> None:
-    """on_after_provisioning should raise UserInputError when source project dir doesn't exist."""
-    agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
-
-    source_path = tmp_path / "nonexistent_source"
-    source_path.mkdir()
-    # Don't create the project dir -- it should raise
-
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-        plugin_data={"adopt_session": "nonexistent-session"},
-        source_work_dir=source_path,
-    )
-
-    with pytest.raises(UserInputError, match="No Claude project directory found"):
-        agent.on_after_provisioning(host=host, options=options, mng_ctx=temp_mng_ctx)
 
 
 # =============================================================================

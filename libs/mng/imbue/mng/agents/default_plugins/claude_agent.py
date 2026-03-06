@@ -26,7 +26,6 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
-from imbue.imbue_common.model_update import to_update
 from imbue.mng import hookimpl
 from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
@@ -37,7 +36,6 @@ from imbue.mng.agents.default_plugins.claude_config import build_readiness_hooks
 from imbue.mng.agents.default_plugins.claude_config import check_claude_dialogs_dismissed
 from imbue.mng.agents.default_plugins.claude_config import complete_onboarding
 from imbue.mng.agents.default_plugins.claude_config import dismiss_effort_callout
-from imbue.mng.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mng.agents.default_plugins.claude_config import ensure_claude_dialogs_dismissed
 from imbue.mng.agents.default_plugins.claude_config import find_project_config
 from imbue.mng.agents.default_plugins.claude_config import get_claude_config_path
@@ -84,11 +82,6 @@ _CLAUDE_HOME_SYNC_ITEMS: Final[tuple[str, ...]] = (
 # into local per-agent config dirs. Symlinks avoid duplication and keep the
 # per-agent dir lightweight; copies provide full isolation.
 _SYMLINK_LOCAL_USER_RESOURCES: Final[bool] = True
-
-
-def _get_claude_project_dir(path: Path) -> Path:
-    """Get the Claude project directory for a given filesystem path."""
-    return Path.home() / ".claude" / "projects" / encode_claude_project_dir_name(path)
 
 
 class ClaudeAgentConfig(AgentTypeConfig):
@@ -1266,55 +1259,16 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mng_ctx: MngContext,
     ) -> None:
-        """Transfer session data when --adopt-session is used.
+        """Write the adopted session ID when --adopt-session is used.
 
-        Copies the project directory from the source work_dir's Claude project
-        into the per-agent config dir, then writes the specific session ID.
+        The session data itself is already present in the per-agent config dir,
+        copied by _transfer_source_agent_data during provisioning. This method
+        just writes the specific session ID so --resume picks it up.
         """
         session_id = options.plugin_data.get("adopt_session")
         if session_id is None:
             return
 
-        if options.source_work_dir is None:
-            raise PluginMngError("source_work_dir is required when adopt_session is set")
-
-        # Source: the Claude project dir in the user's global ~/.claude/
-        source_project_dir = _get_claude_project_dir(options.source_work_dir)
-        if not source_project_dir.exists():
-            raise UserInputError(
-                f"No Claude project directory found at {source_project_dir}. "
-                f"Cannot adopt session from {options.source_work_dir}."
-            )
-
-        # Dest: the project dir inside the per-agent config dir
-        config_dir = self.get_claude_config_dir()
-        dest_project_dir = config_dir / "projects" / encode_claude_project_dir_name(self.work_dir)
-        host.execute_command(f"mkdir -p {shlex.quote(str(dest_project_dir))}", timeout_seconds=5.0)
-
-        # Copy all files from source project dir to dest
-        with log_span("Transferring Claude session from {} to {}", source_project_dir, dest_project_dir):
-            if host.is_local:
-                # Use cp -a for local transfer; dest dir already exists so copy contents
-                host.execute_command(
-                    f"cp -a {shlex.quote(str(source_project_dir))}/ {shlex.quote(str(dest_project_dir))}/",
-                    timeout_seconds=60.0,
-                )
-            else:
-                # For remote hosts, iterate and write each file
-                for file_path in source_project_dir.rglob("*"):
-                    if file_path.is_file():
-                        relative_path = file_path.relative_to(source_project_dir)
-                        remote_path = dest_project_dir / relative_path
-                        host.write_file(remote_path, file_path.read_bytes())
-
-        # Verify the specific session exists
-        target_file = dest_project_dir / f"{session_id}.jsonl"
-        if not host.execute_command(f"test -f {shlex.quote(str(target_file))}", timeout_seconds=5.0).success:
-            raise UserInputError(
-                f"Session {session_id} not found after transfer. Check that the session ID is correct."
-            )
-
-        # Write the session ID so --resume picks it up
         agent_state_dir = self._get_agent_dir()
         host.write_text_file(agent_state_dir / "claude_session_id", session_id)
         logger.info("Adopted session {}", session_id)
@@ -1447,12 +1401,11 @@ def register_cli_options(command_name: str) -> Mapping[str, list[OptionStackItem
 
 @hookimpl
 def on_before_create(args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
-    """Validate and enrich create args when --adopt-session is used.
+    """Validate create args when --adopt-session is used.
 
     When plugin_data contains "adopt_session":
     - Validates the agent type is claude (or unset/default)
-    - Sets source_work_dir = Path.cwd() if not already set (clone/migrate sets
-      it separately; standalone adopt uses the current directory)
+    - Validates that --from-agent was used (source_agent_state_dir must be set)
     """
     adopt_session = args.agent_options.plugin_data.get("adopt_session")
     if adopt_session is None:
@@ -1463,16 +1416,11 @@ def on_before_create(args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
     if agent_type is not None and str(agent_type) != "claude":
         raise UserInputError(f"--adopt-session can only be used with the claude agent type, not '{agent_type}'.")
 
-    # Set source_work_dir if not already set (e.g. by --source-agent)
-    if args.agent_options.source_work_dir is not None:
-        return None
+    # Require --from-agent so the session data is available via clone transfer
+    if args.agent_options.source_agent_state_dir is None:
+        raise UserInputError("--adopt-session requires --from-agent to specify which agent's session to adopt.")
 
-    new_options = args.agent_options.model_copy_update(
-        to_update(args.agent_options.field_ref().source_work_dir, Path.cwd()),
-    )
-    return args.model_copy_update(
-        to_update(args.field_ref().agent_options, new_options),
-    )
+    return None
 
 
 @hookimpl
