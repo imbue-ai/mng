@@ -18,7 +18,6 @@ members = [
     "mng",
     "mng-changeling-chat",
     "mng-claude-changeling",
-    "mng-claude-zygote",
     "mng-elena-code",
     "mng-kanpan",
     "mng-opencode",
@@ -1893,11 +1892,6 @@ requires-dist = [
     { name = "mng-ttyd", editable = "libs/mng_ttyd" },
     { name = "watchdog", specifier = ">=4.0" },
 ]
-
-[[package]]
-name = "mng-claude-zygote"
-version = "0.1.0"
-source = { editable = "libs/mng_claude_zygote" }
 
 [[package]]
 name = "mng-elena-code"
