@@ -767,7 +767,8 @@ def build_memory_sync_hooks_config(role_dir_abs: str) -> dict[str, Any]:
     - PostToolUse: ~/.claude/projects/<project>/memory/ -> <role_dir>/memory/
       (captures any memory Claude wrote back into version control)
     """
-    project_dir_name = compute_claude_project_dir_name(role_dir_abs)
+    # note that the ".parent" is necessary here--the git repo is what is tracked on the claude side
+    project_dir_name = compute_claude_project_dir_name(str(Path(role_dir_abs).parent))
     quoted_work_memory = shlex.quote(f"{role_dir_abs}/memory")
     quoted_project_dir_name = shlex.quote(project_dir_name)
     project_memory_shell = f'"$HOME/.claude/projects/"{quoted_project_dir_name}/memory'
@@ -781,6 +782,7 @@ def build_memory_sync_hooks_config(role_dir_abs: str) -> dict[str, Any]:
         "hooks": {
             "PreToolUse": [
                 {
+                    "matcher": "memory",
                     "hooks": [
                         {
                             "type": "command",
@@ -791,6 +793,7 @@ def build_memory_sync_hooks_config(role_dir_abs: str) -> dict[str, Any]:
             ],
             "PostToolUse": [
                 {
+                    "matcher": "memory",
                     "hooks": [
                         {
                             "type": "command",
