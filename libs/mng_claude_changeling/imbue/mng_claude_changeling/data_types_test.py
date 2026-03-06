@@ -8,14 +8,16 @@ from imbue.imbue_common.event_envelope import EventId
 from imbue.imbue_common.event_envelope import EventSource
 from imbue.imbue_common.event_envelope import EventType
 from imbue.imbue_common.event_envelope import IsoTimestamp
-from imbue.mng_claude_zygote.data_types import ChangelingEvent
-from imbue.mng_claude_zygote.data_types import ChatModel
-from imbue.mng_claude_zygote.data_types import ConversationEvent
-from imbue.mng_claude_zygote.data_types import ConversationId
-from imbue.mng_claude_zygote.data_types import MessageEvent
-from imbue.mng_claude_zygote.data_types import MessageRole
-from imbue.mng_claude_zygote.data_types import SOURCE_CONVERSATIONS
-from imbue.mng_claude_zygote.data_types import SOURCE_MESSAGES
+from imbue.mng_claude_changeling.data_types import AgentStateTransitionEvent
+from imbue.mng_claude_changeling.data_types import ChangelingEvent
+from imbue.mng_claude_changeling.data_types import ChatModel
+from imbue.mng_claude_changeling.data_types import ConversationEvent
+from imbue.mng_claude_changeling.data_types import ConversationId
+from imbue.mng_claude_changeling.data_types import MessageEvent
+from imbue.mng_claude_changeling.data_types import MessageRole
+from imbue.mng_claude_changeling.data_types import SOURCE_CONVERSATIONS
+from imbue.mng_claude_changeling.data_types import SOURCE_MESSAGES
+from imbue.mng_claude_changeling.data_types import SOURCE_MNG_AGENTS
 
 _TS = IsoTimestamp("2026-02-28T00:00:00.000000000Z")
 _EID = EventId("evt-1234")
@@ -109,6 +111,48 @@ def test_conversation_event_roundtrips_without_tags() -> None:
     )
     event = ConversationEvent.model_validate_json(raw)
     assert event.tags == {}
+
+
+# -- AgentStateTransitionEvent --
+
+
+def test_agent_state_transition_event_serialization() -> None:
+    event = AgentStateTransitionEvent(
+        timestamp=_TS,
+        type=EventType("agent_state_transition"),
+        event_id=_EID,
+        source=SOURCE_MNG_AGENTS,
+        agent_id="agent-abc123",
+        agent_name="my-helper",
+        from_state="RUNNING",
+        to_state="WAITING",
+    )
+    data = json.loads(event.model_dump_json())
+    assert data["type"] == "agent_state_transition"
+    assert data["source"] == "mng_agents"
+    assert data["agent_id"] == "agent-abc123"
+    assert data["agent_name"] == "my-helper"
+    assert data["from_state"] == "RUNNING"
+    assert data["to_state"] == "WAITING"
+
+
+def test_agent_state_transition_event_roundtrips_from_json() -> None:
+    raw = json.dumps(
+        {
+            "timestamp": "2026-03-04T00:00:00.000000000Z",
+            "type": "agent_state_transition",
+            "event_id": "evt-xyz",
+            "source": "mng_agents",
+            "agent_id": "agent-456",
+            "agent_name": "worker",
+            "from_state": "WAITING",
+            "to_state": "RUNNING",
+        }
+    )
+    event = AgentStateTransitionEvent.model_validate_json(raw)
+    assert event.from_state == "WAITING"
+    assert event.to_state == "RUNNING"
+    assert event.agent_id == "agent-456"
 
 
 # -- ChangelingEvent --

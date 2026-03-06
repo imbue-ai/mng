@@ -554,11 +554,25 @@ def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
 
     assert "UserPromptSubmit" in config["hooks"]
     assert len(config["hooks"]["UserPromptSubmit"]) == 1
-    hook = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]
-    assert hook["type"] == "command"
-    assert "touch" in hook["command"]
-    assert "MNG_AGENT_STATE_DIR" in hook["command"]
-    assert "active" in hook["command"]
+    hooks = config["hooks"]["UserPromptSubmit"][0]["hooks"]
+    assert hooks[0]["type"] == "command"
+    assert "touch" in hooks[0]["command"]
+    assert "MNG_AGENT_STATE_DIR" in hooks[0]["command"]
+    assert "active" in hooks[0]["command"]
+
+
+def test_build_readiness_hooks_config_has_user_prompt_submit_state_transition() -> None:
+    """build_readiness_hooks_config should emit WAITING->RUNNING transition on UserPromptSubmit."""
+    config = build_readiness_hooks_config()
+
+    hooks = config["hooks"]["UserPromptSubmit"][0]["hooks"]
+    # State transition hook is the second hook (after touch active, before tmux signal)
+    transition_hook = hooks[1]
+    assert transition_hook["type"] == "command"
+    assert "agent_state_transition" in transition_hook["command"]
+    assert "WAITING" in transition_hook["command"]
+    assert "RUNNING" in transition_hook["command"]
+    assert "mng_agents" in transition_hook["command"]
 
 
 def test_build_readiness_hooks_config_has_notification_idle_hook() -> None:
@@ -574,6 +588,21 @@ def test_build_readiness_hooks_config_has_notification_idle_hook() -> None:
     assert "rm" in hook["command"]
     assert "MNG_AGENT_STATE_DIR" in hook["command"]
     assert "active" in hook["command"]
+
+
+def test_build_readiness_hooks_config_has_notification_state_transition() -> None:
+    """build_readiness_hooks_config should emit RUNNING->WAITING transition on Notification/idle_prompt."""
+    config = build_readiness_hooks_config()
+
+    hook_group = config["hooks"]["Notification"][0]
+    hooks = hook_group["hooks"]
+    # State transition hook is the second hook (after rm active)
+    transition_hook = hooks[1]
+    assert transition_hook["type"] == "command"
+    assert "agent_state_transition" in transition_hook["command"]
+    assert "RUNNING" in transition_hook["command"]
+    assert "WAITING" in transition_hook["command"]
+    assert "mng_agents" in transition_hook["command"]
 
 
 def test_get_expected_process_name_returns_claude(
