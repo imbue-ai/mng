@@ -35,46 +35,7 @@ agent_type = "elena-code"
 
 Changelings read per-deployment settings from `changelings.toml` in the agent work directory (`$MNG_AGENT_WORK_DIR/changelings.toml`). This file is optional -- if it does not exist, all settings use their built-in defaults.
 
-The settings are modeled by `ClaudeChangelingSettings` in `imbue.mng_claude_changeling.data_types`. Available sections and their defaults:
-
-```toml
-[chat]
-model = "claude-opus-4.6"               # Default model for new conversation threads
-
-[chat.context]
-max_transcript_line_count = 10          # Max inner monologue lines in context
-max_messages_line_count = 20            # Max recent message lines in context
-max_messages_per_conversation = 3       # Max messages per conversation in context
-max_trigger_line_count = 5              # Max trigger event lines per source in context
-max_content_length = 200                # Max truncated content length in context_tool
-
-[chat.extra_context]
-max_content_length = 300                # Max truncated content length in extra_context_tool
-transcript_line_count = 50              # Inner monologue lines in extended history
-mng_list_hard_timeout_seconds = 120     # Hard timeout for mng list command
-mng_list_warn_threshold_seconds = 15    # Warning threshold for mng list command
-
-[watchers]
-conversation_poll_interval_seconds = 5  # Poll interval for conversation watcher
-event_poll_interval_seconds = 3         # Poll interval for event watcher
-transcript_poll_interval_seconds = 5    # Poll interval for transcript watcher
-# CEL filter for the event watcher (passed to 'mng events --filter').
-# Default: exclude common_transcript, conversations, delivery_failures,
-# and log events that aren't ERROR/WARNING.
-event_cel_filter = 'source != "common_transcript" && source != "conversations" && source != "delivery_failures" && (!source.startsWith("logs/") || (source.startsWith("logs/") && (level == "ERROR" || level == "WARNING")))'
-event_burst_size = 5                    # Messages allowed in initial burst before rate limiting
-max_event_messages_per_minute = 10      # Sustained rate limit for event delivery
-high_rate_warning_threshold_per_minute = 8  # Include rate warning when messages/min exceeds this
-max_delivery_retries = 3                # Consecutive failures before notifying user
-
-[provisioning]
-fs_hard_timeout_seconds = 16.0          # Hard timeout for filesystem operations
-fs_warn_threshold_seconds = 4.0         # Warning threshold for filesystem operations
-command_check_hard_timeout_seconds = 30.0
-command_check_warn_threshold_seconds = 5.0
-install_hard_timeout_seconds = 300.0    # Hard timeout for package installations
-install_warn_threshold_seconds = 60.0   # Warning threshold for package installations
-```
+The settings are modeled by `ClaudeChangelingSettings` in `imbue.mng_claude_changeling.data_types`.
 
 Bash scripts read settings via python3 one-liners with fallback defaults. Python tool scripts (deployed as standalone files to the agent host) read the TOML file directly at module load time.
 
