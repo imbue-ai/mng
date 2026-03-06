@@ -242,11 +242,25 @@ The CLI is built with [Click](https://click.palletsprojects.com/) and uses `clic
 
 **Setup**: `provision` (alias: `prov`), `clone`, `migrate`
 
-**Maintenance**: `cleanup` (alias: `clean`), `logs`, `gc`, `snapshot` (alias: `snap`), `limit` (alias: `lim`)
+**Maintenance**: `cleanup` (alias: `clean`), `logs`, `events`, `gc`, `snapshot` (alias: `snap`), `limit` (alias: `lim`)
 
 **Meta**: `config` (alias: `cfg`), `plugin` (alias: `plug`), `ask`
 
 Commands follow a consistent pattern: CliOptions class -> @click.command -> setup_command_context() -> API layer delegation -> output formatting (human/JSON/JSONL/template).
+
+### Event Stream System
+
+`mng` has a structured event logging and streaming subsystem for observability of agent and host activity.
+
+**Foundation** (`imbue_common/event_envelope.py`): `EventEnvelope` is a shared base class (in `imbue_common`) for all structured event records. Every event written to a `logs/<source>/events.jsonl` file includes envelope fields: `timestamp` (ISO 8601 with nanosecond precision), `type`, `event_id`, and `source`. Subclasses add domain-specific fields. `LogEvent` extends this for diagnostic logging from both Python and bash scripts.
+
+**Event sources on the host**: Agents and hosts emit events to JSONL files under `$MNG_HOST_DIR/logs/<source>/events.jsonl`. Sources are discovered by scanning subdirectories. Files support rotation (`events.jsonl.1`, `events.jsonl.2`, etc.). A `stream_transcript.sh` script streams Claude session transcripts into this format with crash-recovery via UUID-based offset reconciliation.
+
+**Discovery events** (`api/discovery_events.py`): Structured events for host/agent discovery state changes (`AGENT_DISCOVERED`, `HOST_DISCOVERED`, `AGENT_DESTROYED`, `HOST_DESTROYED`, `DISCOVERY_FULL`). These extend `EventEnvelope` and are written during the discovery process.
+
+**Streaming API** (`api/events.py`): `EventsTarget` resolves an agent or host to its event sources, supporting three access strategies: direct host access (SSH), volume-based reads (for offline hosts with Modal volumes), and polling for online/offline transitions. `stream_all_events()` merges events from multiple sources in timestamp order with optional CEL expression filtering.
+
+**CLI** (`cli/events.py`): `mng events` (experimental) streams events in real-time (`--follow`) or historical, with CEL-based `--filter`, `--head`/`--tail` pagination, and source selection.
 
 ### TUI Components
 
@@ -371,6 +385,7 @@ Core types and patterns shared across all projects:
 - **`frozen_model.py`** -- `FrozenModel(BaseModel)`: immutable Pydantic models with `model_copy_update()`
 - **`mutable_model.py`** -- `MutableModel`: for cases where mutation is necessary (used sparingly)
 - **`enums.py`** -- `UpperCaseStrEnum` base class
+- **`event_envelope.py`** -- `EventEnvelope` base class for structured event log records (see Event Stream System)
 - **`model_update.py`** -- type-safe model update utilities (`to_update_dict()`, `FieldProxy`)
 
 ### libs/concurrency_group
