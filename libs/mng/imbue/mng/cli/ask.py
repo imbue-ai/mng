@@ -32,6 +32,7 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import BaseMngError
 from imbue.mng.errors import MngError
 from imbue.mng.hosts.host import HostLocation
+from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.agent import HeadlessAgentMixin
 from imbue.mng.interfaces.host import AgentLabelOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
@@ -231,6 +232,22 @@ class ClaudeBackendInterface(MutableModel, ABC):
 
 
 @contextmanager
+def _destroy_on_exit(host: OnlineHostInterface, agent: AgentInterface) -> Iterator[None]:
+    """Stop and destroy an agent on exit, suppressing cleanup errors."""
+    try:
+        yield
+    finally:
+        try:
+            host.stop_agents([agent.id])
+        except (OSError, BaseMngError):
+            logger.debug("Failed to stop ask agent {}", agent.name)
+        try:
+            host.destroy_agent(agent)
+        except (OSError, BaseMngError):
+            logger.debug("Failed to destroy ask agent {}", agent.name)
+
+
+@contextmanager
 def _headless_claude_output(mng_ctx: MngContext, prompt: str, system_prompt: str) -> Iterator[Iterator[str]]:
     """Create a HeadlessClaude agent, yield its output stream, and destroy it on exit.
 
@@ -283,19 +300,10 @@ def _headless_claude_output(mng_ctx: MngContext, prompt: str, system_prompt: str
         )
 
         agent = result.agent
-        try:
+        with _destroy_on_exit(host, agent):
             if not isinstance(agent, HeadlessAgentMixin):
                 raise MngError(f"Expected headless agent with stream_output(), got {type(agent).__name__}")
             yield agent.stream_output()
-        finally:
-            try:
-                host.stop_agents([agent.id])
-            except (OSError, BaseMngError):
-                logger.debug("Failed to stop ask agent {}", agent.name)
-            try:
-                host.destroy_agent(agent)
-            except (OSError, BaseMngError):
-                logger.debug("Failed to destroy ask agent {}", agent.name)
 
 
 class HeadlessClaudeBackend(ClaudeBackendInterface):
