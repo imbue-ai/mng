@@ -245,17 +245,25 @@ def _headless_claude_output(mng_ctx: MngContext, prompt: str, system_prompt: str
     host = host_interface
 
     with tempfile.TemporaryDirectory(prefix="mng-ask-") as tmp_dir:
-        agent_args = (
-            "--system-prompt",
-            system_prompt,
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--include-partial-messages",
-            "--tools",
-            "",
-            "--no-session-persistence",
-            prompt,
+        # Each arg is shell-quoted because assemble_command joins them with
+        # spaces into a command string that is executed by the shell inside
+        # tmux.  Without quoting, special characters in the prompt or system
+        # prompt (backticks, $, quotes, newlines, etc.) would be interpreted
+        # by the shell.
+        agent_args = tuple(
+            shlex.quote(a)
+            for a in (
+                "--system-prompt",
+                system_prompt,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--include-partial-messages",
+                "--tools",
+                "",
+                "--no-session-persistence",
+                prompt,
+            )
         )
 
         source_location = HostLocation(host=host, path=Path(tmp_dir))
