@@ -134,6 +134,12 @@ def _sync_messages(
         is_found_existing = False
 
         for row_id, ts, conversation_id, prompt, response in rows:
+            # llm live-chat inserts a preliminary row (prompt set, response
+            # is empty string "") for crash safety before streaming. It is
+            # deleted once the real response is logged. Skip these to avoid
+            # syncing duplicate user messages.
+            if prompt and response == "":
+                continue
             if prompt:
                 eid = f"{row_id}-user"
                 if eid in file_event_ids:

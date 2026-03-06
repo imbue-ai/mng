@@ -164,8 +164,14 @@ def test_sync_messages_only_syncs_tracked_conversations(tmp_path: Path) -> None:
         assert event["conversation_id"] == "conv-tracked"
 
 
-def test_sync_messages_handles_prompt_only_response(tmp_path: Path) -> None:
-    """A response with only a prompt (no response text) should still sync the user message."""
+def test_sync_messages_skips_preliminary_prompt_only_rows(tmp_path: Path) -> None:
+    """Preliminary rows (prompt set, response empty) from llm live-chat are skipped.
+
+    llm live-chat inserts a prompt-only row for crash safety before streaming
+    the response, then deletes it after the real response is logged. If the
+    conversation watcher polls during this window, it should skip the
+    preliminary row to avoid duplicate user messages.
+    """
     messages_file = tmp_path / "messages" / "events.jsonl"
     messages_file.parent.mkdir(parents=True)
 
@@ -177,11 +183,7 @@ def test_sync_messages_handles_prompt_only_response(tmp_path: Path) -> None:
     write_conversation_to_db(db_path, "conv-1")
 
     synced = _sync_messages(db_path, messages_file)
-    assert synced == 1  # Only the user message
-
-    lines = messages_file.read_text().strip().split("\n")
-    event = json.loads(lines[0])
-    assert event["role"] == "user"
+    assert synced == 0
 
 
 def test_sync_messages_handles_response_only(tmp_path: Path) -> None:
