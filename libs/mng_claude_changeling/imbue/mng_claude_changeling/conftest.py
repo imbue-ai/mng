@@ -142,6 +142,10 @@ class ChatScriptEnv:
         self.chat_script.write_text(load_changeling_resource("chat.sh"))
         os.chmod(self.chat_script, 0o755)
 
+        # Write the conversation_db.py helper (used by chat.sh for DB operations)
+        conv_db_path = temp_host_dir / "commands" / "conversation_db.py"
+        conv_db_path.write_text(load_changeling_resource("conversation_db.py"))
+
         self.agent_state_dir = temp_host_dir / "agents" / "test-agent"
         self.messages_dir = self.agent_state_dir / "events" / "messages"
         self.messages_dir.mkdir(parents=True)

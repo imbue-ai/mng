@@ -31,7 +31,7 @@ _SERVICE_SCRIPT_FILES: Final[tuple[str, ...]] = (
 )
 
 # Python modules provisioned alongside supporting service scripts (not executable, mode 0644)
-_SERVICE_MODULES: Final[tuple[str, ...]] = ("watcher_common.py",)
+_SERVICE_MODULES: Final[tuple[str, ...]] = ("watcher_common.py", "conversation_db.py")
 
 # Python tool files to provision to $MNG_HOST_DIR/commands/llm_tools/
 _LLM_TOOL_FILES: Final[tuple[str, ...]] = (
@@ -640,7 +640,15 @@ def _insert_conversation_record(
     )
     cmd = f"sqlite3 {shlex.quote(str(db_path))} {shlex.quote(sql)}"
     with log_span("Recording conversation in DB for {}", conversation_id):
-        host.execute_command(cmd, timeout_seconds=settings.fs_hard_timeout_seconds)
+        result = _execute_with_timing(
+            host,
+            cmd,
+            hard_timeout=settings.fs_hard_timeout_seconds,
+            warn_threshold=settings.fs_warn_threshold_seconds,
+            label="insert conversation record",
+        )
+        if not result.success:
+            logger.warning("Failed to insert conversation record for {}: {}", conversation_id, result.stderr)
 
 
 def _sql_quote(value: str) -> str:

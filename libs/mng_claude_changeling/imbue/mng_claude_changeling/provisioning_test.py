@@ -567,7 +567,7 @@ def test_provision_supporting_services_uses_executable_mode() -> None:
 
     for path, _, mode in host.written_files:
         # Script modules (non-executable) are provisioned with 0644
-        if path.name in ("watcher_common.py",):
+        if path.name in ("watcher_common.py", "conversation_db.py"):
             assert mode == "0644", f"Expected 0644 for module {path.name}, got {mode}"
         else:
             assert mode == "0755", f"Expected 0755 for script {path.name}, got {mode}"
@@ -1545,9 +1545,6 @@ def test_extra_context_tool_conversations_empty_db(
 def test_extra_context_tool_conversations_no_db(extra_context_env: tuple[Any, Path]) -> None:
     """Verify gather_extra_context works when no llm DB exists."""
     module, data_dir = extra_context_env
-
-    result = module.gather_extra_context()
-    assert "All Conversations" not in result
 
     result = module.gather_extra_context()
     assert "All Conversations" not in result
