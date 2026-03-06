@@ -197,58 +197,6 @@ def add_claude_trust_for_path(config_path: Path, source_path: Path) -> None:
     logger.trace("Added Claude trust for {}", source_path)
 
 
-def extend_claude_trust_to_worktree(config_path: Path, source_path: Path, worktree_path: Path) -> None:
-    """Extend Claude's trust settings from source_path to a new worktree.
-
-    Reads the config file, finds the project entry for source_path (or the closest
-    ancestor with a config entry), and creates a new entry for worktree_path with
-    the same settings (allowedTools, hasTrustDialogAccepted, etc.).
-
-    Raises ClaudeDirectoryNotTrustedError if the source config does not have
-    hasTrustDialogAccepted=true.
-    """
-    source_path = source_path.resolve()
-    worktree_path = worktree_path.resolve()
-
-    with _claude_config_lock(config_path):
-        config = read_claude_config(config_path)
-        if not config:
-            raise ClaudeDirectoryNotTrustedError(str(source_path))
-
-        # Find the source project config
-        projects = config.get("projects", {})
-        source_config = find_project_config(projects, source_path)
-
-        if source_config is None:
-            raise ClaudeDirectoryNotTrustedError(str(source_path))
-
-        # Verify the source directory was actually trusted
-        if not source_config.get("hasTrustDialogAccepted", False):
-            raise ClaudeDirectoryNotTrustedError(str(source_path))
-
-        worktree_path_str = str(worktree_path)
-        if worktree_path_str in projects:
-            logger.trace(
-                "Found existing Claude trust for worktree {}",
-                worktree_path,
-            )
-            return
-
-        worktree_config = copy.deepcopy(source_config)
-        worktree_config["_mngCreated"] = True
-        worktree_config["_mngSourcePath"] = str(source_path)
-        projects[worktree_path_str] = worktree_config
-        config["projects"] = projects
-
-        _write_claude_config_atomic(config_path, config)
-
-    logger.trace(
-        "Extended Claude trust from {} to worktree {}",
-        source_path,
-        worktree_path,
-    )
-
-
 def remove_claude_trust_for_path(config_path: Path, path: Path) -> bool:
     """Remove Claude's trust entry for a path from the given config file.
 

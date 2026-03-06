@@ -197,9 +197,11 @@ def _build_claude_json_for_agent(
     Returns the dict so callers can do further modifications (e.g. keychain merge)
     before serializing.
     """
-    local_path = Path.home() / ".claude.json"
-    if sync_local and local_path.exists():
-        data: dict[str, Any] = json.loads(local_path.read_text())
+    if sync_local:
+        local_config = read_claude_config(get_claude_config_path())
+        data: dict[str, Any] = (
+            local_config if local_config else _generate_claude_json(version, current_time=current_time)
+        )
     else:
         data = _generate_claude_json(version, current_time=current_time)
     data["bypassPermissionsModeAccepted"] = True
@@ -489,6 +491,30 @@ def _provision_remote_credentials(
             logger.debug("Skipped .credentials.json (file does not exist, no keychain credentials)")
     else:
         logger.debug("Skipped .credentials.json (file does not exist)")
+
+
+def _provision_remote_api_key(
+    host: OnlineHostInterface,
+    config_dir: Path,
+    claude_json_data: dict[str, Any],
+    config: "ClaudeAgentConfig",
+    concurrency_group: ConcurrencyGroup,
+) -> None:
+    """Inject primaryApiKey from the macOS keychain into the remote .claude.json if needed.
+
+    Re-reads and rewrites .claude.json on the remote host if an API key is found
+    in the keychain but wasn't in the synced local config.
+    """
+    if claude_json_data.get("primaryApiKey"):
+        return
+    if not config.convert_macos_credentials or not is_macos():
+        return
+    keychain_api_key = _read_macos_keychain_credential("Claude Code", concurrency_group)
+    if keychain_api_key is None:
+        return
+    logger.info("Merging macOS keychain API key into remote per-agent .claude.json...")
+    claude_json_data["primaryApiKey"] = keychain_api_key
+    host.write_text_file(config_dir / ".claude.json", json.dumps(claude_json_data, indent=2) + "\n")
 
 
 def _sync_local_user_resources(host: OnlineHostInterface, config_dir: Path) -> None:
@@ -1103,15 +1129,10 @@ class ClaudeAgent(BaseAgent):
         if realpath_result.success and realpath_result.stdout.strip():
             resolved_work_dir = Path(realpath_result.stdout.strip())
         claude_json_data = _build_claude_json_for_agent(config.sync_claude_json, resolved_work_dir, config.version)
-        # If the local file lacks primaryApiKey, try the macOS keychain
-        if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
-            keychain_api_key = _read_macos_keychain_credential("Claude Code", mng_ctx.concurrency_group)
-            if keychain_api_key is not None:
-                logger.info("Merging macOS keychain API key into per-agent .claude.json...")
-                claude_json_data["primaryApiKey"] = keychain_api_key
         host.write_text_file(config_dir / ".claude.json", json.dumps(claude_json_data, indent=2) + "\n")
 
-        # 4. Ship credentials
+        # 4. Ship credentials (API key via .claude.json, OAuth via .credentials.json)
+        _provision_remote_api_key(host, config_dir, claude_json_data, config, mng_ctx.concurrency_group)
         if config.sync_claude_credentials:
             _provision_remote_credentials(
                 host, config_dir, mng_ctx.concurrency_group, config.convert_macos_credentials

@@ -1,13 +1,11 @@
 import json
 import subprocess
-from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import MagicMock
 from unittest.mock import patch
 from uuid import UUID
 
@@ -198,7 +196,7 @@ def _mock_all_dialog_prompts(
     trust_accepted: bool = True,
     effort_accepted: bool = True,
     onboarding_accepted: bool = True,
-) -> Generator[dict[str, MagicMock], None, None]:
+):
     """Mock all interactive dialog prompts with the given return values.
 
     Yields a dict of mock names to mock objects for assertion.
