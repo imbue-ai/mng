@@ -22,6 +22,7 @@ from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng_claude_changeling.provisioning import build_memory_sync_hooks_config
 from imbue.mng_claude_changeling.provisioning import configure_llm_user_path
+from imbue.mng_claude_changeling.provisioning import create_changeling_conversations_table
 from imbue.mng_claude_changeling.provisioning import create_changeling_symlinks
 from imbue.mng_claude_changeling.provisioning import create_daily_conversation
 from imbue.mng_claude_changeling.provisioning import create_event_log_directories
@@ -230,6 +231,7 @@ class ClaudeChangelingAgent(ClaudeAgent):
         create_event_log_directories(host, agent_state_dir, provisioning)
 
         configure_llm_user_path(host, agent_state_dir, provisioning)
+        create_changeling_conversations_table(host, agent_state_dir, provisioning)
 
         if config.install_llm:
             create_system_notifications_conversation(host, agent_state_dir, provisioning)

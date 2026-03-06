@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 import sqlite3
@@ -126,7 +125,8 @@ class ChatScriptEnv:
     """Environment for running the chat.sh script in tests.
 
     Provides the script path, agent state directory, and environment variables
-    needed to invoke chat.sh in a subprocess.
+    needed to invoke chat.sh in a subprocess. Sets up the llm database with
+    the changeling_conversations table.
     """
 
     def __init__(self, temp_host_dir: Path) -> None:
@@ -142,10 +142,14 @@ class ChatScriptEnv:
         os.chmod(self.chat_script, 0o755)
 
         self.agent_state_dir = temp_host_dir / "agents" / "test-agent"
-        self.conversations_dir = self.agent_state_dir / "events" / "conversations"
-        self.conversations_dir.mkdir(parents=True)
         self.messages_dir = self.agent_state_dir / "events" / "messages"
         self.messages_dir.mkdir(parents=True)
+
+        # Set up LLM_USER_PATH and create the DB with the changeling_conversations table
+        self.llm_data_dir = self.agent_state_dir / "llm_data"
+        self.llm_data_dir.mkdir(parents=True)
+        self.llm_db_path = self.llm_data_dir / "logs.db"
+        _create_changeling_conversations_table(self.llm_db_path)
 
         self.work_dir = temp_host_dir / "work"
         self.work_dir.mkdir(parents=True)
@@ -154,6 +158,7 @@ class ChatScriptEnv:
         self.env["MNG_AGENT_STATE_DIR"] = str(self.agent_state_dir)
         self.env["MNG_HOST_DIR"] = str(temp_host_dir)
         self.env["MNG_AGENT_WORK_DIR"] = str(self.work_dir)
+        self.env["LLM_USER_PATH"] = str(self.llm_data_dir)
 
     def set_default_model(self, model: str) -> None:
         """Write the chat model to changelings.toml in the work dir."""
@@ -281,13 +286,32 @@ LLM_RESPONSES_SCHEMA = """
 """
 
 
+CHANGELING_CONVERSATIONS_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS changeling_conversations (
+        conversation_id TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+    )
+"""
+
+
+def _create_changeling_conversations_table(db_path: Path) -> None:
+    """Create the changeling_conversations table in the given database."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(CHANGELING_CONVERSATIONS_SCHEMA)
+        conn.commit()
+
+
 def create_test_llm_db(db_path: Path, rows: list[tuple[str, str, str, str, str, str]]) -> None:
-    """Create a minimal llm-compatible SQLite database with responses.
+    """Create a minimal llm-compatible SQLite database with responses and changeling_conversations.
 
     Each row is (id, prompt, response, model, datetime_utc, conversation_id).
     """
     with sqlite3.connect(str(db_path)) as conn:
         conn.execute(LLM_RESPONSES_SCHEMA)
+        conn.execute(CHANGELING_CONVERSATIONS_SCHEMA)
         for row_id, prompt, response, model, dt, conversation_id in rows:
             conn.execute(
                 "INSERT INTO responses (id, prompt, response, model, datetime_utc, conversation_id) "
@@ -328,18 +352,20 @@ def mock_subprocess_failure(monkeypatch: pytest.MonkeyPatch) -> EventWatcherSubp
     return capture
 
 
-def write_conversation_event(events_file: Path, conversation_id: str, model: str = "claude-sonnet-4-6") -> None:
-    """Append a conversation_created event to a JSONL file."""
-    event = json.dumps(
-        {
-            "timestamp": "2025-01-15T10:00:00.000Z",
-            "type": "conversation_created",
-            "event_id": f"evt-{conversation_id}",
-            "source": "conversations",
-            "conversation_id": conversation_id,
-            "model": model,
-        }
-    )
-    events_file.parent.mkdir(parents=True, exist_ok=True)
-    with events_file.open("a") as f:
-        f.write(event + "\n")
+def write_conversation_to_db(
+    db_path: Path,
+    conversation_id: str,
+    model: str = "claude-sonnet-4-6",
+    tags: str = "{}",
+    created_at: str = "2025-01-15T10:00:00.000Z",
+) -> None:
+    """Insert a conversation record into the changeling_conversations table in the given database."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(CHANGELING_CONVERSATIONS_SCHEMA)
+        conn.execute(
+            "INSERT OR REPLACE INTO changeling_conversations "
+            "(conversation_id, model, tags, created_at) VALUES (?, ?, ?, ?)",
+            (conversation_id, model, tags, created_at),
+        )
+        conn.commit()

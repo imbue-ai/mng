@@ -9,7 +9,6 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Final
-from uuid import uuid4
 
 import pluggy
 from loguru import logger
@@ -501,7 +500,6 @@ def create_event_log_directories(
     """Create the event and log directory structure.
 
     Creates directories for event sources (events/<source>/):
-    - events/conversations/      conversation lifecycle events
     - events/messages/           conversation messages
     - events/scheduled/          scheduled trigger events
     - events/mng_agents/         agent state transitions
@@ -513,9 +511,12 @@ def create_event_log_directories(
 
     Creates directories for log sources (logs/<source>/):
     - logs/claude_transcript/    inner monologue (written by Claude background tasks, raw format)
+
+    Note: conversation metadata (tags, created_at) is stored in the
+    changeling_conversations table in the llm sqlite database, not in
+    a separate event directory.
     """
     for source in (
-        "conversations",
         "messages",
         "scheduled",
         "mng_agents",
@@ -570,6 +571,48 @@ def configure_llm_user_path(
     logger.info("Created LLM data directory: {}", llm_data_dir)
 
 
+def _get_llm_db_path(agent_state_dir: Path) -> Path:
+    """Return the path to the llm database for the given agent."""
+    return agent_state_dir / "llm_data" / "logs.db"
+
+
+# SQL schema for the changeling_conversations table that stores conversation
+# metadata (tags, created_at) alongside the llm tool's own tables.
+CHANGELING_CONVERSATIONS_TABLE_SQL: Final[str] = (
+    "CREATE TABLE IF NOT EXISTS changeling_conversations ("
+    "conversation_id TEXT PRIMARY KEY, "
+    "model TEXT NOT NULL, "
+    "tags TEXT NOT NULL DEFAULT '{}', "
+    "created_at TEXT NOT NULL"
+    ")"
+)
+
+
+def create_changeling_conversations_table(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+) -> None:
+    """Create the changeling_conversations table in the llm database.
+
+    Uses CREATE TABLE IF NOT EXISTS so it is safe to call multiple times.
+    The table stores conversation metadata (tags, created_at) that the llm
+    tool's built-in tables do not track.
+    """
+    db_path = _get_llm_db_path(agent_state_dir)
+    cmd = f"sqlite3 {shlex.quote(str(db_path))} {shlex.quote(CHANGELING_CONVERSATIONS_TABLE_SQL)}"
+    with log_span("Creating changeling_conversations table in {}", db_path):
+        result = _execute_with_timing(
+            host,
+            cmd,
+            hard_timeout=settings.fs_hard_timeout_seconds,
+            warn_threshold=settings.fs_warn_threshold_seconds,
+            label="create changeling_conversations table",
+        )
+        if not result.success:
+            logger.warning("Failed to create changeling_conversations table: {}", result.stderr)
+
+
 def _record_conversation_event(
     host: OnlineHostInterface,
     agent_state_dir: Path,
@@ -579,34 +622,34 @@ def _record_conversation_event(
     model: str,
     tags: dict[str, str] | None = None,
 ) -> None:
-    """Append a conversation_created event to events/conversations/events.jsonl."""
+    """Insert a conversation record into the changeling_conversations table in the llm database."""
     now = datetime.now(timezone.utc)
-    event: dict[str, object] = {
-        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond * 1000:09d}Z",
-        "type": "conversation_created",
-        "event_id": f"evt-{uuid4().hex}",
-        "source": "conversations",
-        "conversation_id": conversation_id,
-        "model": model,
-    }
-    if tags:
-        event["tags"] = tags
+    created_at = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond * 1000:09d}Z"
+    tags_json = json.dumps(tags or {}, separators=(",", ":"))
 
-    conversations_dir = agent_state_dir / "events" / "conversations"
-    _execute_with_timing(
-        host,
-        f"mkdir -p {shlex.quote(str(conversations_dir))}",
-        hard_timeout=settings.fs_hard_timeout_seconds,
-        warn_threshold=settings.fs_warn_threshold_seconds,
-        label="mkdir conversations",
+    db_path = _get_llm_db_path(agent_state_dir)
+    sql = (
+        f"INSERT OR REPLACE INTO changeling_conversations "
+        f"(conversation_id, model, tags, created_at) "
+        f"VALUES ("
+        f"{_sql_quote(conversation_id)}, "
+        f"{_sql_quote(model)}, "
+        f"{_sql_quote(tags_json)}, "
+        f"{_sql_quote(created_at)}"
+        f")"
     )
-    events_file = conversations_dir / "events.jsonl"
-    event_line = json.dumps(event, separators=(",", ":"))
-    with log_span("Recording conversation event for {}", conversation_id):
-        host.execute_command(
-            f"echo {shlex.quote(event_line)} >> {shlex.quote(str(events_file))}",
-            timeout_seconds=settings.fs_hard_timeout_seconds,
-        )
+    cmd = f"sqlite3 {shlex.quote(str(db_path))} {shlex.quote(sql)}"
+    with log_span("Recording conversation in DB for {}", conversation_id):
+        host.execute_command(cmd, timeout_seconds=settings.fs_hard_timeout_seconds)
+
+
+def _sql_quote(value: str) -> str:
+    """Quote a string value for use in a SQL statement.
+
+    Escapes single quotes by doubling them, per SQL standard.
+    """
+    escaped = value.replace("'", "''")
+    return f"'{escaped}'"
 
 
 def _inject_conversation(

@@ -4,6 +4,7 @@ Tests the pure/near-pure functions by loading the resource module via exec().
 """
 
 import json
+import sqlite3
 import types
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,30 @@ import pytest
 from imbue.mng_claude_changeling.provisioning import load_changeling_resource
 
 
+def _create_test_db_with_conversations(db_path: Path, conversations: list[tuple[str, str, str]]) -> None:
+    """Create a test llm DB with changeling_conversations table and rows.
+
+    Each conversation tuple is (conversation_id, model, created_at).
+    """
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS changeling_conversations ("
+            "conversation_id TEXT PRIMARY KEY, "
+            "model TEXT NOT NULL, "
+            "tags TEXT NOT NULL DEFAULT '{}', "
+            "created_at TEXT NOT NULL"
+            ")"
+        )
+        for conversation_id, model, created_at in conversations:
+            conn.execute(
+                "INSERT INTO changeling_conversations (conversation_id, model, tags, created_at) "
+                "VALUES (?, ?, '{}', ?)",
+                (conversation_id, model, created_at),
+            )
+        conn.commit()
+
+
 @pytest.fixture()
 def web_server_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Load web_server.py as a module for testing."""
@@ -20,6 +45,8 @@ def web_server_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     agent_state_dir.mkdir()
     host_dir = tmp_path / "host"
     host_dir.mkdir()
+    llm_data_dir = agent_state_dir / "llm_data"
+    llm_data_dir.mkdir(parents=True)
 
     monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(agent_state_dir))
     monkeypatch.setenv("MNG_HOST_DIR", str(host_dir))
@@ -27,6 +54,7 @@ def web_server_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setenv("MNG_AGENT_ID", "agent-test-82741")
     monkeypatch.setenv("MNG_AGENT_NAME", "test-agent-82741")
     monkeypatch.setenv("MNG_HOST_NAME", "test-host-82741")
+    monkeypatch.setenv("LLM_USER_PATH", str(llm_data_dir))
 
     source = load_changeling_resource("web_server.py")
     module = types.ModuleType("web_server_test_module")
@@ -52,51 +80,20 @@ def test_html_escape_escapes_quotes(web_server_module: Any) -> None:
     assert "&quot;" in web_server_module._html_escape('say "hello"')
 
 
-def _make_conversation_event(
-    conversation_id: str,
-    timestamp: str = "2026-01-01T00:00:00Z",
-    model: str = "claude-sonnet-4-6",
-) -> str:
-    """Create a JSONL line for a conversation_created event."""
-    return json.dumps(
-        {
-            "timestamp": timestamp,
-            "type": "conversation_created",
-            "event_id": f"evt-{conversation_id}",
-            "source": "conversations",
-            "conversation_id": conversation_id,
-            "model": model,
-        }
-    )
-
-
-def _make_message_event(conversation_id: str, timestamp: str, role: str, content: str) -> str:
-    """Create a JSONL line for a message event."""
-    return json.dumps(
-        {
-            "timestamp": timestamp,
-            "conversation_id": conversation_id,
-            "role": role,
-            "content": content,
-            "type": "message",
-            "event_id": f"evt-msg-{conversation_id}",
-            "source": "messages",
-        }
-    )
-
-
 # -- _read_conversations tests --
 
 
-def test_read_conversations_empty_when_no_event_files(web_server_module: Any) -> None:
+def test_read_conversations_empty_when_no_db(web_server_module: Any) -> None:
     result = web_server_module._read_conversations()
     assert result == []
 
 
-def test_read_conversations_parses_conversation_events(web_server_module: Any) -> None:
-    events_path = web_server_module.CONVERSATIONS_EVENTS_PATH
-    events_path.parent.mkdir(parents=True, exist_ok=True)
-    events_path.write_text(_make_conversation_event("conv-abc-82741") + "\n")
+def test_read_conversations_parses_from_db(web_server_module: Any) -> None:
+    db_path = web_server_module.LLM_DB_PATH
+    _create_test_db_with_conversations(
+        db_path,
+        [("conv-abc-82741", "claude-sonnet-4-6", "2026-01-01T00:00:00Z")],
+    )
 
     result = web_server_module._read_conversations()
 
@@ -106,13 +103,14 @@ def test_read_conversations_parses_conversation_events(web_server_module: Any) -
 
 
 def test_read_conversations_sorted_by_most_recent(web_server_module: Any) -> None:
-    events_path = web_server_module.CONVERSATIONS_EVENTS_PATH
-    events_path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [
-        _make_conversation_event("conv-old-82741", timestamp="2026-01-01T00:00:00Z"),
-        _make_conversation_event("conv-new-82741", timestamp="2026-02-01T00:00:00Z"),
-    ]
-    events_path.write_text("\n".join(lines) + "\n")
+    db_path = web_server_module.LLM_DB_PATH
+    _create_test_db_with_conversations(
+        db_path,
+        [
+            ("conv-old-82741", "claude-sonnet-4-6", "2026-01-01T00:00:00Z"),
+            ("conv-new-82741", "claude-sonnet-4-6", "2026-02-01T00:00:00Z"),
+        ],
+    )
 
     result = web_server_module._read_conversations()
 
@@ -122,27 +120,29 @@ def test_read_conversations_sorted_by_most_recent(web_server_module: Any) -> Non
 
 
 def test_read_conversations_updates_with_message_timestamps(web_server_module: Any) -> None:
-    conv_path = web_server_module.CONVERSATIONS_EVENTS_PATH
-    conv_path.parent.mkdir(parents=True, exist_ok=True)
-    conv_path.write_text(_make_conversation_event("conv-1-82741") + "\n")
+    db_path = web_server_module.LLM_DB_PATH
+    _create_test_db_with_conversations(
+        db_path,
+        [("conv-1-82741", "claude-sonnet-4-6", "2026-01-01T00:00:00Z")],
+    )
 
     msg_path = web_server_module.MESSAGES_EVENTS_PATH
     msg_path.parent.mkdir(parents=True, exist_ok=True)
-    msg_path.write_text(_make_message_event("conv-1-82741", "2026-03-01T00:00:00Z", "user", "hello") + "\n")
+    msg_event = json.dumps(
+        {
+            "timestamp": "2026-03-01T00:00:00Z",
+            "conversation_id": "conv-1-82741",
+            "role": "user",
+            "content": "hello",
+            "type": "message",
+            "event_id": "evt-msg-conv-1-82741",
+            "source": "messages",
+        }
+    )
+    msg_path.write_text(msg_event + "\n")
 
     result = web_server_module._read_conversations()
     assert result[0]["updated_at"] == "2026-03-01T00:00:00Z"
-
-
-def test_read_conversations_skips_malformed_lines(web_server_module: Any) -> None:
-    events_path = web_server_module.CONVERSATIONS_EVENTS_PATH
-    events_path.parent.mkdir(parents=True, exist_ok=True)
-    events_path.write_text("not valid json\n" + _make_conversation_event("conv-good-82741") + "\n")
-
-    result = web_server_module._read_conversations()
-
-    assert len(result) == 1
-    assert result[0]["conversation_id"] == "conv-good-82741"
 
 
 # -- _register_server tests --
@@ -190,9 +190,11 @@ def test_render_conversations_page_shows_empty_state_with_no_conversations(web_s
 
 
 def test_render_conversations_page_lists_conversations(web_server_module: Any) -> None:
-    events_path = web_server_module.CONVERSATIONS_EVENTS_PATH
-    events_path.parent.mkdir(parents=True, exist_ok=True)
-    events_path.write_text(_make_conversation_event("conv-render-82741") + "\n")
+    db_path = web_server_module.LLM_DB_PATH
+    _create_test_db_with_conversations(
+        db_path,
+        [("conv-render-82741", "claude-sonnet-4-6", "2026-01-01T00:00:00Z")],
+    )
 
     page = web_server_module._render_conversations_page()
     assert "conv-render-82741" in page
@@ -275,13 +277,14 @@ def test_get_most_recent_conversation_id_returns_none_when_no_conversations(
 def test_get_most_recent_conversation_id_returns_most_recent(
     web_server_module: Any,
 ) -> None:
-    events_path = web_server_module.CONVERSATIONS_EVENTS_PATH
-    events_path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [
-        _make_conversation_event("conv-old-82741", timestamp="2026-01-01T00:00:00Z"),
-        _make_conversation_event("conv-new-82741", timestamp="2026-02-01T00:00:00Z"),
-    ]
-    events_path.write_text("\n".join(lines) + "\n")
+    db_path = web_server_module.LLM_DB_PATH
+    _create_test_db_with_conversations(
+        db_path,
+        [
+            ("conv-old-82741", "claude-sonnet-4-6", "2026-01-01T00:00:00Z"),
+            ("conv-new-82741", "claude-sonnet-4-6", "2026-02-01T00:00:00Z"),
+        ],
+    )
 
     result = web_server_module._get_most_recent_conversation_id()
     assert result == "conv-new-82741"

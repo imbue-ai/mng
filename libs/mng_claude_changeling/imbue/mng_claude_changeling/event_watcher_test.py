@@ -1,6 +1,7 @@
 """Unit tests for event_watcher.py."""
 
 import json
+import sqlite3
 import subprocess
 import threading
 import time
@@ -518,52 +519,106 @@ def test_write_notification_event_creates_file(tmp_path: Path) -> None:
 # -- _get_system_notifications_conversation_id tests --
 
 
-def test_get_system_notifications_conversation_id_returns_first_conversation_id(tmp_path: Path) -> None:
-    events_dir = tmp_path / "events"
-    conv_dir = events_dir / "conversations"
-    conv_dir.mkdir(parents=True)
-    events_file = conv_dir / "events.jsonl"
-    events_file.write_text(
-        json.dumps({"conversation_id": "sys-notif-123", "type": "conversation_created"})
-        + "\n"
-        + json.dumps({"conversation_id": "other-conv", "type": "conversation_created"})
-        + "\n"
+def test_get_system_notifications_conversation_id_returns_tagged_conversation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm_data_dir = tmp_path / "llm_data"
+    llm_data_dir.mkdir(parents=True)
+    db_path = llm_data_dir / "logs.db"
+    monkeypatch.setenv("LLM_USER_PATH", str(llm_data_dir))
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "CREATE TABLE changeling_conversations ("
+        "conversation_id TEXT PRIMARY KEY, model TEXT NOT NULL, "
+        "tags TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)"
     )
+    conn.execute(
+        "INSERT INTO changeling_conversations VALUES (?, ?, ?, ?)",
+        ("sys-notif-123", "echo", '{"internal":"system_notifications"}', "2025-01-01T00:00:00Z"),
+    )
+    conn.execute(
+        "INSERT INTO changeling_conversations VALUES (?, ?, ?, ?)",
+        ("other-conv", "claude-opus-4.6", "{}", "2025-01-01T00:00:00Z"),
+    )
+    conn.commit()
+    conn.close()
+
+    events_dir = tmp_path / "events"
     assert _get_system_notifications_conversation_id(events_dir) == "sys-notif-123"
 
 
-def test_get_system_notifications_conversation_id_returns_none_when_no_file(tmp_path: Path) -> None:
+def test_get_system_notifications_conversation_id_returns_none_when_no_db(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm_data_dir = tmp_path / "nonexistent_llm"
+    monkeypatch.setenv("LLM_USER_PATH", str(llm_data_dir))
     events_dir = tmp_path / "events"
     assert _get_system_notifications_conversation_id(events_dir) is None
 
 
-def test_get_system_notifications_conversation_id_returns_none_when_empty_file(tmp_path: Path) -> None:
+def test_get_system_notifications_conversation_id_returns_none_when_no_tagged_conversation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm_data_dir = tmp_path / "llm_data"
+    llm_data_dir.mkdir(parents=True)
+    db_path = llm_data_dir / "logs.db"
+    monkeypatch.setenv("LLM_USER_PATH", str(llm_data_dir))
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "CREATE TABLE changeling_conversations ("
+        "conversation_id TEXT PRIMARY KEY, model TEXT NOT NULL, "
+        "tags TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)"
+    )
+    conn.commit()
+    conn.close()
+
     events_dir = tmp_path / "events"
-    conv_dir = events_dir / "conversations"
-    conv_dir.mkdir(parents=True)
-    (conv_dir / "events.jsonl").write_text("\n")
     assert _get_system_notifications_conversation_id(events_dir) is None
 
 
 # -- _send_chat_notification tests --
 
 
-def _setup_conversations_file(tmp_path: Path, conversation_id: str = "sys-notif-test") -> Path:
-    """Create a conversations events file with one entry and return events_dir."""
+def _setup_conversations_db(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    conversation_id: str = "sys-notif-test",
+) -> Path:
+    """Create a llm DB with a system_notifications conversation and return events_dir."""
+    llm_data_dir = tmp_path / "llm_data"
+    llm_data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = llm_data_dir / "logs.db"
+    monkeypatch.setenv("LLM_USER_PATH", str(llm_data_dir))
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS changeling_conversations ("
+        "conversation_id TEXT PRIMARY KEY, model TEXT NOT NULL, "
+        "tags TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO changeling_conversations VALUES (?, ?, ?, ?)",
+        (conversation_id, "echo", '{"internal":"system_notifications"}', "2025-01-01T00:00:00Z"),
+    )
+    conn.commit()
+    conn.close()
+
     events_dir = tmp_path / "events"
-    conv_dir = events_dir / "conversations"
-    conv_dir.mkdir(parents=True)
-    events_file = conv_dir / "events.jsonl"
-    events_file.write_text(json.dumps({"conversation_id": conversation_id, "type": "conversation_created"}) + "\n")
     return events_dir
 
 
 def test_send_chat_notification_returns_true_on_success(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     mock_subprocess_success: EventWatcherSubprocessCapture,
 ) -> None:
     """_send_chat_notification returns True when llm succeeds."""
-    events_dir = _setup_conversations_file(tmp_path)
+    events_dir = _setup_conversations_db(tmp_path, monkeypatch)
     assert _send_chat_notification(events_dir, "test message") is True
     assert len(mock_subprocess_success.calls) == 1
     cmd = mock_subprocess_success.calls[0][0]
@@ -574,18 +629,21 @@ def test_send_chat_notification_returns_true_on_success(
 
 def test_send_chat_notification_returns_false_on_failure(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     mock_subprocess_failure: EventWatcherSubprocessCapture,
 ) -> None:
     """_send_chat_notification returns False when llm fails."""
-    events_dir = _setup_conversations_file(tmp_path)
+    events_dir = _setup_conversations_db(tmp_path, monkeypatch)
     assert _send_chat_notification(events_dir, "test message") is False
 
 
 def test_send_chat_notification_returns_false_when_no_conversation(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     mock_subprocess_success: EventWatcherSubprocessCapture,
 ) -> None:
-    """_send_chat_notification returns False when no conversations file exists."""
+    """_send_chat_notification returns False when no DB exists."""
+    monkeypatch.setenv("LLM_USER_PATH", str(tmp_path / "nonexistent_llm"))
     events_dir = tmp_path / "events"
     assert _send_chat_notification(events_dir, "test message") is False
     assert len(mock_subprocess_success.calls) == 0

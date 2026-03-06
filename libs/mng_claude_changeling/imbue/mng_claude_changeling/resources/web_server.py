@@ -25,6 +25,7 @@ import html
 import json
 import os
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -51,8 +52,8 @@ SERVERS_JSONL_PATH: Final[Path | None] = (
 MESSAGES_EVENTS_PATH: Final[Path | None] = (
     Path(AGENT_STATE_DIR) / "events" / "messages" / "events.jsonl" if AGENT_STATE_DIR else None
 )
-CONVERSATIONS_EVENTS_PATH: Final[Path | None] = (
-    Path(AGENT_STATE_DIR) / "events" / "conversations" / "events.jsonl" if AGENT_STATE_DIR else None
+LLM_DB_PATH: Final[Path | None] = (
+    Path(os.environ.get("LLM_USER_PATH", "")) / "logs.db" if os.environ.get("LLM_USER_PATH") else None
 )
 
 # -- Constants --
@@ -118,28 +119,30 @@ def _register_server(server_name: str, port: int) -> None:
 
 
 def _read_conversations() -> list[dict[str, str]]:
-    """Read conversations from event logs and return sorted by most recent activity."""
+    """Read conversations from the changeling_conversations table and return sorted by most recent activity."""
     conversations_by_id: dict[str, dict[str, str]] = {}
 
-    # Read conversation creation events
-    if CONVERSATIONS_EVENTS_PATH and CONVERSATIONS_EVENTS_PATH.exists():
-        for line in CONVERSATIONS_EVENTS_PATH.read_text().splitlines():
-            line = line.strip()
-            if not line:
-                continue
+    # Read conversations from the llm database
+    if LLM_DB_PATH and LLM_DB_PATH.is_file():
+        try:
+            conn = sqlite3.connect(f"file:{LLM_DB_PATH}?mode=ro", uri=True)
             try:
-                event = json.loads(line)
-                conversation_id = event.get("conversation_id", "")
-                if conversation_id:
+                rows = conn.execute(
+                    "SELECT conversation_id, model, created_at FROM changeling_conversations"
+                ).fetchall()
+                for conversation_id, model, created_at in rows:
                     conversations_by_id[conversation_id] = {
                         "conversation_id": conversation_id,
-                        "model": event.get("model", "unknown"),
-                        "created_at": event.get("timestamp", ""),
-                        "updated_at": event.get("timestamp", ""),
+                        "model": model or "unknown",
+                        "created_at": created_at or "",
+                        "updated_at": created_at or "",
                     }
-            except json.JSONDecodeError as e:
-                _log(f"Skipping malformed conversation event line: {e}")
-                continue
+            except sqlite3.Error as e:
+                _log(f"Failed to query changeling_conversations: {e}")
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            _log(f"Failed to open llm database: {e}")
 
     # Update with latest message timestamps
     if MESSAGES_EVENTS_PATH and MESSAGES_EVENTS_PATH.exists():

@@ -12,6 +12,7 @@ injection logic that the plugin provides.
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import time
@@ -34,7 +35,7 @@ from imbue.mng_claude_changeling.conftest import LocalShellHost
 from imbue.mng_claude_changeling.conftest import StubCommandResult
 from imbue.mng_claude_changeling.conftest import StubHost
 from imbue.mng_claude_changeling.conftest import create_test_llm_db
-from imbue.mng_claude_changeling.conftest import write_conversation_event
+from imbue.mng_claude_changeling.conftest import write_conversation_to_db
 from imbue.mng_claude_changeling.data_types import ProvisioningSettings
 from imbue.mng_claude_changeling.provisioning import _DEFAULT_SKILL_DIRS
 from imbue.mng_claude_changeling.provisioning import _DEFAULT_THINKING_DIR_FILES
@@ -114,9 +115,9 @@ def _find_agent_state_dir(host_dir: Path) -> Path | None:
     return None
 
 
-def _run_sync_script(conversations_file: Path, messages_file: Path, db_path: Path, tmp_path: Path) -> int:
+def _run_sync_script(messages_file: Path, db_path: Path) -> int:
     """Run the conversation watcher's sync logic and return the count of synced events."""
-    return _sync_messages(db_path, conversations_file, messages_file)
+    return _sync_messages(db_path, messages_file)
 
 
 # -- Provisioning filesystem structure tests --
@@ -134,7 +135,6 @@ def test_provisioning_creates_event_log_directories(
     create_event_log_directories(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING)
 
     expected_sources = (
-        "conversations",
         "messages",
         "scheduled",
         "mng_agents",
@@ -387,46 +387,20 @@ def test_chat_script_no_args_lists_and_shows_hint(chat_env: ChatScriptEnv) -> No
 
 @pytest.mark.timeout(30)
 def test_chat_script_list_shows_existing_conversations(chat_env: ChatScriptEnv) -> None:
-    """Verify that chat.sh --list shows conversations from the events file."""
-    event = {
-        "timestamp": "2025-01-15T10:00:00.000000000Z",
-        "type": "conversation_created",
-        "event_id": "evt-test-001",
-        "source": "conversations",
-        "conversation_id": "conv-test-12345",
-        "model": "claude-sonnet-4-6",
-    }
-    events_file = chat_env.conversations_dir / "events.jsonl"
-    events_file.write_text(json.dumps(event) + "\n")
+    """Verify that chat.sh --list shows conversations from the database."""
+    conn = sqlite3.connect(str(chat_env.llm_db_path))
+    conn.execute(
+        "INSERT INTO changeling_conversations (conversation_id, model, tags, created_at) "
+        "VALUES ('conv-test-12345', 'claude-sonnet-4-6', '{}', '2025-01-15T10:00:00.000000000Z')"
+    )
+    conn.commit()
+    conn.close()
 
     result = chat_env.run("--list")
 
     assert result.returncode == 0
     assert "conv-test-12345" in result.stdout
     assert "claude-sonnet-4-6" in result.stdout
-
-
-@pytest.mark.timeout(30)
-def test_chat_script_list_handles_malformed_events(chat_env: ChatScriptEnv) -> None:
-    """Verify that chat.sh --list gracefully handles malformed JSONL lines."""
-    valid_event = json.dumps(
-        {
-            "timestamp": "2025-01-15T10:00:00.000000000Z",
-            "type": "conversation_created",
-            "event_id": "evt-test-002",
-            "source": "conversations",
-            "conversation_id": "conv-valid-789",
-            "model": "claude-sonnet-4-6",
-        }
-    )
-    events_file = chat_env.conversations_dir / "events.jsonl"
-    events_file.write_text(f"this is not json\n{valid_event}\n")
-
-    result = chat_env.run("--list")
-
-    assert result.returncode == 0
-    assert "conv-valid-789" in result.stdout
-    assert "malformed" in result.stderr.lower() or "warning" in result.stderr.lower()
 
 
 # -- Supporting service script syntax tests --
@@ -511,41 +485,40 @@ def test_create_agent_creates_state_directory(
         assert (agent_state_dir / "data.json").exists(), "data.json should exist in agent state dir"
 
 
-# -- JSONL event format tests --
+# -- Conversation DB record tests --
 # Note: settings loading tests (load_settings_from_host, provision_settings_file)
 # are covered by unit tests in settings_test.py using StubHost.
 
 
 @pytest.mark.timeout(30)
-def test_conversation_event_serializes_to_valid_jsonl(chat_env: ChatScriptEnv) -> None:
-    """Verify that conversation events written by chat.sh are valid JSONL."""
+def test_conversation_record_written_to_db(chat_env: ChatScriptEnv) -> None:
+    """Verify that conversation records written by chat.sh are stored in the database."""
     chat_env.set_default_model("claude-sonnet-4-6")
 
     result = chat_env.run("--new", "--as-agent")
 
-    assert result.returncode == 0
+    assert result.returncode == 0, f"chat.sh failed: stdout={result.stdout!r} stderr={result.stderr!r}"
 
     conversation_id = result.stdout.strip()
     assert conversation_id.startswith("conv-"), f"Expected conversation ID, got: {conversation_id!r}"
 
-    events_file = chat_env.conversations_dir / "events.jsonl"
-    assert events_file.exists(), "conversations/events.jsonl should exist"
+    conn = sqlite3.connect(str(chat_env.llm_db_path))
+    rows = conn.execute(
+        "SELECT conversation_id, model, created_at FROM changeling_conversations WHERE conversation_id = ?",
+        (conversation_id,),
+    ).fetchall()
+    conn.close()
 
-    lines = events_file.read_text().strip().split("\n")
-    assert len(lines) >= 1, "Should have at least one event"
-
-    event = json.loads(lines[-1])
-    assert event["type"] == "conversation_created"
-    assert event["source"] == "conversations"
-    assert event["conversation_id"] == conversation_id
-    assert event["model"] == "claude-sonnet-4-6"
-    assert "timestamp" in event
-    assert "event_id" in event
+    assert len(rows) == 1, f"Expected 1 row, got {len(rows)}"
+    assert rows[0][0] == conversation_id
+    assert rows[0][1] == "claude-sonnet-4-6"
+    # created_at should be non-empty
+    assert rows[0][2]
 
 
 @pytest.mark.timeout(30)
-def test_multiple_conversations_create_separate_events(chat_env: ChatScriptEnv) -> None:
-    """Verify that creating multiple conversations produces separate events."""
+def test_multiple_conversations_create_separate_db_records(chat_env: ChatScriptEnv) -> None:
+    """Verify that creating multiple conversations produces separate DB records."""
     chat_env.set_default_model("claude-sonnet-4-6")
 
     conversation_ids = []
@@ -556,12 +529,12 @@ def test_multiple_conversations_create_separate_events(chat_env: ChatScriptEnv) 
 
     assert len(set(conversation_ids)) == 3, f"Expected 3 unique conversation IDs, got: {conversation_ids}"
 
-    events_file = chat_env.conversations_dir / "events.jsonl"
-    lines = events_file.read_text().strip().split("\n")
-    assert len(lines) == 3
+    conn = sqlite3.connect(str(chat_env.llm_db_path))
+    rows = conn.execute("SELECT conversation_id FROM changeling_conversations").fetchall()
+    conn.close()
 
-    event_conversation_ids = [json.loads(line)["conversation_id"] for line in lines]
-    assert set(event_conversation_ids) == set(conversation_ids)
+    db_cids = {row[0] for row in rows}
+    assert db_cids == set(conversation_ids)
 
 
 @pytest.mark.timeout(30)
@@ -572,9 +545,14 @@ def test_chat_model_read_from_settings_toml(chat_env: ChatScriptEnv) -> None:
     result = chat_env.run("--new", "--as-agent")
     assert result.returncode == 0
 
-    events_file = chat_env.conversations_dir / "events.jsonl"
-    event = json.loads(events_file.read_text().strip().split("\n")[-1])
-    assert event["model"] == "claude-haiku-4-5"
+    conversation_id = result.stdout.strip()
+    conn = sqlite3.connect(str(chat_env.llm_db_path))
+    rows = conn.execute(
+        "SELECT model FROM changeling_conversations WHERE conversation_id = ?",
+        (conversation_id,),
+    ).fetchall()
+    conn.close()
+    assert rows[0][0] == "claude-haiku-4-5"
 
 
 @pytest.mark.timeout(30)
@@ -728,8 +706,6 @@ def test_conversation_watcher_sync_with_llm_database(
     Creates a minimal llm-compatible database and verifies that the sync
     script extracts messages correctly.
     """
-    write_conversation_event(chat_env.conversations_dir / "events.jsonl", "conv-sync-test")
-
     db_path = tmp_path / "logs.db"
     create_test_llm_db(
         db_path,
@@ -752,12 +728,11 @@ def test_conversation_watcher_sync_with_llm_database(
             ),
         ],
     )
+    write_conversation_to_db(db_path, "conv-sync-test")
 
     synced_count = _run_sync_script(
-        chat_env.conversations_dir / "events.jsonl",
         chat_env.messages_dir / "events.jsonl",
         db_path,
-        tmp_path,
     )
     assert synced_count == 4, f"Expected 4 synced events (2 user + 2 assistant), got {synced_count}"
 
@@ -783,8 +758,6 @@ def test_conversation_watcher_sync_is_idempotent(
     tmp_path: Path,
 ) -> None:
     """Verify that running the sync twice does not duplicate events."""
-    write_conversation_event(chat_env.conversations_dir / "events.jsonl", "conv-idem-test")
-
     db_path = tmp_path / "logs.db"
     create_test_llm_db(
         db_path,
@@ -799,14 +772,14 @@ def test_conversation_watcher_sync_is_idempotent(
             ),
         ],
     )
+    write_conversation_to_db(db_path, "conv-idem-test")
 
-    conversations_file = chat_env.conversations_dir / "events.jsonl"
     messages_file = chat_env.messages_dir / "events.jsonl"
 
-    first_count = _run_sync_script(conversations_file, messages_file, db_path, tmp_path)
+    first_count = _run_sync_script(messages_file, db_path)
     assert first_count == 2
 
-    second_count = _run_sync_script(conversations_file, messages_file, db_path, tmp_path)
+    second_count = _run_sync_script(messages_file, db_path)
     assert second_count == 0
 
     lines = messages_file.read_text().strip().split("\n")
@@ -824,93 +797,93 @@ def test_chat_script_uses_hardcoded_default_when_no_settings(chat_env: ChatScrip
     result = chat_env.run("--new", "--as-agent")
     assert result.returncode == 0
 
-    events_file = chat_env.conversations_dir / "events.jsonl"
-    event = json.loads(events_file.read_text().strip().split("\n")[-1])
-    assert event["model"] == "claude-opus-4.6", f"Expected hardcoded default, got: {event['model']!r}"
+    conversation_id = result.stdout.strip()
+    conn = sqlite3.connect(str(chat_env.llm_db_path))
+    rows = conn.execute(
+        "SELECT model FROM changeling_conversations WHERE conversation_id = ?",
+        (conversation_id,),
+    ).fetchall()
+    conn.close()
+    assert rows[0][0] == "claude-opus-4.6", f"Expected hardcoded default, got: {rows[0][0]!r}"
 
 
 @pytest.mark.timeout(30)
-def test_chat_script_grep_finds_correct_model_for_conversation(chat_env: ChatScriptEnv) -> None:
-    """Verify that the grep-based model lookup in resume_conversation finds the right model.
+def test_chat_script_db_model_lookup_finds_correct_model(chat_env: ChatScriptEnv) -> None:
+    """Verify that the DB-based model lookup in resume_conversation finds the right model.
 
-    resume_conversation() uses `grep -F` to find the model for a conversation ID
-    in the events file. This test exercises that grep command directly to verify
-    it returns the correct model when multiple conversations exist.
-
-    Events are written using the same printf format that chat.sh's
-    append_conversation_event uses (no spaces after colons/commas), since
-    the grep pattern must match this exact format.
+    resume_conversation() queries the changeling_conversations table to find
+    the model for a conversation ID. This test verifies it returns the correct
+    model when multiple conversations exist.
     """
     chat_env.set_default_model("claude-sonnet-4-6")
 
-    # Create two conversations using the actual chat.sh script
-    # so events are written in the exact format grep expects
+    # Create first conversation
     result1 = chat_env.run("--new", "--as-agent")
     assert result1.returncode == 0
     cid1 = result1.stdout.strip()
 
-    # Manually append a second conversation event with a different model
-    # using the same printf format that chat.sh uses (no spaces)
-    events_file = chat_env.conversations_dir / "events.jsonl"
+    # Insert a second conversation with a different model directly into the DB
     cid2 = "conv-222-ccdd"
-    with events_file.open("a") as f:
-        f.write(
-            f'{{"timestamp":"2025-01-15T11:00:00.000Z","type":"conversation_created",'
-            f'"event_id":"evt-2","source":"conversations",'
-            f'"conversation_id":"{cid2}","model":"claude-haiku-4-5"}}\n'
-        )
+    conn = sqlite3.connect(str(chat_env.llm_db_path))
+    conn.execute(
+        "INSERT INTO changeling_conversations (conversation_id, model, tags, created_at) "
+        "VALUES (?, ?, '{}', '2025-01-15T11:00:00.000Z')",
+        (cid2, "claude-haiku-4-5"),
+    )
+    conn.commit()
+    conn.close()
 
-    # Run the same grep -F | jq command that resume_conversation() uses
-    grep_result = subprocess.run(
+    # Verify via sqlite3 CLI (same approach as resume_conversation uses)
+    lookup_result = subprocess.run(
         [
             "bash",
             "-c",
-            f'grep -F \'"conversation_id":"{cid2}"\' "{events_file}" | tail -1 | jq -r .model',
+            f"sqlite3 '{chat_env.llm_db_path}' \"SELECT model FROM changeling_conversations WHERE conversation_id = '{cid2}'\"",
         ],
         capture_output=True,
         text=True,
+        env=chat_env.env,
         timeout=10,
     )
-    assert grep_result.returncode == 0
-    assert grep_result.stdout.strip() == "claude-haiku-4-5"
+    assert lookup_result.returncode == 0
+    assert lookup_result.stdout.strip() == "claude-haiku-4-5"
 
     # Also verify that looking up the first CID finds the right model
-    grep_result2 = subprocess.run(
+    lookup_result2 = subprocess.run(
         [
             "bash",
             "-c",
-            f'grep -F \'"conversation_id":"{cid1}"\' "{events_file}" | tail -1 | jq -r .model',
+            f"sqlite3 '{chat_env.llm_db_path}' \"SELECT model FROM changeling_conversations WHERE conversation_id = '{cid1}'\"",
         ],
         capture_output=True,
         text=True,
+        env=chat_env.env,
         timeout=10,
     )
-    assert grep_result2.returncode == 0
-    assert grep_result2.stdout.strip() == "claude-sonnet-4-6"
+    assert lookup_result2.returncode == 0
+    assert lookup_result2.stdout.strip() == "claude-sonnet-4-6"
 
 
 @pytest.mark.timeout(30)
-def test_chat_script_new_as_agent_with_message_writes_event_without_llm(
+def test_chat_script_new_as_agent_with_message_writes_record_without_llm(
     chat_env: ChatScriptEnv,
 ) -> None:
-    """Verify --new --as-agent with a message still writes the conversation event.
+    """Verify --new --as-agent with a message still writes the conversation record.
 
     The --as-agent path with a message calls `llm inject` which will fail if
-    llm is not installed. But the conversation_created event should still be
-    written to events.jsonl regardless, since append_conversation_event runs
+    llm is not installed. But the conversation record should still be
+    written to the DB regardless, since insert_conversation_record runs
     before the llm inject call.
     """
     chat_env.set_default_model("claude-sonnet-4-6")
 
     # This will fail at the `llm inject` call since llm is not installed,
-    # but the conversation event should already be appended because
-    # append_conversation_event runs before the llm inject call.
+    # but the conversation record should already be inserted because
+    # insert_conversation_record runs before the llm inject call.
     chat_env.run("--new", "--as-agent", "hello from test")
 
-    events_file = chat_env.conversations_dir / "events.jsonl"
-    assert events_file.exists(), "conversation event should be written even when llm inject fails"
-    content = events_file.read_text().strip()
-    assert content, "events.jsonl should not be empty"
-    event = json.loads(content.split("\n")[-1])
-    assert event["type"] == "conversation_created"
-    assert event["model"] == "claude-sonnet-4-6"
+    conn = sqlite3.connect(str(chat_env.llm_db_path))
+    rows = conn.execute("SELECT conversation_id, model FROM changeling_conversations").fetchall()
+    conn.close()
+    assert len(rows) >= 1, "conversation record should be written even when llm inject fails"
+    assert rows[-1][1] == "claude-sonnet-4-6"

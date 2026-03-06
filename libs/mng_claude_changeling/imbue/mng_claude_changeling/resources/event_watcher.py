@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -337,31 +339,35 @@ _CHAT_NOTIFICATION_TIMEOUT_SECONDS: Final[float] = 30.0
 
 
 def _get_system_notifications_conversation_id(events_dir: Path) -> str | None:
-    """Read the first conversation_id from events/conversations/events.jsonl.
+    """Read the system_notifications conversation ID from the changeling_conversations table.
 
-    The system_notifications conversation is always created first during
-    provisioning, so its ID is the first entry in the conversations event log.
-
-    Returns None if the file does not exist or contains no valid entries.
+    Looks for a conversation tagged with ``{"internal": "system_notifications"}``.
+    Falls back to None if the database or table does not exist.
     """
-    conversations_file = events_dir / "conversations" / "events.jsonl"
+    llm_user_path = os.environ.get("LLM_USER_PATH", "")
+    if not llm_user_path:
+        llm_user_path = str(Path.home() / ".config" / "io.datasette.llm")
+    db_path = Path(llm_user_path) / "logs.db"
+
+    if not db_path.is_file():
+        logger.debug("LLM database not found at {}", db_path)
+        return None
+
     try:
-        if not conversations_file.is_file():
-            return None
-        with conversations_file.open() as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                    conversation_id = event.get("conversation_id")
-                    if conversation_id:
-                        return str(conversation_id)
-                except (json.JSONDecodeError, KeyError):
-                    continue
-    except OSError as exc:
-        logger.warning("Failed to read conversations file for notification CID: {}", exc)
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT conversation_id FROM changeling_conversations WHERE tags LIKE ?",
+                ('%"internal"%"system_notifications"%',),
+            ).fetchall()
+            if rows:
+                return str(rows[0][0])
+        except sqlite3.Error as exc:
+            logger.debug("Failed to query changeling_conversations: {}", exc)
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError) as exc:
+        logger.warning("Failed to read system_notifications conversation from DB: {}", exc)
     return None
 
 
