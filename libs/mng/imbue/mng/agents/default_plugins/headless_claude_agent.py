@@ -192,21 +192,21 @@ class HeadlessClaude(ClaudeAgent, HeadlessAgentMixin):
         with open(stdout_path) as fh:
             while not self._is_agent_finished():
                 poll_until(tracker.has_changed, timeout=_TAIL_POLL_TIMEOUT, poll_interval=_TAIL_POLL_INTERVAL)
-                data = fh.read()
-                if data:
-                    data = line_buffer + data
+                raw = fh.read()
+                if raw:
+                    combined = line_buffer + raw
                     line_buffer = ""
 
-                    lines = data.split("\n")
-                    if not data.endswith("\n"):
+                    lines = combined.split("\n")
+                    if not combined.endswith("\n"):
                         line_buffer = lines.pop()
 
                     yield from _yield_text_deltas_from_lines(lines)
 
             # Final drain after agent exits
-            final_data = line_buffer + fh.read()
-            if final_data:
-                yield from _yield_text_deltas_from_lines(final_data.split("\n"))
+            remaining = line_buffer + fh.read()
+            if remaining:
+                yield from _yield_text_deltas_from_lines(remaining.split("\n"))
 
 
 @hookimpl
