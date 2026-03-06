@@ -1,10 +1,8 @@
 name: Offload Acceptance Tests
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: ['**']
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
   workflow_dispatch:
 
 jobs:
@@ -54,6 +52,6 @@ jobs:
             cargo install offload@0.4.0
           fi
 
-#      - name: Run acceptance tests via offload
-#        continue-on-error: true  # Experimental - failures are logged but don't block
-#        run: just test-offload-acceptance
+      - name: Run acceptance tests via offload
+        continue-on-error: true  # Experimental - failures are logged but don't block
+        run: just test-offload-acceptance
