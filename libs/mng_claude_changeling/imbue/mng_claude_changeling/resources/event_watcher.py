@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -389,12 +390,13 @@ def _send_chat_notification(events_dir: Path, message: str) -> bool:
                 "--cid",
                 conversation_id,
                 "-m",
-                "echo",
+                "matched-responses",
                 message,
             ],
             capture_output=True,
             text=True,
             timeout=_CHAT_NOTIFICATION_TIMEOUT_SECONDS,
+            env={**os.environ, "LLM_MATCHED_RESPONSE": ""},
         )
         if result.returncode == 0:
             logger.info("Sent chat notification via llm")

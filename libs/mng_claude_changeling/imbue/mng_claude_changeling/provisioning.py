@@ -244,8 +244,8 @@ def install_llm_toolchain(host: OnlineHostInterface, settings: ProvisioningSetti
 
 
 def _install_llm_plugins(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
-    """Install llm-anthropic and llm-live-chat plugins."""
-    for plugin_name in ("llm-anthropic", "llm-live-chat"):
+    """Install the required llm plugins for the models and features we use."""
+    for plugin_name in ("llm-anthropic", "llm-live-chat", "llm-matched-responses"):
         with log_span("Installing llm plugin: {}", plugin_name):
             result = _execute_with_timing(
                 host,
