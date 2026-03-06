@@ -197,21 +197,22 @@ def test_adds_chat_ttyd_service(changeling_create_params: dict[str, Any]) -> Non
 # -- assemble_command tests --
 
 
-def test_assemble_command_is_defined_on_changeling_agent() -> None:
-    """Verify that ClaudeChangelingAgent overrides assemble_command.
+def test_assemble_command_prepends_cd_role(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that assemble_command prepends 'cd "$ROLE" &&' to the base command."""
+    from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
+    from imbue.mng.primitives import CommandString
 
-    The override prepends 'cd "$ROLE" &&' to the parent's result. We verify
-    the method exists as an override (not inherited) and that the source
-    contains the expected cd pattern.
-    """
-    import inspect
+    base_cmd = CommandString("claude --resume $SID || claude --session-id UUID")
 
-    # Verify it's defined directly on ClaudeChangelingAgent (not inherited)
-    assert "assemble_command" in ClaudeChangelingAgent.__dict__
+    monkeypatch.setattr(ClaudeAgent, "assemble_command", lambda self, host, args, override: base_cmd)
 
-    source = inspect.getsource(ClaudeChangelingAgent.assemble_command)
-    assert 'cd "$ROLE"' in source
-    assert "super().assemble_command" in source
+    agent = ClaudeChangelingAgent.model_construct(
+        agent_config=ClaudeChangelingConfig(active_role="thinking"),
+    )
+    result = agent.assemble_command(cast(Any, None), (), None)
+
+    assert str(result).startswith('cd "$ROLE" && ')
+    assert str(base_cmd) in str(result)
 
 
 # -- inject_role_env_var tests --

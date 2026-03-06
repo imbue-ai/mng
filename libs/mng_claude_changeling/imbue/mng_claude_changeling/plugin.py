@@ -188,9 +188,9 @@ class ClaudeChangelingAgent(ClaudeAgent):
     ) -> CommandString:
         """Prepend ``cd "$ROLE" &&`` so Claude Code runs from within the role directory.
 
-        Uses the ``$ROLE`` environment variable (set during provisioning via
-        ``_collect_agent_env_vars``) so that scripts and tools can also read
-        the active role name at runtime.
+        Uses the ``$ROLE`` environment variable (injected by
+        ``inject_role_env_var`` in the ``override_command_options`` hook)
+        so that scripts and tools can also read the active role name at runtime.
 
         This causes Claude Code to naturally discover ``.claude/``, skills,
         and ``CLAUDE.local.md`` from the role directory, while ``CLAUDE.md``

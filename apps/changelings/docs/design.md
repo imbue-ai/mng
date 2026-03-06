@@ -19,16 +19,17 @@ For local deployments, each changeling has its own repo stored at `~/.changeling
 
 For remote deployments (Modal, Docker), a temporary repo is prepared and the code is copied to the remote host via `mng create --in <provider> --source-path <temp-dir>`. The temporary repo is cleaned up after deployment.
 
-## Entrypoint template
+## Agent type
 
-The changeling repo contains a `.mng/settings.toml` file that defines an "entrypoint" create template specifying the agent type:
+The agent type is passed directly to `mng create --agent-type <type>` during deployment. The type is resolved from (in order of precedence):
+
+1. The `--agent-type` CLI flag on `changeling deploy`
+2. The `agent_type` field in `changelings.toml` in the repo
 
 ```toml
-[create_templates.entrypoint]
+# changelings.toml
 agent_type = "elena-code"
 ```
-
-When deploying, `mng create` is invoked with `-t entrypoint` to apply this template. This is the standard mechanism for controlling which agent type a changeling uses.
 
 ## Settings
 
