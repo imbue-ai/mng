@@ -387,7 +387,7 @@ def deploy(
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
 
-    agent_name = _resolve_agent_name(name, agent_type)
+    agent_name = _resolve_agent_name(name, resolved_agent_type)
     provider_choice = _resolve_provider(provider)
     self_deploy_choice = _resolve_self_deploy(self_deploy)
 
