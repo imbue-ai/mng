@@ -127,6 +127,12 @@ class ClaudeChangelingAgent(ClaudeAgent):
     - Chat ttyd (--url-arg ttyd for conversation terminal access)
     """
 
+    enter_submission_timeout_seconds: float = Field(
+        # increased timeout because we don't want to send duplicate events if we can avoid it
+        default=2 * 60.0,
+        description="Timeout in seconds for waiting on the enter submission signal",
+    )
+
     def _get_changeling_config(self) -> ClaudeChangelingConfig:
         """Get the changeling-specific config from this agent.
 
