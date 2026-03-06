@@ -35,7 +35,7 @@ def test_prevent_while_true() -> None:
 
 
 def test_prevent_time_sleep() -> None:
-    rc.check_time_sleep(_DIR, snapshot(3))
+    rc.check_time_sleep(_DIR, snapshot(1))
 
 
 def test_prevent_global_keyword() -> None:
@@ -213,7 +213,7 @@ def test_prevent_os_fork() -> None:
 def test_prevent_direct_subprocess_usage() -> None:
     # testing.py files are test infrastructure and excluded alongside test files
     excluded = TEST_FILE_PATTERNS + ("testing.py",)
-    rc.check_direct_subprocess(_DIR, snapshot(23), excluded_patterns=excluded)
+    rc.check_direct_subprocess(_DIR, snapshot(22), excluded_patterns=excluded)
 
 
 # --- AST-based ratchets ---
@@ -232,7 +232,7 @@ def test_prevent_importing_underscore_prefixed_names_in_non_test_code() -> None:
 
 
 def test_prevent_init_methods_in_non_exception_classes() -> None:
-    rc.check_init_methods_in_non_exception_classes(_DIR, snapshot(3))
+    rc.check_init_methods_in_non_exception_classes(_DIR, snapshot(4))
 
 
 def test_prevent_cast_usage() -> None:

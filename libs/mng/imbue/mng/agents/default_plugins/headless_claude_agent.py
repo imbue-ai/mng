@@ -8,8 +8,8 @@ claude a first-class citizen of the agent system. Agents are visible in
 from __future__ import annotations
 
 import json
+import os
 import shlex
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Callable
@@ -27,6 +27,30 @@ from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import CommandString
+from imbue.mng.utils.polling import poll_until
+
+_TAIL_POLL_INTERVAL: float = 0.05
+_TAIL_POLL_TIMEOUT: float = 300.0
+
+
+class _FileMtimeTracker:
+    """Tracks a file's mtime and size to detect changes without polling content."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._last_mtime: float = 0
+        self._last_size: int = 0
+
+    def has_changed(self) -> bool:
+        try:
+            st = os.stat(self._path)
+        except OSError:
+            return False
+        if st.st_mtime != self._last_mtime or st.st_size != self._last_size:
+            self._last_mtime = st.st_mtime
+            self._last_size = st.st_size
+            return True
+        return False
 
 
 @pure
@@ -139,59 +163,74 @@ class HeadlessClaude(ClaudeAgent):
         """Return the path to the stdout.jsonl file for this agent."""
         return self._get_agent_dir() / "stdout.jsonl"
 
+    def _is_agent_finished(self) -> bool:
+        state = self.get_lifecycle_state()
+        return state in (AgentLifecycleState.STOPPED, AgentLifecycleState.DONE)
+
+    def _wait_for_stdout_file(self, stdout_path: Path) -> bool:
+        """Wait for the stdout file to be created or the agent to exit.
+
+        Returns True if the file exists, False if the agent exited without creating it.
+        """
+        poll_until(
+            lambda: stdout_path.exists() or self._is_agent_finished(),
+            timeout=_TAIL_POLL_TIMEOUT,
+            poll_interval=_TAIL_POLL_INTERVAL,
+        )
+        return stdout_path.exists()
+
     def stream_output(self) -> Iterator[str]:
         """Stream text output from the headless agent.
 
-        Tails $MNG_AGENT_STATE_DIR/stdout.jsonl, parses stream-json events,
-        and yields text delta chunks. Completes when the agent process exits
-        and the file is fully consumed.
+        Tails $MNG_AGENT_STATE_DIR/stdout.jsonl using a file handle kept open
+        at the current read position. Uses mtime/size checks (via poll_until)
+        to detect new data instead of busy-polling with time.sleep.
+
+        Yields text delta chunks parsed from stream-json events. Completes when
+        the agent process exits and the file is fully consumed.
         """
         stdout_path = self._get_stdout_path()
-        offset = 0
 
-        while True:
-            try:
-                content = self.host.read_text_file(stdout_path)
-            except FileNotFoundError:
-                # File not created yet -- check if agent is still running
-                state = self.get_lifecycle_state()
-                if state in (AgentLifecycleState.STOPPED, AgentLifecycleState.DONE):
-                    return
-                time.sleep(0.1)
-                continue
+        if not self._wait_for_stdout_file(stdout_path):
+            return
 
-            new_content = content[offset:]
-            offset = len(content)
+        tracker = _FileMtimeTracker(stdout_path)
+        line_buffer = ""
 
-            if new_content:
-                for line in new_content.splitlines():
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    text = extract_text_delta(stripped)
-                    if text is not None:
-                        yield text
+        with open(stdout_path) as fh:
+            while True:
+                data = fh.read()
+                if data:
+                    data = line_buffer + data
+                    line_buffer = ""
 
-            # Check if agent has finished
-            state = self.get_lifecycle_state()
-            if state in (AgentLifecycleState.STOPPED, AgentLifecycleState.DONE):
-                # Do one final read to catch any remaining output
-                try:
-                    content = self.host.read_text_file(stdout_path)
-                except FileNotFoundError:
-                    return
-                final_content = content[offset:]
-                if final_content:
-                    for line in final_content.splitlines():
+                    lines = data.split("\n")
+                    if not data.endswith("\n"):
+                        line_buffer = lines.pop()
+
+                    for line in lines:
                         stripped = line.strip()
                         if not stripped:
                             continue
                         text = extract_text_delta(stripped)
                         if text is not None:
                             yield text
-                return
 
-            time.sleep(0.1)
+                state = self.get_lifecycle_state()
+                if state in (AgentLifecycleState.STOPPED, AgentLifecycleState.DONE):
+                    remaining = fh.read()
+                    if remaining:
+                        remaining = line_buffer + remaining
+                        for line in remaining.split("\n"):
+                            stripped = line.strip()
+                            if not stripped:
+                                continue
+                            text = extract_text_delta(stripped)
+                            if text is not None:
+                                yield text
+                    return
+
+                poll_until(tracker.has_changed, timeout=_TAIL_POLL_TIMEOUT, poll_interval=_TAIL_POLL_INTERVAL)
 
 
 @hookimpl
