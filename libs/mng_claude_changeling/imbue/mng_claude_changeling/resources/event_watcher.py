@@ -43,12 +43,14 @@ from loguru import logger
 
 try:
     from imbue.mng_claude_changeling.resources.watcher_common import DEFAULT_CEL_FILTER
+    from imbue.mng_claude_changeling.resources.watcher_common import get_mng_command
     from imbue.mng_claude_changeling.resources.watcher_common import load_watchers_section
     from imbue.mng_claude_changeling.resources.watcher_common import require_env
     from imbue.mng_claude_changeling.resources.watcher_common import setup_watcher_logging
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from watcher_common import DEFAULT_CEL_FILTER  # type: ignore[no-redef]
+    from watcher_common import get_mng_command  # type: ignore[no-redef]
     from watcher_common import load_watchers_section  # type: ignore[no-redef]
     from watcher_common import require_env  # type: ignore[no-redef]
     from watcher_common import setup_watcher_logging  # type: ignore[no-redef]
@@ -289,7 +291,7 @@ def _send_message(agent_name: str, message: str) -> bool:
     """Send a message to the agent via mng message. Returns True on success."""
     try:
         result = subprocess.run(
-            ["uv", "run", "mng", "message", agent_name, "--provider", "local", "-m", message],
+            [*get_mng_command(), "message", agent_name, "--provider", "local", "-m", message],
             capture_output=True,
             text=True,
             timeout=_MESSAGE_SEND_TIMEOUT_SECONDS,
@@ -437,7 +439,7 @@ def _compute_backoff_seconds(consecutive_failures: int) -> float:
 
 def _start_events_subprocess(agent_name: str, cel_filter: str) -> subprocess.Popen[str]:
     """Start ``mng events <agent_name> --follow --filter <cel_filter>`` as a subprocess."""
-    cmd = ["uv", "run", "mng", "events", agent_name, "--follow"]
+    cmd = [*get_mng_command(), "events", agent_name, "--follow"]
     if cel_filter:
         cmd.extend(["--filter", cel_filter])
     logger.info("Starting events subprocess: {}", " ".join(cmd))

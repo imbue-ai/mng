@@ -35,7 +35,6 @@ from imbue.mng_claude_changeling.provisioning import provision_supporting_servic
 from imbue.mng_claude_changeling.provisioning import resolve_work_dir_abs
 from imbue.mng_claude_changeling.provisioning import setup_memory_directory
 from imbue.mng_claude_changeling.provisioning import validate_talking_role_constraints
-from imbue.mng_claude_changeling.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_changeling.settings import load_settings_from_host
 from imbue.mng_ttyd.plugin import build_ttyd_server_command
 
@@ -246,7 +245,6 @@ class ClaudeChangelingAgent(ClaudeAgent):
         settings = load_settings_from_host(host, self.work_dir)
         provisioning = settings.provisioning
 
-        warn_if_mng_unavailable(host, mng_ctx.pm, provisioning)
         validate_talking_role_constraints(host, self.work_dir, provisioning)
 
         if config.install_llm:

@@ -318,6 +318,35 @@ def create_test_llm_db(db_path: Path, rows: list[tuple[str, str, str, str, str, 
         conn.commit()
 
 
+def create_fake_mng_binary(agent_state_dir: Path) -> Path:
+    """Create a fake mng binary at <agent_state_dir>/bin/mng.
+
+    This satisfies the get_mng_command() check that the per-agent mng
+    binary exists. The binary is a no-op shell script.
+
+    Returns the path to the fake mng binary.
+    """
+    bin_dir = agent_state_dir / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    mng_bin = bin_dir / "mng"
+    mng_bin.write_text('#!/bin/bash\nexec mng "$@"\n')
+    mng_bin.chmod(0o755)
+    return mng_bin
+
+
+@pytest.fixture(autouse=True)
+def _ensure_fake_mng_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure a fake mng binary exists at $MNG_AGENT_STATE_DIR/bin/mng.
+
+    This autouse fixture creates the fake binary for any test that has
+    MNG_AGENT_STATE_DIR set in the environment, so that get_mng_command()
+    does not raise MngNotInstalledError during tests.
+    """
+    agent_state_dir = os.environ.get("MNG_AGENT_STATE_DIR", "")
+    if agent_state_dir:
+        create_fake_mng_binary(Path(agent_state_dir))
+
+
 class EventWatcherSubprocessCapture:
     """Records calls to subprocess.run for assertion in event watcher tests."""
 

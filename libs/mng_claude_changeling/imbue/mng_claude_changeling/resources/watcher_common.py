@@ -26,6 +26,35 @@ from watchdog.events import FileSystemEvent
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+
+class MngNotInstalledError(RuntimeError):
+    """Raised when the per-agent mng binary cannot be found."""
+
+
+def get_mng_command() -> list[str]:
+    """Return the command for invoking the per-agent mng binary.
+
+    The mng binary is installed by the mng_recursive plugin into
+    ``$MNG_AGENT_STATE_DIR/bin/mng`` during agent creation. This function
+    locates that binary and returns it as a command list.
+
+    Raises MngNotInstalledError if the binary cannot be found, which
+    indicates that mng was not properly provisioned for this agent.
+    """
+    agent_state_dir = os.environ.get("MNG_AGENT_STATE_DIR", "")
+    if not agent_state_dir:
+        raise MngNotInstalledError(
+            "MNG_AGENT_STATE_DIR is not set. The per-agent mng binary cannot be located without it."
+        )
+    mng_bin = os.path.join(agent_state_dir, "bin", "mng")
+    if not os.path.isfile(mng_bin):
+        raise MngNotInstalledError(
+            f"Per-agent mng binary not found at {mng_bin}. "
+            "Ensure the mng_recursive plugin is enabled and provisioning completed successfully."
+        )
+    return [mng_bin]
+
+
 DEFAULT_CEL_FILTER: Final[str] = (
     # only include events that are:
     # not from the common_transcript (to avoid seeing our own thoughts)

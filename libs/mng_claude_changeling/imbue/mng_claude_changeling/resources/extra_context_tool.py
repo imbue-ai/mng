@@ -53,6 +53,30 @@ def _load_extra_settings() -> dict:
 _SETTINGS = _load_extra_settings()
 _EXTRA = _SETTINGS.get("chat", {}).get("extra_context", {})
 
+
+def _get_mng_command() -> list[str]:
+    """Return the command for invoking the per-agent mng binary.
+
+    The mng binary is installed by the mng_recursive plugin into
+    ``$MNG_AGENT_STATE_DIR/bin/mng``. Raises RuntimeError if the binary
+    cannot be found.
+
+    NOTE: This is a standalone copy of watcher_common.get_mng_command()
+    because this file is deployed to commands/llm_tools/ and cannot import
+    from the commands/ directory.
+    """
+    agent_state_dir = os.environ.get("MNG_AGENT_STATE_DIR", "")
+    if not agent_state_dir:
+        raise RuntimeError("MNG_AGENT_STATE_DIR is not set. The per-agent mng binary cannot be located without it.")
+    mng_bin = os.path.join(agent_state_dir, "bin", "mng")
+    if not os.path.isfile(mng_bin):
+        raise RuntimeError(
+            f"Per-agent mng binary not found at {mng_bin}. "
+            "Ensure the mng_recursive plugin is enabled and provisioning completed successfully."
+        )
+    return [mng_bin]
+
+
 _MNG_LIST_HARD_TIMEOUT = _EXTRA.get("mng_list_hard_timeout_seconds", 120)
 _MNG_LIST_WARN_THRESHOLD = _EXTRA.get("mng_list_warn_threshold_seconds", 15)
 _MAX_CONTENT_LENGTH = _EXTRA.get("max_content_length", 300)
@@ -75,7 +99,7 @@ def gather_extra_context() -> str:
     try:
         start = time.monotonic()
         result = subprocess.run(
-            ["uv", "run", "mng", "list", "--json"],
+            [*_get_mng_command(), "list", "--json"],
             capture_output=True,
             text=True,
             timeout=_MNG_LIST_HARD_TIMEOUT,
@@ -92,7 +116,7 @@ def gather_extra_context() -> str:
             sections.append("## Current Agents\n(No agents or unable to retrieve)")
     except subprocess.TimeoutExpired:
         sections.append(f"## Current Agents\n(Timed out after {_MNG_LIST_HARD_TIMEOUT}s -- mng list may be hanging)")
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError, RuntimeError):
         sections.append("## Current Agents\n(Unable to retrieve agent list)")
 
     agent_data_dir_str = os.environ.get("MNG_AGENT_STATE_DIR", "")

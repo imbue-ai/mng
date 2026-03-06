@@ -39,6 +39,12 @@ from typing import Final
 from urllib.parse import parse_qs
 from urllib.parse import urlparse
 
+try:
+    from imbue.mng_claude_changeling.resources.watcher_common import get_mng_command
+except ImportError:
+    sys.path.insert(0, os.path.join(os.environ.get("MNG_HOST_DIR", ""), "commands"))
+    from watcher_common import get_mng_command  # type: ignore[no-redef]
+
 # -- Environment and paths --
 
 AGENT_STATE_DIR: Final[str] = os.environ.get("MNG_AGENT_STATE_DIR", "")
@@ -184,7 +190,7 @@ def _poll_agent_list_forever() -> None:
     while not _is_shutting_down:
         try:
             result = subprocess.run(
-                ["uv", "run", "mng", "list", "--json", "--quiet"],
+                [*get_mng_command(), "list", "--json", "--quiet"],
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -207,7 +213,7 @@ def _poll_agent_list_forever() -> None:
         except subprocess.TimeoutExpired:
             _log("mng list timed out")
         except FileNotFoundError:
-            _log("uv not found in PATH, cannot poll agent list")
+            _log("mng not found, cannot poll agent list")
         except OSError as e:
             _log(f"Failed to poll agent list: {e}")
 

@@ -23,7 +23,6 @@ from imbue.mng_claude_changeling.provisioning import CHANGELING_CONVERSATIONS_TA
 from imbue.mng_claude_changeling.provisioning import TalkingRoleConstraintError
 from imbue.mng_claude_changeling.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_changeling.provisioning import _SERVICE_SCRIPT_FILES
-from imbue.mng_claude_changeling.provisioning import _is_recursive_plugin_registered
 from imbue.mng_claude_changeling.provisioning import build_memory_sync_hooks_config
 from imbue.mng_claude_changeling.provisioning import compute_claude_project_dir_name
 from imbue.mng_claude_changeling.provisioning import configure_llm_user_path
@@ -39,7 +38,6 @@ from imbue.mng_claude_changeling.provisioning import provision_supporting_servic
 from imbue.mng_claude_changeling.provisioning import resolve_work_dir_abs
 from imbue.mng_claude_changeling.provisioning import setup_memory_directory
 from imbue.mng_claude_changeling.provisioning import validate_talking_role_constraints
-from imbue.mng_claude_changeling.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_changeling.resources import context_tool as context_tool_module
 from imbue.mng_claude_changeling.resources import extra_context_tool as extra_context_tool_module
 
@@ -729,54 +727,6 @@ def test_create_daily_conversation_skips_event_on_inject_failure() -> None:
     assert len(db_commands) == 0
 
 
-# -- mng availability check tests --
-
-
-def _make_fake_pm(plugins: list[tuple[str, object]]) -> Any:
-    """Create a fake PluginManager that returns the given plugin list."""
-
-    class _FakePM:
-        def list_name_plugin(self) -> list[tuple[str, object]]:
-            return plugins
-
-    return cast(Any, _FakePM())
-
-
-def test_warn_if_mng_unavailable_skips_on_local_host() -> None:
-    host = StubHost()
-    host.is_local = True  # type: ignore[attr-defined]
-
-    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([]), _DEFAULT_PROVISIONING)
-
-    assert not any("command -v mng" in c for c in host.executed_commands)
-
-
-def test_warn_if_mng_unavailable_skips_when_recursive_plugin_registered() -> None:
-    host = StubHost()
-    host.is_local = False  # type: ignore[attr-defined]
-
-    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([("recursive_mng", object())]), _DEFAULT_PROVISIONING)
-
-    assert not any("command -v mng" in c for c in host.executed_commands)
-
-
-def test_warn_if_mng_unavailable_checks_on_remote_without_recursive() -> None:
-    host = StubHost()
-    host.is_local = False  # type: ignore[attr-defined]
-
-    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([("some_other_plugin", object())]), _DEFAULT_PROVISIONING)
-
-    assert any("command -v mng" in c for c in host.executed_commands)
-
-
-def test_is_recursive_plugin_registered_returns_true_when_present() -> None:
-    assert _is_recursive_plugin_registered(_make_fake_pm([("recursive_mng", object())])) is True
-
-
-def test_is_recursive_plugin_registered_returns_false_when_absent() -> None:
-    assert _is_recursive_plugin_registered(_make_fake_pm([("some_plugin", object())])) is False
-
-
 # -- context_tool incremental behavior tests --
 
 
@@ -1441,6 +1391,25 @@ def _setup_uv_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("PATH", str(empty_bin))
 
 
+def _setup_fake_mng_binary(
+    agent_state_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    exit_code: int = 0,
+    stdout: str = "",
+) -> None:
+    """Set up a fake mng binary at <agent_state_dir>/bin/mng.
+
+    Creates a shell script that echoes the given stdout and exits with
+    the given code. Sets MNG_AGENT_STATE_DIR to point to the agent state dir.
+    """
+    bin_dir = agent_state_dir / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    fake_mng = bin_dir / "mng"
+    fake_mng.write_text(f"#!/bin/bash\necho '{stdout}'\nexit {exit_code}\n")
+    fake_mng.chmod(0o755)
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(agent_state_dir))
+
+
 @pytest.fixture()
 def extra_context_env(
     tmp_path: Path,
@@ -1516,10 +1485,12 @@ def test_extra_context_tool_with_successful_mng_list(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify gather_extra_context displays agent list on successful uv run mng list."""
+    """Verify gather_extra_context displays agent list on successful mng list."""
     module = _load_fresh_extra_context_tool()
-    _setup_fake_uv(tmp_path, monkeypatch, exit_code=0, stdout='[{"name":"test-agent","state":"RUNNING"}]')
-    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
+    agent_state_dir = tmp_path / "agent_state"
+    _setup_fake_mng_binary(
+        agent_state_dir, monkeypatch, exit_code=0, stdout='[{"name":"test-agent","state":"RUNNING"}]'
+    )
 
     result = module.gather_extra_context()
     assert "Current Agents" in result
@@ -1532,8 +1503,8 @@ def test_extra_context_tool_with_failed_mng_list(
 ) -> None:
     """Verify gather_extra_context handles mng list failure gracefully."""
     module = _load_fresh_extra_context_tool()
-    _setup_fake_uv(tmp_path, monkeypatch, exit_code=1)
-    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
+    agent_state_dir = tmp_path / "agent_state"
+    _setup_fake_mng_binary(agent_state_dir, monkeypatch, exit_code=1)
 
     result = module.gather_extra_context()
     assert "No agents or unable to retrieve" in result
@@ -1624,23 +1595,6 @@ def test_gather_context_first_call_messages_with_empty_lines(
 
     result = env.module.gather_context()
     assert "conv-A" in result
-
-
-# -- mng availability check tests (warning path) --
-
-
-def test_warn_if_mng_unavailable_warns_when_missing_on_remote() -> None:
-    """Verify warn_if_mng_unavailable checks for mng on remote host when not found."""
-    host = StubHost(
-        command_results={"command -v mng": StubCommandResult(success=False)},
-    )
-    host.is_local = False  # type: ignore[attr-defined]
-
-    # Should not raise, just warn
-    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([]), _DEFAULT_PROVISIONING)
-
-    # Verify the mng availability check was executed
-    assert any("command -v mng" in c for c in host.executed_commands)
 
 
 def test_provision_default_content_writes_missing_files() -> None:

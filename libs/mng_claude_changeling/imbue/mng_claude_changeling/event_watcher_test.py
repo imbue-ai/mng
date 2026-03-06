@@ -382,7 +382,7 @@ def test_send_message_returns_true_on_success(mock_subprocess_success: EventWatc
     assert _send_message("my-agent", "hello") is True
     assert len(mock_subprocess_success.calls) == 1
     cmd = mock_subprocess_success.calls[0][0]
-    assert "mng" in cmd
+    assert any("mng" in c for c in cmd)
     assert "message" in cmd
     assert "my-agent" in cmd
 
