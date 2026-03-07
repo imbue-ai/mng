@@ -70,7 +70,7 @@ jobs:
             Read the current ARCHITECTURE.md. Update it if the commits changed the architecture.
             The bar is high -- most days there should be no changes.
 
-            ## Step 3b: Review ARCHITECTURE.md for quality
+            ## Step 4: Review ARCHITECTURE.md for quality
 
             If you made changes to ARCHITECTURE.md in Step 3, do a critical review pass.
             Also do this review if no changes were made but it has been more than 7 days
@@ -90,7 +90,7 @@ jobs:
               If a section reads like API docs, trim it back to what someone needs to know
               to find and understand the right code.
 
-            ## Step 4: Commit and create PR
+            ## Step 5: Commit and create PR
 
             If you made any changes, commit them and push to a new branch named
             "docs/nightly-update-${{ steps.ts.outputs.date }}-${{ steps.ts.outputs.time }}".
