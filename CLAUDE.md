@@ -11,7 +11,7 @@ IF YOU FAIL TO FOLLOW ONE, YOU MUST EXPLICITLY CALL THAT OUT IN YOUR RESPONSE.
 
 # How to get started on any task:
 
-1. Read `ARCHITECTURE.md` at the repo root. This covers the monorepo structure, core abstractions, layered architecture, plugin system, configuration, and how everything fits together. Once you've read it once during a session, there's no need to re-read it.
+1. Read `ARCHITECTURE.md` at the repo root.
 
 2. Read the relevant user-facing documentation: READMEs and docs/ directory for the project(s) you are working on. These represent *user-facing* documentation and are the most important to understand beyond the architecture.
 
