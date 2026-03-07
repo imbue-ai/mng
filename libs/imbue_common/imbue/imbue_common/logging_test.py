@@ -1,6 +1,8 @@
 """Tests for logging module."""
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -18,6 +20,32 @@ from imbue.imbue_common.logging import make_jsonl_file_sink
 from imbue.imbue_common.logging import setup_logging
 from imbue.imbue_common.logging import trace_span
 from imbue.mng.errors import BaseMngError
+
+
+class LogCapture:
+    """Captures loguru messages and levels for test assertions."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+        self.levels: list[str] = []
+        self.extras: list[dict[str, Any]] = []
+
+    def sink(self, message: Any) -> None:
+        record = message.record
+        self.messages.append(record["message"])
+        self.levels.append(record["level"].name)
+        self.extras.append(dict(record["extra"]))
+
+
+@contextmanager
+def capture_logs() -> Iterator[LogCapture]:
+    """Context manager that installs a loguru sink and yields a LogCapture."""
+    cap = LogCapture()
+    handler_id = logger.add(cap.sink, level="TRACE", format="{message}")
+    try:
+        yield cap
+    finally:
+        logger.remove(handler_id)
 
 
 def test_setup_logging_does_not_raise() -> None:
@@ -321,24 +349,17 @@ def test_format_arg_value_truncates_long_value() -> None:
 
 def test_log_call_logs_function_call_and_result() -> None:
     """log_call should log the function call at debug and the result at trace."""
-    captured_messages: list[str] = []
-
-    def sink(message: Any) -> None:
-        captured_messages.append(message.record["message"])
 
     @log_call
     def add(a: int, b: int) -> int:
         return a + b
 
-    handler_id = logger.add(sink, level="TRACE", format="{message}")
-    try:
+    with capture_logs() as cap:
         result = add(1, 2)
         assert result == 3
-        assert len(captured_messages) == 2
-        assert "Calling add" in captured_messages[0]
-        assert "Calling add [done in " in captured_messages[1]
-    finally:
-        logger.remove(handler_id)
+        assert len(cap.messages) == 2
+        assert "Calling add" in cap.messages[0]
+        assert "Calling add [done in " in cap.messages[1]
 
 
 def test_log_call_preserves_function_name() -> None:
@@ -358,63 +379,37 @@ def test_log_call_preserves_function_name() -> None:
 
 def test_trace_span_emits_trace_messages() -> None:
     """trace_span should emit trace messages on entry and exit."""
-    captured_messages: list[str] = []
-    captured_levels: list[str] = []
-
-    def sink(message: Any) -> None:
-        captured_messages.append(message.record["message"])
-        captured_levels.append(message.record["level"].name)
-
-    handler_id = logger.add(sink, level="TRACE", format="{message}")
-    try:
+    with capture_logs() as cap:
         with trace_span("processing"):
             pass
 
-        assert len(captured_messages) == 2
-        assert captured_messages[0] == "processing"
-        assert captured_levels[0] == "TRACE"
-        assert "processing [done in " in captured_messages[1]
-        assert captured_levels[1] == "TRACE"
-    finally:
-        logger.remove(handler_id)
+        assert len(cap.messages) == 2
+        assert cap.messages[0] == "processing"
+        assert cap.levels[0] == "TRACE"
+        assert "processing [done in " in cap.messages[1]
+        assert cap.levels[1] == "TRACE"
 
 
 def test_trace_span_disabled_skips_logging() -> None:
     """trace_span with _is_trace_span_enabled=False should not log."""
-    captured_messages: list[str] = []
-
-    def sink(message: Any) -> None:
-        captured_messages.append(message.record["message"])
-
-    handler_id = logger.add(sink, level="TRACE", format="{message}")
-    try:
+    with capture_logs() as cap:
         with trace_span("should not log", _is_trace_span_enabled=False):
             pass
 
-        assert len(captured_messages) == 0
-    finally:
-        logger.remove(handler_id)
+        assert len(cap.messages) == 0
 
 
 def test_trace_span_logs_on_exception() -> None:
     """trace_span should log failed timing on exception."""
-    captured_messages: list[str] = []
-
-    def sink(message: Any) -> None:
-        captured_messages.append(message.record["message"])
-
-    handler_id = logger.add(sink, level="TRACE", format="{message}")
-    try:
+    with capture_logs() as cap:
         try:
             with trace_span("risky"):
                 raise BaseMngError("boom")
         except BaseMngError:
             pass
 
-        assert len(captured_messages) == 2
-        assert "risky [failed after " in captured_messages[1]
-    finally:
-        logger.remove(handler_id)
+        assert len(cap.messages) == 2
+        assert "risky [failed after " in cap.messages[1]
 
 
 # =============================================================================

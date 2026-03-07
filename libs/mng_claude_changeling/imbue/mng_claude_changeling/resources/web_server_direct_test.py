@@ -6,6 +6,8 @@ Only tests for functions that don't depend on module-level env var state
 belong here.
 """
 
+import pytest
+
 from imbue.mng_claude_changeling.resources.web_server import _html_escape
 from imbue.mng_claude_changeling.resources.web_server import _iso_timestamp
 from imbue.mng_claude_changeling.resources.web_server import _log
@@ -49,8 +51,10 @@ def test_iso_timestamp_returns_utc_format() -> None:
     assert "T" in result
 
 
-def test_log_writes_to_stderr(capsys: object) -> None:
+def test_log_writes_to_stderr(capsys: "pytest.CaptureFixture[str]") -> None:
     _log("test message")
+    captured = capsys.readouterr()
+    assert "[web-server] test message" in captured.err
 
 
 def test_render_header_contains_nav_links() -> None:

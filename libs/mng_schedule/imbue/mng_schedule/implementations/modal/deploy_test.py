@@ -45,10 +45,11 @@ def test_get_modal_app_name_prefixes_with_mng_schedule() -> None:
     assert get_modal_app_name("my-trigger") == "mng-schedule-my-trigger"
 
 
-def test_forward_output_does_not_raise() -> None:
-    """_forward_output should handle stdout and stderr lines without raising."""
-    _forward_output("some stdout line\n", is_stdout=True)
+def test_forward_output_writes_stderr_to_stderr(capsys: pytest.CaptureFixture[str]) -> None:
+    """_forward_output should write stderr lines to sys.stderr."""
     _forward_output("some stderr line\n", is_stdout=False)
+    captured = capsys.readouterr()
+    assert "some stderr line" in captured.err
 
 
 def test_detect_local_timezone_returns_string() -> None:
