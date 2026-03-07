@@ -4,11 +4,14 @@ from pathlib import Path
 from typing import Any
 from typing import cast
 
+import pytest
+
 from imbue.mng.interfaces.data_types import CommandResult
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import CommandString
 from imbue.mng_test_coder.plugin import TestCoderAgent
 from imbue.mng_test_coder.plugin import TestCoderConfig
+from imbue.mng_test_coder.plugin import _LLM_MATCHED_RESPONSES_LOCAL_CHECKOUT
 from imbue.mng_test_coder.plugin import _configure_model_as_default
 from imbue.mng_test_coder.plugin import _install_llm_matched_responses_plugin
 from imbue.mng_test_coder.plugin import register_agent_type
@@ -92,6 +95,10 @@ def test_install_llm_matched_responses_succeeds_from_pypi() -> None:
     _install_llm_matched_responses_plugin(host)
 
 
+@pytest.mark.skipif(
+    not _LLM_MATCHED_RESPONSES_LOCAL_CHECKOUT.exists(),
+    reason="llm-matched-responses local checkout not available",
+)
 def test_install_llm_matched_responses_falls_back_to_local() -> None:
     """Should fall back to local checkout when PyPI fails and local checkout exists."""
     host = cast(

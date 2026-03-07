@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mng_claude_changeling.conftest import create_changeling_conversations_table_in_test_db
 from imbue.mng_claude_changeling.resources.conversation_db import _warn
 from imbue.mng_claude_changeling.resources.conversation_db import _write_stdout
 from imbue.mng_claude_changeling.resources.conversation_db import count
@@ -15,28 +16,10 @@ from imbue.mng_claude_changeling.resources.conversation_db import main
 from imbue.mng_claude_changeling.resources.conversation_db import max_rowid
 from imbue.mng_claude_changeling.resources.conversation_db import poll_new
 
-_CHANGELING_TABLE_SQL = (
-    "CREATE TABLE IF NOT EXISTS changeling_conversations ("
-    "conversation_id TEXT PRIMARY KEY, "
-    "tags TEXT NOT NULL DEFAULT '{}', "
-    "created_at TEXT NOT NULL)"
-)
-
-_CONVERSATIONS_TABLE_SQL = """
-    CREATE TABLE IF NOT EXISTS conversations (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        model TEXT
-    )
-"""
-
 
 def _create_db(db_path: Path) -> None:
-    """Create a test database with both required tables."""
-    with sqlite3.connect(str(db_path)) as conn:
-        conn.execute(_CHANGELING_TABLE_SQL)
-        conn.execute(_CONVERSATIONS_TABLE_SQL)
-        conn.commit()
+    """Create a test database with both required tables using shared infrastructure."""
+    create_changeling_conversations_table_in_test_db(db_path)
 
 
 def test_write_stdout(capsys: pytest.CaptureFixture[str]) -> None:

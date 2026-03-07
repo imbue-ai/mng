@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from imbue.mng.config.data_types import OutputOptions
@@ -52,7 +53,6 @@ def test_pair_sync_direction_choices() -> None:
     runner = CliRunner()
     result = runner.invoke(pair, ["--help"])
     assert result.exit_code == 0
-    # The help should show the valid choices
     assert "both" in result.output.lower() or "source" in result.output.lower()
 
 
@@ -61,7 +61,6 @@ def test_pair_conflict_choices() -> None:
     runner = CliRunner()
     result = runner.invoke(pair, ["--help"])
     assert result.exit_code == 0
-    # The help should mention conflict resolution
     assert "conflict" in result.output.lower()
 
 
@@ -70,45 +69,31 @@ def test_pair_uncommitted_changes_choices() -> None:
     runner = CliRunner()
     result = runner.invoke(pair, ["--help"])
     assert result.exit_code == 0
-    # The help should mention uncommitted changes handling
     assert "uncommitted" in result.output.lower()
 
 
-def test_emit_pair_started_human_format() -> None:
-    """Test that _emit_pair_started produces output for HUMAN format."""
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    # Should not raise
+@pytest.mark.parametrize("output_format", [OutputFormat.HUMAN, OutputFormat.JSON, OutputFormat.JSONL])
+def test_emit_pair_started_exercises_all_format_branches(
+    output_format: OutputFormat,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """_emit_pair_started should handle all output formats without error."""
+    output_opts = OutputOptions(output_format=output_format)
     _emit_pair_started(Path("/src"), Path("/dst"), output_opts)
+    captured = capsys.readouterr()
+    if output_format == OutputFormat.HUMAN:
+        assert "/src" in captured.out
+        assert "/dst" in captured.out
 
 
-def test_emit_pair_started_json_format() -> None:
-    """Test that _emit_pair_started handles JSON format."""
-    output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    # JSON mode is silent for emit_event, but should not raise
-    _emit_pair_started(Path("/src"), Path("/dst"), output_opts)
-
-
-def test_emit_pair_started_jsonl_format() -> None:
-    """Test that _emit_pair_started handles JSONL format."""
-    output_opts = OutputOptions(output_format=OutputFormat.JSONL)
-    _emit_pair_started(Path("/src"), Path("/dst"), output_opts)
-
-
-def test_emit_pair_stopped_human_format() -> None:
-    """Test that _emit_pair_stopped produces output for HUMAN format."""
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    # Should not raise
+@pytest.mark.parametrize("output_format", [OutputFormat.HUMAN, OutputFormat.JSON, OutputFormat.JSONL])
+def test_emit_pair_stopped_exercises_all_format_branches(
+    output_format: OutputFormat,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """_emit_pair_stopped should handle all output formats without error."""
+    output_opts = OutputOptions(output_format=output_format)
     _emit_pair_stopped(output_opts)
-
-
-def test_emit_pair_stopped_json_format() -> None:
-    """Test that _emit_pair_stopped handles JSON format."""
-    output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    # JSON mode is silent for emit_event, but should not raise
-    _emit_pair_stopped(output_opts)
-
-
-def test_emit_pair_stopped_jsonl_format() -> None:
-    """Test that _emit_pair_stopped handles JSONL format."""
-    output_opts = OutputOptions(output_format=OutputFormat.JSONL)
-    _emit_pair_stopped(output_opts)
+    captured = capsys.readouterr()
+    if output_format == OutputFormat.HUMAN:
+        assert "stopped" in captured.out.lower()
