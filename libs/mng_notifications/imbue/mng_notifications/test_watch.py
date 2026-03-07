@@ -26,7 +26,6 @@ def test_watcher_detects_running_to_waiting_via_event(
     tmp_path: Path,
     temp_mng_ctx: MngContext,
 ) -> None:
-    """Create a real agent, write a state transition event, and verify the watcher sends a notification."""
     host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
@@ -43,6 +42,10 @@ def test_watcher_detects_running_to_waiting_via_event(
     )
     host.start_agents([agent.id])
 
+    events_dir = temp_host_dir / "agents" / str(agent.id) / "events" / "mng_agents"
+    events_dir.mkdir(parents=True, exist_ok=True)
+    event_file = events_dir / "events.jsonl"
+
     notifier = RecordingNotifier()
     stop_event = threading.Event()
 
@@ -58,10 +61,12 @@ def test_watcher_detects_running_to_waiting_via_event(
     watcher_thread.start()
 
     try:
-        # Write a RUNNING -> WAITING transition event to the agent's event file
-        events_dir = temp_host_dir / "agents" / str(agent.id) / "events" / "mng_agents"
-        events_dir.mkdir(parents=True, exist_ok=True)
-        event_file = events_dir / "events.jsonl"
+        # Wait for the watcher to complete its initial size scan before
+        # writing the event. 0.5s is enough for the watcher to enter its
+        # loop and seed tracked_sizes. Using append mode ensures new
+        # content is detected even if the file already existed.
+        stop_event.wait(timeout=0.5)
+
         event = json.dumps(
             {
                 "timestamp": "2026-01-01T00:00:00Z",
@@ -74,7 +79,8 @@ def test_watcher_detects_running_to_waiting_via_event(
                 "to_state": "WAITING",
             }
         )
-        event_file.write_text(event + "\n")
+        with event_file.open("a") as f:
+            f.write(event + "\n")
 
         wait_for(
             lambda: len(notifier.calls) > 0,

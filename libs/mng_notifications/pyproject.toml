@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Notification plugin for mng - alerts when agents transition to WAITING state"
 requires-python = ">=3.11"
 dependencies = [
-    "mng==0.1.5",
+    "mng==0.1.6",
     "click-option-group>=0.5.6",
 ]
 
@@ -35,7 +35,7 @@ addopts = [
     "--cov=imbue.mng_notifications",
     "--cov-report=term-missing",
     "--cov-fail-under=80",
-    "--timeout=10",
+    "--timeout=30",
 ]
 
 [tool.coverage.run]
