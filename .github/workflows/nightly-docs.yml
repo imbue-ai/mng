@@ -51,16 +51,18 @@ jobs:
 
             Focus on structural and user-facing changes.
 
-            ## Step 2: Update ARCHITECTURE.md (if needed)
-
-            Read the current ARCHITECTURE.md. Update it if the commits changed the architecture.
-            The bar is high -- most days there should be no changes.
-
-            ## Step 3: Update CHANGELOG.md
+            ## Step 2: Update CHANGELOG.md
 
             Add new entries to CHANGELOG.md for user-visible changes. Use newest-first ordering
             (most recent date at the top). Use `## YYYY-MM-DD` section headers with bullet points
             underneath. Follow the existing format in the file. Skip internal-only changes.
+
+            ## Step 3: Update ARCHITECTURE.md (if needed)
+
+            Read the current ARCHITECTURE.md. Update it if the commits changed the architecture.
+            The bar is high -- most days there should be no changes. Having just written the
+            changelog, you now have full context on what changed -- use that to decide whether
+            any architectural updates are warranted.
 
             ## Step 4: Commit and create PR
 
