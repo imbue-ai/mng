@@ -17,7 +17,7 @@ IF YOU FAIL TO FOLLOW ONE, YOU MUST EXPLICITLY CALL THAT OUT IN YOUR RESPONSE.
 
 3. If you will be writing code, read `style_guide.md`.
 
-4. Based on the task, determine which source files are most relevant and read them in depth before making changes. ARCHITECTURE.md tells you where things live and how they relate; you still need to read the actual code you'll be modifying.
+4. Based on the task, determine which source files are most relevant and read them in depth before making changes.
 
 Do NOT read files that end with "_test.py" during this first pass as they contain unit tests (unless you are explicitly instructed to read the unit tests).
 
