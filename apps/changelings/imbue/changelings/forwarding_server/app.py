@@ -18,6 +18,7 @@ from fastapi import WebSocket
 from fastapi import WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.responses import Response
+from fastapi.responses import StreamingResponse
 from loguru import logger
 from websockets import ClientConnection
 
@@ -342,6 +343,62 @@ async def _forward_http_request(
         return Response(status_code=504, content="Backend request timed out")
 
 
+async def _forward_http_request_streaming(
+    request: Request,
+    backend_url: str,
+    path: str,
+    agent_id: str,
+    server_name: str,
+    http_client: httpx.AsyncClient | None,
+) -> Response:
+    """Forward an HTTP request and stream the response back without buffering.
+
+    Used for SSE (Server-Sent Events) endpoints where the backend sends data
+    incrementally and the client needs to receive it as it arrives.
+    """
+    proxy_url = f"{backend_url}/{path}"
+    if request.url.query:
+        proxy_url += f"?{request.url.query}"
+
+    headers = dict(request.headers)
+    headers.pop("host", None)
+
+    body = await request.body()
+
+    active_http_client = http_client or request.app.state.http_client
+
+    try:
+        backend_stream = active_http_client.stream(
+            method=request.method,
+            url=proxy_url,
+            headers=headers,
+            content=body,
+        )
+    except httpx.ConnectError:
+        logger.debug("Backend connection refused for {} server {} (streaming)", agent_id, server_name)
+        return Response(status_code=502, content="Backend connection refused")
+
+    async def _stream_generator() -> AsyncGenerator[bytes, None]:
+        try:
+            async with backend_stream as response:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+        except httpx.ConnectError:
+            logger.debug("Backend connection lost during streaming for {} server {}", agent_id, server_name)
+        except httpx.TimeoutException:
+            logger.debug("Backend stream timed out for {} server {}", agent_id, server_name)
+
+    return StreamingResponse(
+        _stream_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 def _build_proxy_response(
     backend_response: httpx.Response,
     agent_id: AgentId,
@@ -428,6 +485,22 @@ async def _handle_proxy_http(
     except (SSHTunnelError, paramiko.SSHException, OSError) as e:
         logger.debug("SSH tunnel setup failed for {} server {}: {}", agent_id, server_name, e)
         return Response(status_code=502, content=f"SSH tunnel to remote backend failed: {e}")
+
+    # Check if this request expects a streaming response (SSE).
+    # If Accept includes text/event-stream, use streaming proxy to avoid
+    # buffering the entire response before forwarding.
+    accept_header = request.headers.get("accept", "")
+    is_likely_sse = "text/event-stream" in accept_header or (request.method == "POST" and "api/chat/send" in path)
+
+    if is_likely_sse:
+        return await _forward_http_request_streaming(
+            request=request,
+            backend_url=backend_url,
+            path=path,
+            agent_id=agent_id,
+            server_name=server_name,
+            http_client=tunnel_client,
+        )
 
     # Forward request to backend
     result = await _forward_http_request(
