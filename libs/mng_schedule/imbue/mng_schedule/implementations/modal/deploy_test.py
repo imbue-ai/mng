@@ -13,6 +13,8 @@ from dotenv import dotenv_values
 from imbue.mng import hookimpl
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.providers.deploy_utils import MngInstallMode
+from imbue.mng.utils.testing import init_git_repo_with_config
+from imbue.mng.utils.testing import run_git_command
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.errors import ScheduleDeployError
@@ -84,9 +86,6 @@ def test_get_repo_root_raises_outside_git_repo(
 
 def test_package_repo_at_commit_succeeds_with_valid_script(tmp_path: Path) -> None:
     """package_repo_at_commit should succeed when the packaging script exists."""
-    from imbue.mng.utils.testing import init_git_repo_with_config
-    from imbue.mng.utils.testing import run_git_command
-
     repo_root = tmp_path / "repo"
     init_git_repo_with_config(repo_root)
 
