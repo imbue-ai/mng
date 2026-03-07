@@ -12,13 +12,12 @@ to the ``mng events`` command (run as a subprocess). This script handles:
 - Delivery envelope formatting (time since last message, rate warnings)
 - Subprocess lifecycle (restart on exit)
 
-Usage: python3 event_watcher.py
+Usage: mng changeling-event-watcher
 
 Environment:
   MNG_AGENT_STATE_DIR  - agent state directory (contains events/)
   MNG_AGENT_WORK_DIR   - agent working directory (contains changelings.toml)
   MNG_AGENT_NAME       - name of the primary agent to send messages to
-  MNG_HOST_DIR         - host data directory (for log output)
 """
 
 from __future__ import annotations
@@ -28,7 +27,6 @@ import json
 import os
 import sqlite3
 import subprocess
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -41,22 +39,12 @@ from uuid import uuid4
 
 from loguru import logger
 
-try:
-    from imbue.mng_claude_changeling.resources.watcher_common import DEFAULT_CEL_FILTER
-    from imbue.mng_claude_changeling.resources.watcher_common import MngNotInstalledError
-    from imbue.mng_claude_changeling.resources.watcher_common import get_mng_command
-    from imbue.mng_claude_changeling.resources.watcher_common import load_watchers_section
-    from imbue.mng_claude_changeling.resources.watcher_common import require_env
-    from imbue.mng_claude_changeling.resources.watcher_common import setup_watcher_logging
-except ImportError:
-    sys.path.insert(0, str(Path(__file__).parent))
-    from watcher_common import DEFAULT_CEL_FILTER  # type: ignore[no-redef]
-    from watcher_common import MngNotInstalledError  # type: ignore[no-redef]
-    from watcher_common import get_mng_command  # type: ignore[no-redef]
-    from watcher_common import load_watchers_section  # type: ignore[no-redef]
-    from watcher_common import require_env  # type: ignore[no-redef]
-    from watcher_common import setup_watcher_logging  # type: ignore[no-redef]
-
+from imbue.mng_claude_changeling.resources.watcher_common import DEFAULT_CEL_FILTER
+from imbue.mng_claude_changeling.resources.watcher_common import MngNotInstalledError
+from imbue.mng_claude_changeling.resources.watcher_common import get_mng_command
+from imbue.mng_claude_changeling.resources.watcher_common import load_watchers_section
+from imbue.mng_claude_changeling.resources.watcher_common import require_env
+from imbue.mng_claude_changeling.resources.watcher_common import setup_watcher_logging
 
 # -- Constants --
 # NOTE: These defaults must be kept in sync with the Field defaults in
@@ -834,9 +822,8 @@ def main() -> None:
     agent_state_dir = Path(require_env("MNG_AGENT_STATE_DIR"))
     agent_work_dir = Path(require_env("MNG_AGENT_WORK_DIR"))
     agent_name = require_env("MNG_AGENT_NAME")
-    host_dir = Path(require_env("MNG_HOST_DIR"))
 
-    setup_watcher_logging("event_watcher", host_dir / "events" / "logs")
+    setup_watcher_logging("event_watcher", agent_state_dir / "events" / "logs")
 
     settings = _load_watcher_settings(agent_work_dir)
 

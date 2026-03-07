@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 from typing import Final
 
+import click
 from loguru import logger
 from pydantic import Field
 
@@ -60,25 +62,25 @@ AGENT_TTYD_COMMAND: Final[str] = build_ttyd_server_command(_AGENT_TTYD_INVOCATIO
 # Supporting service tmux window names and commands.
 # These are run as additional tmux windows alongside the primary role agent.
 CONV_WATCHER_WINDOW_NAME: Final[str] = "conv_watcher"
-CONV_WATCHER_COMMAND: Final[str] = "python3 $MNG_HOST_DIR/commands/conversation_watcher.py"
+CONV_WATCHER_COMMAND: Final[str] = "mng changelingconversations"
 
 EVENT_WATCHER_WINDOW_NAME: Final[str] = "events"
-EVENT_WATCHER_COMMAND: Final[str] = "python3 $MNG_HOST_DIR/commands/event_watcher.py"
+EVENT_WATCHER_COMMAND: Final[str] = "mng changelingevents"
 
 TRANSCRIPT_WATCHER_WINDOW_NAME: Final[str] = "transcript"
-TRANSCRIPT_WATCHER_COMMAND: Final[str] = "python3 $MNG_HOST_DIR/commands/transcript_watcher.py"
+TRANSCRIPT_WATCHER_COMMAND: Final[str] = "mng changelingtranscript"
 
 # Web server: serves the main web interface with conversation selector
 # and agent list page.
 WEB_SERVER_WINDOW_NAME: Final[str] = "web_server"
-WEB_SERVER_COMMAND: Final[str] = 'python3 "$MNG_HOST_DIR/commands/web_server.py"'
+WEB_SERVER_COMMAND: Final[str] = "mng changelingweb"
 
 # Chat ttyd: a ttyd with --url-arg that dispatches to chat.sh.
 # Accessed with ?arg=<conversation_id> to resume, or no arg for a new conversation.
 CHAT_TTYD_WINDOW_NAME: Final[str] = "chat"
 CHAT_TTYD_SERVER_NAME: Final[str] = CHAT_TTYD_WINDOW_NAME
 _CHAT_TTYD_INVOCATION: Final[str] = (
-    'ttyd -p 0 -a -t disableLeaveAlert=true -W bash "$MNG_HOST_DIR/commands/chat_ttyd_handler.sh"'
+    'ttyd -p 0 -a -t disableLeaveAlert=true -W bash "$MNG_AGENT_STATE_DIR/commands/chat_ttyd_handler.sh"'
 )
 CHAT_TTYD_COMMAND: Final[str] = build_ttyd_server_command(_CHAT_TTYD_INVOCATION, CHAT_TTYD_SERVER_NAME)
 
@@ -217,8 +219,6 @@ class ClaudeChangelingAgent(ClaudeAgent):
             bin_dir = f"{agent_state_dir}/bin"
             env_vars["UV_TOOL_DIR"] = f"{agent_state_dir}/tools"
             env_vars["UV_TOOL_BIN_DIR"] = bin_dir
-            existing_path = env_vars.get("PATH", "$PATH")
-            env_vars["PATH"] = f"{bin_dir}:{existing_path}"
 
     def assemble_command(
         self,
@@ -291,10 +291,10 @@ class ClaudeChangelingAgent(ClaudeAgent):
         role_dir_abs = f"{work_dir_abs}/{active_role}"
         self._configure_role_hooks(host, active_role, role_dir_abs)
 
-        provision_supporting_services(host, provisioning)
-        provision_llm_tools(host, provisioning)
-
         agent_state_dir = self._get_agent_dir()
+
+        provision_supporting_services(host, agent_state_dir, provisioning)
+        provision_llm_tools(host, agent_state_dir, provisioning)
         create_event_log_directories(host, agent_state_dir, provisioning)
 
         configure_llm_user_path(host, agent_state_dir, provisioning)
@@ -334,6 +334,14 @@ def inject_supporting_services(params: dict[str, Any]) -> None:
 def get_agent_type_from_params(params: dict[str, Any]) -> str | None:
     """Extract the agent type from create command parameters."""
     return params.get("agent_type") or params.get("positional_agent_type")
+
+
+@hookimpl
+def register_cli_commands() -> Sequence[click.Command] | None:
+    """Register changeling supporting service commands with mng."""
+    from imbue.mng_claude_changeling.cli import get_all_commands
+
+    return get_all_commands()
 
 
 @hookimpl

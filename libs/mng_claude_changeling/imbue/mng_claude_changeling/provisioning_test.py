@@ -553,14 +553,14 @@ def test_provision_default_content_writes_skills_to_thinking() -> None:
 
 def test_provision_supporting_services_creates_commands_dir() -> None:
     host = StubHost()
-    provision_supporting_services(cast(Any, host), _DEFAULT_PROVISIONING)
+    provision_supporting_services(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"), _DEFAULT_PROVISIONING)
 
     assert any("mkdir" in c and "commands" in c for c in host.executed_commands)
 
 
 def test_provision_supporting_services_writes_all_scripts() -> None:
     host = StubHost()
-    provision_supporting_services(cast(Any, host), _DEFAULT_PROVISIONING)
+    provision_supporting_services(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"), _DEFAULT_PROVISIONING)
 
     written_names = [str(path) for path, _, _ in host.written_files]
     for script_name in _SERVICE_SCRIPT_FILES:
@@ -569,26 +569,22 @@ def test_provision_supporting_services_writes_all_scripts() -> None:
 
 def test_provision_supporting_services_uses_executable_mode() -> None:
     host = StubHost()
-    provision_supporting_services(cast(Any, host), _DEFAULT_PROVISIONING)
+    provision_supporting_services(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"), _DEFAULT_PROVISIONING)
 
     for path, _, mode in host.written_files:
-        # Script modules (non-executable) are provisioned with 0644
-        if path.name in ("watcher_common.py", "conversation_db.py"):
-            assert mode == "0644", f"Expected 0644 for module {path.name}, got {mode}"
-        else:
-            assert mode == "0755", f"Expected 0755 for script {path.name}, got {mode}"
+        assert mode == "0755", f"Expected 0755 for script {path.name}, got {mode}"
 
 
 def test_provision_llm_tools_creates_tools_dir() -> None:
     host = StubHost()
-    provision_llm_tools(cast(Any, host), _DEFAULT_PROVISIONING)
+    provision_llm_tools(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"), _DEFAULT_PROVISIONING)
 
     assert any("mkdir" in c and "llm_tools" in c for c in host.executed_commands)
 
 
 def test_provision_llm_tools_writes_all_tool_files() -> None:
     host = StubHost()
-    provision_llm_tools(cast(Any, host), _DEFAULT_PROVISIONING)
+    provision_llm_tools(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"), _DEFAULT_PROVISIONING)
 
     written_names = [str(path) for path, _, _ in host.written_files]
     for tool_file in _LLM_TOOL_FILES:
@@ -1346,7 +1342,7 @@ def test_setup_memory_directory_raises_on_sync_failure() -> None:
 def test_provision_llm_tools_uses_correct_mode() -> None:
     """Verify LLM tool files are written with 0644 mode."""
     host = StubHost()
-    provision_llm_tools(cast(Any, host), _DEFAULT_PROVISIONING)
+    provision_llm_tools(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"), _DEFAULT_PROVISIONING)
 
     for _, _, mode in host.written_files:
         assert mode == "0644"

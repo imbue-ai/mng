@@ -15,16 +15,15 @@
 #
 # Environment:
 #   MNG_AGENT_STATE_DIR  - agent state directory (contains events/)
-#   MNG_HOST_DIR         - host data directory (contains commands/)
+#   MNG_AGENT_STATE_DIR  - agent state directory (contains events/, commands/)
 #   MNG_AGENT_WORK_DIR   - agent work directory (contains talking/PROMPT.md)
 #   LLM_USER_PATH        - llm data directory (contains logs.db)
 
 set -euo pipefail
 
 AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
-LLM_TOOLS_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}/commands/llm_tools"
+LLM_TOOLS_DIR="${MNG_AGENT_STATE_DIR}/commands/llm_tools"
 TALKING_PROMPT="${MNG_AGENT_WORK_DIR:-}/talking/PROMPT.md"
-CONV_DB="${MNG_HOST_DIR}/commands/conversation_db.py"
 
 # Path to the llm database (LLM_USER_PATH is always set during provisioning)
 if [ -z "${LLM_USER_PATH:-}" ]; then
@@ -36,9 +35,9 @@ _LLM_DB="${LLM_USER_PATH}/logs.db"
 # Configure and source the shared logging library
 _MNG_LOG_TYPE="chat"
 _MNG_LOG_SOURCE="logs/chat"
-_MNG_LOG_FILE="${MNG_HOST_DIR}/events/logs/chat/events.jsonl"
+_MNG_LOG_FILE="${MNG_AGENT_STATE_DIR}/events/logs/chat/events.jsonl"
 # shellcheck source=../../../../mng/imbue/mng/resources/mng_log.sh
-source "$MNG_HOST_DIR/commands/mng_log.sh"
+source "$MNG_AGENT_STATE_DIR/commands/mng_log.sh"
 
 LOG_FILE="$_MNG_LOG_FILE"
 
@@ -94,7 +93,7 @@ insert_conversation_record() {
     local created_at
     created_at=$(iso_timestamp_ns)
 
-    python3 "$CONV_DB" insert "$_LLM_DB" "$conversation_id" "$tags" "$created_at"
+    mng changelingdb insert "$_LLM_DB" "$conversation_id" "$tags" "$created_at"
     log "Inserted conversation record: conversation_id=$conversation_id tags=$tags"
 }
 
@@ -179,7 +178,7 @@ new_conversation() {
         local _max_rowid
         _max_rowid=0
         if [ -f "$_LLM_DB" ]; then
-            _max_rowid=$(python3 "$CONV_DB" max-rowid "$_LLM_DB")
+            _max_rowid=$(mng changelingdb max-rowid "$_LLM_DB")
         fi
 
         (
@@ -187,7 +186,7 @@ new_conversation() {
             for _i in $(seq 1 60); do
                 sleep 1
                 if [ -f "$_LLM_DB" ]; then
-                    _new_conversation_id=$(python3 "$CONV_DB" poll-new "$_LLM_DB" "$_max_rowid")
+                    _new_conversation_id=$(mng changelingdb poll-new "$_LLM_DB" "$_max_rowid")
                     if [ -n "$_new_conversation_id" ]; then
                         insert_conversation_record "$_new_conversation_id" '{"name":"(new chat)"}'
                         log "Recorded conversation for new conversation_id=$_new_conversation_id (rowid > $_max_rowid)"
@@ -214,7 +213,7 @@ resume_conversation() {
 
     # Get the model from the changeling_conversations table
     local model
-    model=$(python3 "$CONV_DB" lookup-model "$_LLM_DB" "$conversation_id")
+    model=$(mng changelingdb lookup-model "$_LLM_DB" "$conversation_id")
     if [ -z "$model" ]; then
         model=$(get_default_model)
     fi
@@ -242,7 +241,7 @@ list_conversations() {
 
     # Check if the changeling_conversations table exists and has rows
     local _row_count
-    _row_count=$(python3 "$CONV_DB" count "$_LLM_DB")
+    _row_count=$(mng changelingdb count "$_LLM_DB")
     if [ "$_row_count" = "0" ]; then
         echo "No conversations yet."
         return 0

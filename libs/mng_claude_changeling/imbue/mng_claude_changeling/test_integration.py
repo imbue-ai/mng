@@ -156,9 +156,11 @@ def test_provisioning_writes_supporting_services_to_host(
     local_shell_host: LocalShellHost,
 ) -> None:
     """Verify that provisioning writes all scripts with correct permissions."""
-    provision_supporting_services(cast(Any, local_shell_host), _DEFAULT_PROVISIONING)
+    agent_state_dir = local_shell_host.host_dir / "agents" / "test-agent"
+    agent_state_dir.mkdir(parents=True, exist_ok=True)
+    provision_supporting_services(cast(Any, local_shell_host), agent_state_dir, _DEFAULT_PROVISIONING)
 
-    commands_dir = local_shell_host.host_dir / "commands"
+    commands_dir = agent_state_dir / "commands"
     for script_name in _SERVICE_SCRIPT_FILES:
         script_path = commands_dir / script_name
         assert script_path.exists(), f"Expected {script_name} to be written"
@@ -172,9 +174,11 @@ def test_provisioning_writes_llm_tools_to_host(
     local_shell_host: LocalShellHost,
 ) -> None:
     """Verify that provisioning writes LLM tool scripts."""
-    provision_llm_tools(cast(Any, local_shell_host), _DEFAULT_PROVISIONING)
+    agent_state_dir = local_shell_host.host_dir / "agents" / "test-agent"
+    agent_state_dir.mkdir(parents=True, exist_ok=True)
+    provision_llm_tools(cast(Any, local_shell_host), agent_state_dir, _DEFAULT_PROVISIONING)
 
-    tools_dir = local_shell_host.host_dir / "commands" / "llm_tools"
+    tools_dir = agent_state_dir / "commands" / "llm_tools"
     for tool_file in _LLM_TOOL_FILES:
         tool_path = tools_dir / tool_file
         assert tool_path.exists(), f"Expected {tool_file} to be written"
@@ -484,7 +488,7 @@ def test_chat_model_read_from_settings_toml(chat_env: ChatScriptEnv) -> None:
     chat_env.set_default_model("claude-haiku-4-5")
 
     # Ensure log directory exists so we can check the log for the model
-    log_dir = Path(chat_env.env["MNG_HOST_DIR"]) / "events" / "logs"
+    log_dir = Path(chat_env.env["MNG_AGENT_STATE_DIR"]) / "events" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     result = chat_env.run("--new", "--as-agent")
@@ -505,8 +509,8 @@ def test_chat_script_creates_log_file(chat_env: ChatScriptEnv) -> None:
     """Verify that chat.sh creates a log file with operation records."""
     chat_env.set_default_model("claude-sonnet-4-6")
 
-    # The log dir is at $MNG_HOST_DIR/events/logs/
-    log_dir = Path(chat_env.env["MNG_HOST_DIR"]) / "events" / "logs"
+    # The log dir is at $MNG_AGENT_STATE_DIR/events/logs/
+    log_dir = Path(chat_env.env["MNG_AGENT_STATE_DIR"]) / "events" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     chat_env.run("--new", "--as-agent")
@@ -737,7 +741,7 @@ def test_chat_script_uses_hardcoded_default_when_no_settings(chat_env: ChatScrip
     # Do NOT call set_default_model -- no settings.toml exists
 
     # Ensure log directory exists so we can check the log for the default model
-    log_dir = Path(chat_env.env["MNG_HOST_DIR"]) / "events" / "logs"
+    log_dir = Path(chat_env.env["MNG_AGENT_STATE_DIR"]) / "events" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     result = chat_env.run("--new", "--as-agent")
@@ -767,27 +771,25 @@ def test_chat_script_db_model_lookup_finds_correct_model(chat_env: ChatScriptEnv
     write_conversation_to_db(chat_env.llm_db_path, cid1, model="claude-sonnet-4-6")
     write_conversation_to_db(chat_env.llm_db_path, cid2, model="claude-haiku-4-5")
 
-    # Use the conversation_db.py helper (same as resume_conversation uses)
-    conv_db = Path(chat_env.env["MNG_HOST_DIR"]) / "commands" / "conversation_db.py"
-    lookup_result = subprocess.run(
-        ["python3", str(conv_db), "lookup-model", str(chat_env.llm_db_path), cid2],
-        capture_output=True,
-        text=True,
-        env=chat_env.env,
-        timeout=10,
-    )
-    assert lookup_result.returncode == 0
-    assert lookup_result.stdout.strip() == "claude-haiku-4-5"
+    # Use the conversation_db module directly (same logic as mng changelingdb)
+    import io
 
-    lookup_result2 = subprocess.run(
-        ["python3", str(conv_db), "lookup-model", str(chat_env.llm_db_path), cid1],
-        capture_output=True,
-        text=True,
-        env=chat_env.env,
-        timeout=10,
-    )
-    assert lookup_result2.returncode == 0
-    assert lookup_result2.stdout.strip() == "claude-sonnet-4-6"
+    from imbue.mng_claude_changeling.resources.conversation_db import lookup_model
+
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+    try:
+        lookup_model(str(chat_env.llm_db_path), cid2)
+        assert sys.stdout.getvalue().strip() == "claude-haiku-4-5"
+    finally:
+        sys.stdout = old_stdout
+
+    sys.stdout = io.StringIO()
+    try:
+        lookup_model(str(chat_env.llm_db_path), cid1)
+        assert sys.stdout.getvalue().strip() == "claude-sonnet-4-6"
+    finally:
+        sys.stdout = old_stdout
 
 
 @pytest.mark.timeout(30)
