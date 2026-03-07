@@ -353,3 +353,45 @@ def test_read_message_history_skips_injected_prompts(web_server_module: Any) -> 
     result = web_server_module._read_message_history("conv-skip-82741")
     assert len(result) == 1
     assert result[0]["role"] == "assistant"
+
+
+# -- Inworld config tests --
+
+
+def test_get_inworld_config_returns_empty_when_no_api_key(web_server_module: Any) -> None:
+    web_server_module.INWORLD_API_KEY = ""
+    result = web_server_module._get_inworld_config()
+    assert result["api_key"] == ""
+    assert result["ice_servers"] == []
+    assert result["url"] == ""
+
+
+def test_get_inworld_config_returns_config_with_api_key(web_server_module: Any) -> None:
+    web_server_module.INWORLD_API_KEY = "test-key-82741"
+    # Point at an invalid proxy to avoid real HTTP calls (ICE fetch will fail gracefully)
+    original_proxy = web_server_module.INWORLD_PROXY
+    web_server_module.INWORLD_PROXY = "http://127.0.0.1:1"
+    try:
+        result = web_server_module._get_inworld_config()
+        assert result["api_key"] == "test-key-82741"
+        assert result["ice_servers"] == []
+        assert result["url"] == "http://127.0.0.1:1/v1/realtime/calls"
+    finally:
+        web_server_module.INWORLD_PROXY = original_proxy
+
+
+# -- Web chat page audio tests --
+
+
+def test_render_web_chat_page_includes_audio_button(web_server_module: Any) -> None:
+    page = web_server_module._render_web_chat_page("TestAgent", "conv-audio-82741")
+    assert 'id="audio-btn"' in page
+    assert "toggleAudio" in page
+
+
+def test_render_web_chat_page_includes_webrtc_code(web_server_module: Any) -> None:
+    page = web_server_module._render_web_chat_page("TestAgent", "conv-audio-82741")
+    assert "RTCPeerConnection" in page
+    assert "speakText" in page
+    assert "session.update" in page
+    assert "inworld-tts" in page
