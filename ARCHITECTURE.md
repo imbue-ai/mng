@@ -10,7 +10,7 @@ The key mission: make it easy to create, deploy, and manage AI coding agents at 
 
 ## Monorepo Structure
 
-All packages are part of a single **uv workspace** (`[tool.uv.workspace] members = ["libs/*", "apps/*"]`). The shared Python namespace is `imbue.*` (e.g., `imbue.mng`, `imbue.imbue_common`, `imbue.changelings`). Dependencies flow from apps -> plugins -> core -> common, with no circular dependencies (enforced by import-linter).
+All packages are part of a single **uv workspace** (`[tool.uv.workspace] members = ["libs/*", "apps/*"]`). The shared Python namespace is `imbue.*` (e.g., `imbue.mng`, `imbue.imbue_common`, `imbue.changelings`). Dependencies flow from apps -> plugins -> core -> common, with no circular dependencies.
 
 ```
 libs/
@@ -253,7 +253,6 @@ Web interface for managing AI agents programmatically. FastAPI-based with python
 
 - **Build backend**: Hatchling
 - **Linting/formatting**: ruff (line length 119, double quotes)
-- **Import enforcement**: import-linter (layer contracts)
 - **Type checking**: ty, run via `uv run ty check`
 
 **GitHub Actions CI** (`.github/workflows/ci.yml`): runs integration, acceptance, and release test suites in parallel groups. Acceptance tests require Modal credentials. Release tests run on the release branch only.
@@ -274,4 +273,4 @@ Web interface for managing AI agents programmatically. FastAPI-based with python
 | File sync | rsync, unison |
 | Web (apps) | FastAPI, FastHTML, React + TypeScript, Flask |
 | Testing | pytest, pytest-xdist, pytest-cov, inline-snapshot |
-| Quality | ruff, ty (type checker), import-linter, pre-commit |
+| Quality | ruff, ty (type checker), pre-commit |
