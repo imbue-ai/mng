@@ -78,5 +78,5 @@ jobs:
 
             If no changes were needed, do nothing.
           claude_args: |
-            --model claude-sonnet-4-20250514
+            --model claude-opus-4-20250514
             --allowedTools Read,Write,Edit,Bash(git:*),Bash(gh pr create:*),Bash(date:*)
