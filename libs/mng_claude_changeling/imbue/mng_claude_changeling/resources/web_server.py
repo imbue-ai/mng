@@ -917,6 +917,7 @@ var audioEnabled = false;
 var audioPc = null;
 var audioDc = null;
 var audioEl = null;
+var audioCtx = null;
 
 function toggleAudio() {{
   if (audioEnabled) {{
@@ -971,8 +972,15 @@ async function startAudio() {{
     audioDc = audioPc.createDataChannel("oai-events", {{ ordered: true }});
     console.log("[audio] Data channel created");
 
-    audioPc.addTransceiver("audio", {{ direction: "recvonly" }});
-    console.log("[audio] Added recvonly audio transceiver");
+    // Create a silent audio track to send to Inworld. A recvonly transceiver
+    // negotiates correctly in SDP, but Inworld's media server won't send RTP
+    // audio packets unless it receives incoming audio first. Sending silence
+    // satisfies this requirement without needing microphone access.
+    audioCtx = new AudioContext();
+    var silentDest = audioCtx.createMediaStreamDestination();
+    var silentTrack = silentDest.stream.getAudioTracks()[0];
+    audioPc.addTrack(silentTrack, silentDest.stream);
+    console.log("[audio] Added silent audio send track (no microphone needed)");
 
     audioPc.ontrack = function(e) {{
       console.log("[audio] ontrack fired! kind:", e.track.kind, "readyState:", e.track.readyState, "muted:", e.track.muted, "enabled:", e.track.enabled);
@@ -1088,6 +1096,7 @@ function stopAudio() {{
     console.log("[audio] Closing peer connection, state was:", audioPc.connectionState);
     audioPc.close();
   }}
+  if (audioCtx) {{ audioCtx.close().catch(function() {{}}); audioCtx = null; }}
   if (audioEl) {{ audioEl.remove(); audioEl = null; }}
   document.querySelectorAll(".inworld-audio").forEach(function(a) {{ a.remove(); }});
   audioPc = null;
