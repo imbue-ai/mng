@@ -37,16 +37,13 @@ jobs:
 
               git log --oneline --since="<anchor>"
 
-            If that returns nothing, there are no changes to document -- exit early without
-            making changes.
-
-            However, as a sanity check, also verify that there have been *some* commits (of any
-            kind) in the last 3 days:
+            If that returns nothing, verify there have been *some* commits in the last 3 days:
 
               git log --oneline --since="3 days ago" -1
 
             If that also returns nothing, output "WARNING: no commits found in the last 3 days"
-            and exit with a non-zero status.
+            and exit with a non-zero status. Otherwise, there are simply no changes to document --
+            exit early without making changes.
 
             Read the diffs, focusing on structural and user-facing changes:
 
