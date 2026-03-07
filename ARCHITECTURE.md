@@ -10,52 +10,23 @@ The key mission: make it easy to create, deploy, and manage AI coding agents at 
 
 ## Monorepo Structure
 
-```
-mng/
-  libs/                          # Libraries
-    mng/                         # Core library (the main product)
-    imbue_common/                # Shared primitives, models, and utilities
-    concurrency_group/           # Structured thread/process management
-    mng_pair/                    # Plugin: continuous file sync (mng pair)
-    mng_opencode/                # Plugin: OpenCode agent type
-    mng_schedule/                # Plugin: cron-scheduled agent runs
-    mng_kanpan/                  # Plugin: TUI agent tracker dashboard
-    mng_tutor/                   # Plugin: interactive tutorials
-    flexmux/                     # FlexLayout-based tab manager with Flask backend
-  apps/                          # Applications
-    changelings/                 # Experimental autonomous agent scheduler
-    claude_web_view/             # Web viewer for Claude Code transcripts (FastAPI + React)
-    sculptor_web/                # Web interface for agent management (FastHTML)
-  scripts/                       # Build and utility scripts
-  style_guide.md                 # Coding standards
-  CLAUDE.md                      # Instructions for Claude Code agents working on this repo
-  pyproject.toml                 # Monorepo config (uv workspace, pytest, ruff, import-linter)
-```
-
-All libraries and apps are part of a single **uv workspace** (`[tool.uv.workspace] members = ["libs/*", "apps/*"]`). The shared Python namespace is `imbue.*` (e.g., `imbue.mng`, `imbue.imbue_common`, `imbue.changelings`).
-
-### Package Dependency Graph
+All packages are part of a single **uv workspace** (`[tool.uv.workspace] members = ["libs/*", "apps/*"]`). The shared Python namespace is `imbue.*` (e.g., `imbue.mng`, `imbue.imbue_common`, `imbue.changelings`). Dependencies flow from apps -> plugins -> core -> common, with no circular dependencies (enforced by import-linter).
 
 ```
-imbue-common (foundation: primitives, models, utilities)
-concurrency-group (foundation: structured thread/process management)
-    |
-    v
-mng (core framework)
-    depends on: imbue-common, concurrency-group
-    key deps: click, pydantic, pluggy, urwid, modal, docker, pyinfra
-    |
-    +-- mng-pair (plugin, depends on: mng)
-    +-- mng-opencode (plugin, depends on: mng)
-    +-- mng-schedule (plugin, depends on: mng, imbue-common, modal)
-    +-- mng-kanpan (plugin, depends on: mng)
-    +-- mng-tutor (plugin, depends on: mng)
-    |
-    +-- changelings (app, depends on: mng, imbue-common, concurrency-group, modal)
-    +-- sculptor_web (app, depends on: mng, python-fasthtml)
-
-flexmux (independent utility, depends on: flask, pydantic)
-claude_web_view (independent app, depends on: fastapi, watchfiles)
+libs/
+  imbue_common/        # Foundation: primitives, models, utilities (no internal deps)
+  concurrency_group/   # Foundation: structured thread/process management (no internal deps)
+  mng/                 # Core framework (depends on: imbue-common, concurrency-group)
+  mng_pair/            # Plugin: continuous file sync (depends on: mng)
+  mng_opencode/        # Plugin: OpenCode agent type (depends on: mng)
+  mng_schedule/        # Plugin: cron-scheduled agent runs (depends on: mng, imbue-common, modal)
+  mng_kanpan/          # Plugin: TUI agent tracker dashboard (depends on: mng)
+  mng_tutor/           # Plugin: interactive tutorials (depends on: mng)
+  flexmux/             # Independent: FlexLayout tab manager (depends on: flask, pydantic)
+apps/
+  changelings/         # Experimental autonomous agent scheduler (depends on: mng, imbue-common, concurrency-group, modal)
+  claude_web_view/     # Web viewer for Claude Code transcripts (depends on: fastapi, watchfiles)
+  sculptor_web/        # Web interface for agent management (depends on: mng, python-fasthtml)
 ```
 
 Dependencies flow cleanly from applications -> plugins -> core framework -> common libraries, with no circular dependencies. This is enforced by import-linter in CI.
