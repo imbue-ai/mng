@@ -239,20 +239,13 @@ Experimental project for scheduling and running autonomous agents. Depends on mn
 3. **Safe** -- prioritize safety and reliability; avoid data loss.
 4. **Personal** -- serve only the user; no data sharing without explicit permission.
 
-## Build and CI/CD
-
-- **Build backend**: Hatchling
-- **Linting/formatting**: ruff (line length 119, double quotes)
-- **Type checking**: ty, run via `uv run ty check`
-
-**GitHub Actions CI** (`.github/workflows/ci.yml`): runs integration, acceptance, and release test suites in parallel groups. Acceptance tests require Modal credentials. Release tests run on the release branch only.
-
-## Key Technologies
+## Build and Key Technologies
 
 | Category | Technologies |
 |----------|-------------|
 | Language | Python 3.11+ |
 | Package mgmt | uv (workspace-aware monorepo) |
+| Build | Hatchling |
 | CLI | Click, click-option-group |
 | Data models | Pydantic |
 | Plugins | pluggy |
@@ -263,4 +256,6 @@ Experimental project for scheduling and running autonomous agents. Depends on mn
 | File sync | rsync, unison |
 | Web (apps) | FastAPI, FastHTML, React + TypeScript, Flask |
 | Testing | pytest, pytest-xdist, pytest-cov, inline-snapshot |
-| Quality | ruff, ty (type checker), pre-commit |
+| Quality | ruff (line length 119, double quotes), ty (`uv run ty check`), pre-commit |
+
+**GitHub Actions CI** (`.github/workflows/ci.yml`): runs integration, acceptance, and release test suites in parallel groups. Acceptance tests require Modal credentials. Release tests run on the release branch only.
