@@ -8,8 +8,8 @@
 
 set -euo pipefail
 
-# Read hook input JSON from stdin (must be done before anything else consumes stdin)
-HOOK_INPUT=$(cat 2>/dev/null || echo '{}')
+# Drain stdin so downstream commands don't accidentally consume the hook JSON
+cat > /dev/null 2>&1 || true
 
 # Check if we're in a tmux session
 if [ -z "${TMUX:-}" ]; then
