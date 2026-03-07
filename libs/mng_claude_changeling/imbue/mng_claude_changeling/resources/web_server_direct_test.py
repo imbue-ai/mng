@@ -6,8 +6,11 @@ Only tests for functions that don't depend on module-level env var state
 belong here.
 """
 
+import http.client
 import json
 import threading
+from collections.abc import Generator
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -196,9 +199,19 @@ def test_render_web_chat_page_contains_chat_elements() -> None:
     assert "TestAgent" in page
 
 
-def test_render_web_chat_page_escapes_conversation_id() -> None:
-    page = _render_web_chat_page("TestAgent", "<script>xss</script>")
-    assert "<script>xss</script>" not in page
+def test_render_web_chat_page_escapes_script_closing_tag() -> None:
+    """Verify that </script> in conversation_id cannot break out of the script block."""
+    page = _render_web_chat_page("TestAgent", "</script><img src=x onerror=alert(1)>")
+    # The </script> must be escaped so the HTML parser doesn't close the script tag
+    assert "</script><img" not in page
+    assert r"<\/script>" in page
+
+
+def test_render_web_chat_page_escapes_js_injection() -> None:
+    """Verify that backslash-based JS escape sequences are properly escaped."""
+    page = _render_web_chat_page("TestAgent", "\\x22;alert(1)//")
+    # json.dumps escapes backslashes, so \\x22 becomes \\\\x22 in the output
+    assert "\\\\x22" in page
 
 
 def test_render_conversations_page_contains_text_chat_links() -> None:
@@ -209,252 +222,137 @@ def test_render_conversations_page_contains_text_chat_links() -> None:
 # -- HTTP handler tests --
 
 
-def _start_test_server() -> tuple[object, int]:
-    """Start a test HTTP server and return (server, port)."""
-    from http.server import ThreadingHTTPServer
-
+@pytest.fixture()
+def test_server() -> Generator[tuple[ThreadingHTTPServer, int], None, None]:
+    """Start and stop a test HTTP server, yielding (server, port)."""
     from imbue.mng_claude_changeling.resources.web_server import _WebServerHandler
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _WebServerHandler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    return server, port
+    yield server, port
+    server.shutdown()
 
 
-def test_handler_get_conversations_page() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/conversations")
-        resp = conn.getresponse()
-        assert resp.status == 200
+@pytest.mark.parametrize(
+    "path, expected_status, expected_in_body",
+    [
+        ("/", 200, None),
+        ("/conversations", 200, "Conversations"),
+        ("/chat?cid=test-conv-123", 200, "chat-messages"),
+        ("/text_chat?cid=test-conv-456", 200, "<iframe"),
+        ("/terminal", 200, "Terminal"),
+        ("/agents-page", 200, "Agents"),
+        ("/nonexistent", 404, None),
+        ("/api/chat/history?cid=test-conv-789", 200, "messages"),
+    ],
+)
+def test_handler_get_routes(
+    test_server: tuple[ThreadingHTTPServer, int],
+    path: str,
+    expected_status: int,
+    expected_in_body: str | None,
+) -> None:
+    _, port = test_server
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.request("GET", path)
+    resp = conn.getresponse()
+    assert resp.status == expected_status
+    if expected_in_body is not None:
         body = resp.read().decode()
-        assert "Conversations" in body
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
+        assert expected_in_body in body
+    conn.close()
 
 
-def test_handler_get_root_page() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/")
-        resp = conn.getresponse()
-        assert resp.status == 200
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
+def test_handler_get_chat_without_cid_redirects(
+    test_server: tuple[ThreadingHTTPServer, int],
+) -> None:
+    _, port = test_server
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.request("GET", "/chat")
+    resp = conn.getresponse()
+    assert resp.status == 302
+    assert "conversations" in resp.getheader("Location", "")
+    conn.close()
 
 
-def test_handler_get_chat_without_cid_redirects() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/chat")
-        resp = conn.getresponse()
-        assert resp.status == 302
-        assert "conversations" in resp.getheader("Location", "")
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
+def test_handler_get_text_chat_without_cid_redirects(
+    test_server: tuple[ThreadingHTTPServer, int],
+) -> None:
+    _, port = test_server
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.request("GET", "/text_chat")
+    resp = conn.getresponse()
+    assert resp.status == 302
+    conn.close()
 
 
-def test_handler_get_chat_with_cid() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/chat?cid=test-conv-123")
-        resp = conn.getresponse()
-        assert resp.status == 200
-        body = resp.read().decode()
-        assert "test-conv-123" in body
-        assert "chat-messages" in body
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
+def test_handler_get_api_chat_history_missing_cid(
+    test_server: tuple[ThreadingHTTPServer, int],
+) -> None:
+    _, port = test_server
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.request("GET", "/api/chat/history")
+    resp = conn.getresponse()
+    assert resp.status == 400
+    body = json.loads(resp.read().decode())
+    assert "error" in body
+    conn.close()
 
 
-def test_handler_get_text_chat_without_cid_redirects() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/text_chat")
-        resp = conn.getresponse()
-        assert resp.status == 302
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
-
-
-def test_handler_get_text_chat_with_cid() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/text_chat?cid=test-conv-456")
-        resp = conn.getresponse()
-        assert resp.status == 200
-        body = resp.read().decode()
-        assert "<iframe" in body
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
-
-
-def test_handler_get_terminal() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/terminal")
-        resp = conn.getresponse()
-        assert resp.status == 200
-        body = resp.read().decode()
-        assert "Terminal" in body
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
-
-
-def test_handler_get_agents_page() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/agents-page")
-        resp = conn.getresponse()
-        assert resp.status == 200
-        body = resp.read().decode()
-        assert "Agents" in body
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
-
-
-def test_handler_get_404() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/nonexistent")
-        resp = conn.getresponse()
-        assert resp.status == 404
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
-
-
-def test_handler_get_api_chat_history() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/api/chat/history?cid=test-conv-789")
-        resp = conn.getresponse()
-        assert resp.status == 200
-        body = json.loads(resp.read().decode())
-        assert "messages" in body
-        assert body["conversation_id"] == "test-conv-789"
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
-
-
-def test_handler_get_api_chat_history_missing_cid() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/api/chat/history")
-        resp = conn.getresponse()
-        assert resp.status == 400
-        body = json.loads(resp.read().decode())
-        assert "error" in body
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
-
-
-def test_handler_post_api_chat_new() -> None:
-    import http.client
-
+def test_handler_post_api_chat_new(
+    test_server: tuple[ThreadingHTTPServer, int],
+) -> None:
     import imbue.mng_claude_changeling.resources.web_server as ws
 
     original_db = ws.LLM_DB_PATH
     ws.LLM_DB_PATH = None
     try:
-        server, port = _start_test_server()
-        try:
-            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-            conn.request("POST", "/api/chat/new")
-            resp = conn.getresponse()
-            assert resp.status == 200
-            body = json.loads(resp.read().decode())
-            assert "conversation_id" in body
-            assert body["conversation_id"].startswith("conv-")
-            conn.close()
-        finally:
-            server.shutdown()  # type: ignore[union-attr]
+        _, port = test_server
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("POST", "/api/chat/new")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        body = json.loads(resp.read().decode())
+        assert "conversation_id" in body
+        assert body["conversation_id"].startswith("conv-")
+        conn.close()
     finally:
         ws.LLM_DB_PATH = original_db
 
 
-def test_handler_post_api_chat_send_missing_fields() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        body = json.dumps({"conversation_id": "test"}).encode()
-        conn.request("POST", "/api/chat/send", body=body, headers={"Content-Type": "application/json"})
-        resp = conn.getresponse()
-        assert resp.status == 400
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
-
-
-def test_handler_post_api_chat_send_invalid_json() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("POST", "/api/chat/send", body=b"not json", headers={"Content-Type": "application/json"})
-        resp = conn.getresponse()
-        assert resp.status == 400
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
+@pytest.mark.parametrize(
+    "post_body, expected_status",
+    [
+        (json.dumps({"conversation_id": "test"}), 400),
+        ("not json", 400),
+    ],
+)
+def test_handler_post_api_chat_send_validation(
+    test_server: tuple[ThreadingHTTPServer, int],
+    post_body: str,
+    expected_status: int,
+) -> None:
+    _, port = test_server
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.request(
+        "POST",
+        "/api/chat/send",
+        body=post_body.encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    resp = conn.getresponse()
+    assert resp.status == expected_status
+    conn.close()
 
 
-def test_handler_post_404() -> None:
-    import http.client
-
-    server, port = _start_test_server()
-    try:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("POST", "/nonexistent")
-        resp = conn.getresponse()
-        assert resp.status == 404
-        conn.close()
-    finally:
-        server.shutdown()  # type: ignore[union-attr]
+def test_handler_post_404(
+    test_server: tuple[ThreadingHTTPServer, int],
+) -> None:
+    _, port = test_server
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.request("POST", "/nonexistent")
+    resp = conn.getresponse()
+    assert resp.status == 404
+    conn.close()

@@ -602,7 +602,10 @@ _CHAT_CSS: Final[str] = """
 def _render_web_chat_page(agent_name: str, conversation_id: str) -> str:
     """Render the web-based chat page with SSE streaming support."""
     escaped_agent = _html_escape(agent_name)
-    escaped_cid = _html_escape(conversation_id)
+    # Use json.dumps for safe embedding in JavaScript string context
+    # (html.escape is insufficient inside <script> tags).
+    # Also escape </ to prevent premature script tag closing.
+    js_safe_cid = json.dumps(conversation_id).replace("</", r"<\/")
 
     return f"""<!DOCTYPE html>
 <html>
@@ -624,7 +627,7 @@ def _render_web_chat_page(agent_name: str, conversation_id: str) -> str:
     </div>
   </div>
 <script>
-var conversationId = "{escaped_cid}";
+var conversationId = {js_safe_cid};
 var isStreaming = false;
 
 function scrollToBottom() {{
