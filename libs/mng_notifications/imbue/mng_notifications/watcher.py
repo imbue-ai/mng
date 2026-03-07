@@ -29,6 +29,11 @@ def watch_for_waiting_agents(
     logger.info("Watching for agent state transitions in {}", agents_dir)
 
     tracked_sizes: dict[Path, int] = {}
+    for event_file in _find_agent_event_files(agents_dir):
+        try:
+            tracked_sizes[event_file] = event_file.stat().st_size
+        except OSError:
+            pass
 
     while not stop_event.is_set():
         event_files = _find_agent_event_files(agents_dir)
