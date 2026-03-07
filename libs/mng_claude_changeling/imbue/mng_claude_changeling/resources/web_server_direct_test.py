@@ -7,19 +7,23 @@ belong here.
 """
 
 import json
+import threading
 from pathlib import Path
 
 import pytest
 
+from imbue.mng_claude_changeling.resources.web_server import _get_default_chat_model
 from imbue.mng_claude_changeling.resources.web_server import _get_most_recent_conversation_id
 from imbue.mng_claude_changeling.resources.web_server import _html_escape
 from imbue.mng_claude_changeling.resources.web_server import _iso_timestamp
 from imbue.mng_claude_changeling.resources.web_server import _log
 from imbue.mng_claude_changeling.resources.web_server import _make_event_id
+from imbue.mng_claude_changeling.resources.web_server import _read_message_history
 from imbue.mng_claude_changeling.resources.web_server import _render_agents_page
 from imbue.mng_claude_changeling.resources.web_server import _render_conversations_page
 from imbue.mng_claude_changeling.resources.web_server import _render_header
 from imbue.mng_claude_changeling.resources.web_server import _render_iframe_page
+from imbue.mng_claude_changeling.resources.web_server import _render_web_chat_page
 
 
 def test_html_escape_escapes_ampersand() -> None:
@@ -167,3 +171,290 @@ def test_get_most_recent_conversation_id_returns_none_when_empty() -> None:
     """Should return None when there are no conversations."""
     result = _get_most_recent_conversation_id()
     assert result is None
+
+
+# -- Web chat function tests (only tests that don't depend on module-level state) --
+
+
+def test_get_default_chat_model_returns_default() -> None:
+    result = _get_default_chat_model()
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_read_message_history_returns_empty_when_no_db() -> None:
+    result = _read_message_history("nonexistent-conv")
+    assert result == []
+
+
+def test_render_web_chat_page_contains_chat_elements() -> None:
+    page = _render_web_chat_page("TestAgent", "conv-123")
+    assert "chat-messages" in page
+    assert "chat-input" in page
+    assert "sendMessage" in page
+    assert "conv-123" in page
+    assert "TestAgent" in page
+
+
+def test_render_web_chat_page_escapes_conversation_id() -> None:
+    page = _render_web_chat_page("TestAgent", "<script>xss</script>")
+    assert "<script>xss</script>" not in page
+
+
+def test_render_conversations_page_contains_text_chat_links() -> None:
+    page = _render_conversations_page()
+    assert "chat?cid=NEW" in page
+
+
+# -- HTTP handler tests --
+
+
+def _start_test_server() -> tuple[object, int]:
+    """Start a test HTTP server and return (server, port)."""
+    from http.server import ThreadingHTTPServer
+
+    from imbue.mng_claude_changeling.resources.web_server import _WebServerHandler
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _WebServerHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, port
+
+
+def test_handler_get_conversations_page() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/conversations")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        body = resp.read().decode()
+        assert "Conversations" in body
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_get_root_page() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_get_chat_without_cid_redirects() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/chat")
+        resp = conn.getresponse()
+        assert resp.status == 302
+        assert "conversations" in resp.getheader("Location", "")
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_get_chat_with_cid() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/chat?cid=test-conv-123")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        body = resp.read().decode()
+        assert "test-conv-123" in body
+        assert "chat-messages" in body
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_get_text_chat_without_cid_redirects() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/text_chat")
+        resp = conn.getresponse()
+        assert resp.status == 302
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_get_text_chat_with_cid() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/text_chat?cid=test-conv-456")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        body = resp.read().decode()
+        assert "<iframe" in body
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_get_terminal() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/terminal")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        body = resp.read().decode()
+        assert "Terminal" in body
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_get_agents_page() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/agents-page")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        body = resp.read().decode()
+        assert "Agents" in body
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_get_404() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/nonexistent")
+        resp = conn.getresponse()
+        assert resp.status == 404
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_get_api_chat_history() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/api/chat/history?cid=test-conv-789")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        body = json.loads(resp.read().decode())
+        assert "messages" in body
+        assert body["conversation_id"] == "test-conv-789"
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_get_api_chat_history_missing_cid() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/api/chat/history")
+        resp = conn.getresponse()
+        assert resp.status == 400
+        body = json.loads(resp.read().decode())
+        assert "error" in body
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_post_api_chat_new() -> None:
+    import http.client
+
+    import imbue.mng_claude_changeling.resources.web_server as ws
+
+    original_db = ws.LLM_DB_PATH
+    ws.LLM_DB_PATH = None
+    try:
+        server, port = _start_test_server()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("POST", "/api/chat/new")
+            resp = conn.getresponse()
+            assert resp.status == 200
+            body = json.loads(resp.read().decode())
+            assert "conversation_id" in body
+            assert body["conversation_id"].startswith("conv-")
+            conn.close()
+        finally:
+            server.shutdown()  # type: ignore[union-attr]
+    finally:
+        ws.LLM_DB_PATH = original_db
+
+
+def test_handler_post_api_chat_send_missing_fields() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        body = json.dumps({"conversation_id": "test"}).encode()
+        conn.request("POST", "/api/chat/send", body=body, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        assert resp.status == 400
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_post_api_chat_send_invalid_json() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("POST", "/api/chat/send", body=b"not json", headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        assert resp.status == 400
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]
+
+
+def test_handler_post_404() -> None:
+    import http.client
+
+    server, port = _start_test_server()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("POST", "/nonexistent")
+        resp = conn.getresponse()
+        assert resp.status == 404
+        conn.close()
+    finally:
+        server.shutdown()  # type: ignore[union-attr]

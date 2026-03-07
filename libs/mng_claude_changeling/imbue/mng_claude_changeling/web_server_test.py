@@ -188,6 +188,17 @@ def test_render_conversations_page_lists_conversations(web_server_module: Any) -
     assert "chat?cid=conv-render-82741" in page
 
 
+def test_render_conversations_page_contains_text_chat_links(web_server_module: Any) -> None:
+    db_path = web_server_module.LLM_DB_PATH
+    _create_test_db_with_conversations(
+        db_path,
+        [("conv-tc-82741", "claude-sonnet-4-6", "2026-01-01T00:00:00Z")],
+    )
+
+    page = web_server_module._render_conversations_page()
+    assert "text_chat?cid=conv-tc-82741" in page
+
+
 def test_render_agents_page_contains_header_links(web_server_module: Any) -> None:
     page = web_server_module._render_agents_page()
     assert "terminal" in page
@@ -298,3 +309,133 @@ def test_render_header_highlights_active_agents(web_server_module: Any) -> None:
 def test_render_header_no_active_when_unspecified(web_server_module: Any) -> None:
     header = web_server_module._render_header("Agent")
     assert 'class="active"' not in header
+
+
+# -- Web chat page tests --
+
+
+def test_render_web_chat_page_contains_chat_elements(web_server_module: Any) -> None:
+    page = web_server_module._render_web_chat_page("TestAgent", "conv-test-82741")
+    assert "chat-messages" in page
+    assert "chat-input" in page
+    assert "sendMessage" in page
+    assert "conv-test-82741" in page
+
+
+def test_render_web_chat_page_contains_header(web_server_module: Any) -> None:
+    page = web_server_module._render_web_chat_page("TestAgent", "conv-test-82741")
+    assert "TestAgent" in page
+    assert "Conversations" in page
+    assert "Terminal" in page
+
+
+def test_render_web_chat_page_escapes_conversation_id(web_server_module: Any) -> None:
+    page = web_server_module._render_web_chat_page("TestAgent", "<script>alert(1)</script>")
+    assert "<script>alert(1)</script>" not in page
+
+
+# -- API function tests --
+
+
+def test_read_message_history_returns_messages(web_server_module: Any) -> None:
+    import sqlite3
+
+    db_path = web_server_module.LLM_DB_PATH
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS responses ("
+        "id TEXT PRIMARY KEY, prompt TEXT, response TEXT, "
+        "model TEXT, datetime_utc TEXT, conversation_id TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO responses VALUES (?, ?, ?, ?, ?, ?)",
+        ("r1-82741", "hello", "hi there", "test-model", "2026-01-01T00:00:00Z", "conv-hist-82741"),
+    )
+    conn.commit()
+    conn.close()
+
+    result = web_server_module._read_message_history("conv-hist-82741")
+    assert len(result) == 2
+    assert result[0]["role"] == "user"
+    assert result[0]["content"] == "hello"
+    assert result[1]["role"] == "assistant"
+    assert result[1]["content"] == "hi there"
+
+
+def test_read_message_history_empty_for_unknown_conversation(web_server_module: Any) -> None:
+    result = web_server_module._read_message_history("nonexistent-conv-82741")
+    assert result == []
+
+
+def test_create_new_conversation_returns_id(web_server_module: Any) -> None:
+    result = web_server_module._create_new_conversation()
+    assert result.startswith("conv-")
+
+    import sqlite3
+
+    db_path = web_server_module.LLM_DB_PATH
+    conn = sqlite3.connect(str(db_path))
+    rows = conn.execute(
+        "SELECT conversation_id FROM changeling_conversations WHERE conversation_id = ?",
+        (result,),
+    ).fetchall()
+    conn.close()
+    assert len(rows) == 1
+
+
+def test_get_default_chat_model_returns_default(web_server_module: Any) -> None:
+    result = web_server_module._get_default_chat_model()
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_get_default_chat_model_reads_from_settings(web_server_module: Any, tmp_path: Path) -> None:
+    work_dir = tmp_path / "chat_settings_work"
+    work_dir.mkdir()
+    (work_dir / "changelings.toml").write_text('[chat]\nmodel = "claude-sonnet-4-6"\n')
+    web_server_module.AGENT_WORK_DIR = str(work_dir)
+
+    result = web_server_module._get_default_chat_model()
+    assert result == "claude-sonnet-4-6"
+
+
+def test_get_system_prompt_reads_files(web_server_module: Any, tmp_path: Path) -> None:
+    work_dir = tmp_path / "prompt_work"
+    work_dir.mkdir()
+    (work_dir / "GLOBAL.md").write_text("Global instructions")
+    talking_dir = work_dir / "talking"
+    talking_dir.mkdir()
+    (talking_dir / "PROMPT.md").write_text("Talking prompt")
+    web_server_module.AGENT_WORK_DIR = str(work_dir)
+
+    result = web_server_module._get_system_prompt()
+    assert "Global instructions" in result
+    assert "Talking prompt" in result
+
+
+def test_get_system_prompt_returns_empty_when_no_work_dir(web_server_module: Any) -> None:
+    web_server_module.AGENT_WORK_DIR = ""
+    result = web_server_module._get_system_prompt()
+    assert result == ""
+
+
+def test_read_message_history_skips_injected_prompts(web_server_module: Any) -> None:
+    import sqlite3
+
+    db_path = web_server_module.LLM_DB_PATH
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS responses ("
+        "id TEXT PRIMARY KEY, prompt TEXT, response TEXT, "
+        "model TEXT, datetime_utc TEXT, conversation_id TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO responses VALUES (?, ?, ?, ?, ?, ?)",
+        ("r1-82741", "...", "injected response", "test-model", "2026-01-01T00:00:00Z", "conv-skip-82741"),
+    )
+    conn.commit()
+    conn.close()
+
+    result = web_server_module._read_message_history("conv-skip-82741")
+    assert len(result) == 1
+    assert result[0]["role"] == "assistant"
