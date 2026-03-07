@@ -165,7 +165,7 @@ def _build_uv_env_prefix(tool_dir: Path, bin_dir: Path) -> str:
     Sets UV_TOOL_DIR and UV_TOOL_BIN_DIR so that ``uv tool install`` places
     the tool venv and entrypoint script into agent-specific directories.
     """
-    return f"export UV_TOOL_DIR={shlex.quote(str(tool_dir))} && UV_TOOL_BIN_DIR={shlex.quote(str(bin_dir))} && "
+    return f"export UV_TOOL_DIR={shlex.quote(str(tool_dir))} && export UV_TOOL_BIN_DIR={shlex.quote(str(bin_dir))} && "
 
 
 def _install_mng_package_mode(
