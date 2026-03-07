@@ -73,9 +73,6 @@ jobs:
             ## Step 4: Review ARCHITECTURE.md for quality
 
             If you made changes to ARCHITECTURE.md in Step 3, do a critical review pass.
-            Also do this review if no changes were made but it has been more than 7 days
-            since the last review (check git log for commits with "review ARCHITECTURE.md"
-            in the message).
 
             Review criteria -- fix any issues you find:
             - **Importance**: every sentence should earn its place. Remove anything a developer
