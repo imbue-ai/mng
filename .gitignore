@@ -217,11 +217,8 @@ node_modules/
 # Frontend build artifacts
 frontend-dist/
 
-# ignore review files
+# Conversation review output
 .reviews/
-
-# files necessary to smuggle session id into reviewers
-.claude/sessionid
 
 # Claude Code local settings (session-specific permissions)
 .claude/settings.local.json
@@ -229,9 +226,6 @@ frontend-dist/
 # PR status and URL files written by main_claude_stop_hook.sh for status line display
 .claude/pr_url
 .claude/pr_status
-
-# History of commits reviewed by main_claude_stop_hook.sh (to detect stuck agents)
-.claude/reviewed_commits
 
 # Local Claude settings backup files
 .claude/*.bak
