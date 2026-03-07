@@ -33,8 +33,15 @@ jobs:
 
               git log --oneline --since="$(git log -1 --format=%ci -- CHANGELOG.md ARCHITECTURE.md)" -- ':!*.md'
 
-            If that returns nothing, there are no code changes to document -- exit early without
-            making changes.
+            If that returns nothing, double-check by also running:
+
+              git log --oneline -20
+
+            If that also shows no recent commits, there are genuinely no code changes to document --
+            exit early without making changes. But if the second command does show recent commits,
+            something went wrong with the date filter. In that case, warn clearly in your output
+            (e.g. "WARNING: git log date filter returned no results but recent commits exist --
+            the date filter may be wrong") and use the last 7 days of commits as a fallback.
 
             Read the diffs for any commits that touch non-test Python files, focusing on structural
             and user-facing changes:
