@@ -69,6 +69,22 @@ class MessageEvent(EventEnvelope):
     content: str
 
 
+class AgentStateTransitionEvent(EventEnvelope):
+    """An event recording an agent lifecycle state transition.
+
+    Written to events/mng_agents/events.jsonl by Claude Code hooks when the
+    agent transitions between RUNNING and WAITING states. The shell hooks
+    produce matching JSON directly (they cannot import this class).
+    """
+
+    agent_id: str
+    agent_name: str
+    # Values are AgentLifecycleState strings (e.g. "RUNNING", "WAITING").
+    # Uses str to avoid importing from imbue.mng.primitives.
+    from_state: str
+    to_state: str
+
+
 class ChangelingEvent(EventEnvelope):
     """A generic event with a data payload, used for sources like scheduled,
     mng_agents, stop, and monitor.
