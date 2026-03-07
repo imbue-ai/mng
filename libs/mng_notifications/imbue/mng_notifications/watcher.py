@@ -1,10 +1,12 @@
-import json
 import threading
 from pathlib import Path
 
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mng.agents.event_commands import AGENT_EVENTS_FILENAME
+from imbue.mng.agents.event_commands import AGENT_EVENTS_SOURCE
+from imbue.mng.api.events import parse_event_line
 from imbue.mng.config.data_types import MngContext
 from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.notifier import Notifier
@@ -55,7 +57,7 @@ def _find_agent_event_files(agents_dir: Path) -> list[Path]:
     """Find all mng_agents event files across agent state directories."""
     if not agents_dir.exists():
         return []
-    return list(agents_dir.glob("*/events/mng_agents/events.jsonl"))
+    return list(agents_dir.glob(f"*/events/{AGENT_EVENTS_SOURCE}/{AGENT_EVENTS_FILENAME}"))
 
 
 def _read_new_content(event_file: Path, tracked_sizes: dict[Path, int]) -> str:
@@ -89,21 +91,17 @@ def _process_events(
 ) -> None:
     """Parse JSONL content and send notifications for RUNNING -> WAITING transitions."""
     for line in content.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
+        record = parse_event_line(line, AGENT_EVENTS_SOURCE)
+        if record is None:
             continue
 
-        if event.get("type") != "agent_state_transition":
+        if record.data.get("type") != "agent_state_transition":
             continue
-        if event.get("from_state") != "RUNNING" or event.get("to_state") != "WAITING":
+        if record.data.get("from_state") != "RUNNING" or record.data.get("to_state") != "WAITING":
             continue
 
-        agent_name = event.get("agent_name", "unknown")
-        agent_id = event.get("agent_id", "unknown")
+        agent_name = record.data.get("agent_name", "unknown")
+        agent_id = record.data.get("agent_id", "unknown")
         logger.info("{} ({}): RUNNING -> WAITING", agent_name, agent_id)
 
         title = "Agent waiting"
