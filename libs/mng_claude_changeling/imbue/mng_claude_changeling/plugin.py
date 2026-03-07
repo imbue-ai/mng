@@ -23,6 +23,7 @@ from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import CommandString
 from imbue.mng_claude_changeling.provisioning import build_memory_sync_hooks_config
 from imbue.mng_claude_changeling.provisioning import configure_llm_user_path
+from imbue.mng_claude_changeling.provisioning import create_changeling_conversations_table
 from imbue.mng_claude_changeling.provisioning import create_changeling_symlinks
 from imbue.mng_claude_changeling.provisioning import create_daily_conversation
 from imbue.mng_claude_changeling.provisioning import create_event_log_directories
@@ -34,7 +35,6 @@ from imbue.mng_claude_changeling.provisioning import provision_supporting_servic
 from imbue.mng_claude_changeling.provisioning import resolve_work_dir_abs
 from imbue.mng_claude_changeling.provisioning import setup_memory_directory
 from imbue.mng_claude_changeling.provisioning import validate_talking_role_constraints
-from imbue.mng_claude_changeling.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_changeling.settings import load_settings_from_host
 from imbue.mng_ttyd.plugin import build_ttyd_server_command
 
@@ -126,6 +126,12 @@ class ClaudeChangelingAgent(ClaudeAgent):
     - Chat ttyd (--url-arg ttyd for conversation terminal access)
     """
 
+    enter_submission_timeout_seconds: float = Field(
+        # increased timeout because we don't want to send duplicate events if we can avoid it
+        default=60.0,
+        description="Timeout in seconds for waiting on the enter submission signal",
+    )
+
     def _get_changeling_config(self) -> ClaudeChangelingConfig:
         """Get the changeling-specific config from this agent.
 
@@ -192,6 +198,28 @@ class ClaudeChangelingAgent(ClaudeAgent):
             "Pass --env ROLE=<role> (e.g. --env ROLE=thinking) when creating the agent."
         )
 
+    def modify_env_vars(
+        self,
+        host: OnlineHostInterface,
+        env_vars: dict[str, str],
+    ) -> None:
+        """Set UV_TOOL_DIR, UV_TOOL_BIN_DIR, and prepend bin dir to PATH.
+
+        These env vars ensure that ``uv tool install`` (run by the
+        mng_recursive plugin) places the mng binary and its venv into
+        the agent's state directory, and that any subsequent ``uv tool``
+        invocations within the agent's processes also use the same paths.
+
+        PATH is prepended so that ``mng`` is found directly by name.
+        """
+        agent_state_dir = env_vars.get("MNG_AGENT_STATE_DIR", "")
+        if agent_state_dir:
+            bin_dir = f"{agent_state_dir}/bin"
+            env_vars["UV_TOOL_DIR"] = f"{agent_state_dir}/tools"
+            env_vars["UV_TOOL_BIN_DIR"] = bin_dir
+            existing_path = env_vars.get("PATH", "$PATH")
+            env_vars["PATH"] = f"{bin_dir}:{existing_path}"
+
     def assemble_command(
         self,
         host: OnlineHostInterface,
@@ -219,6 +247,7 @@ class ClaudeChangelingAgent(ClaudeAgent):
         """Provision a changeling role agent with llm toolchain and supporting service infrastructure.
 
         Extends ClaudeAgent provisioning with:
+        0. Per-agent mng installation (via mng_recursive, before super())
         1. Settings loading from changelings.toml
         2. Talking role constraint validation (no skills or settings allowed)
         3. llm + plugin installation
@@ -230,6 +259,14 @@ class ClaudeChangelingAgent(ClaudeAgent):
         9. LLM tool scripts for conversation context
         10. Per-role memory directory setup
         """
+        # Install mng before anything else so that supporting services
+        # (event_watcher, web_server, etc.) can find it via UV_TOOL_BIN_DIR.
+        # The env vars (UV_TOOL_DIR, UV_TOOL_BIN_DIR) are already written
+        # to the agent env file by this point (host writes env before provision).
+        from imbue.mng_recursive.provisioning import provision_mng_for_agent
+
+        provision_mng_for_agent(agent=self, host=host, mng_ctx=mng_ctx)
+
         super().provision(host, options, mng_ctx)
 
         config = self._get_changeling_config()
@@ -239,7 +276,6 @@ class ClaudeChangelingAgent(ClaudeAgent):
         settings = load_settings_from_host(host, self.work_dir)
         provisioning = settings.provisioning
 
-        warn_if_mng_unavailable(host, mng_ctx.pm, provisioning)
         validate_talking_role_constraints(host, self.work_dir, provisioning)
 
         if config.install_llm:
@@ -262,6 +298,7 @@ class ClaudeChangelingAgent(ClaudeAgent):
         create_event_log_directories(host, agent_state_dir, provisioning)
 
         configure_llm_user_path(host, agent_state_dir, provisioning)
+        create_changeling_conversations_table(host, agent_state_dir, provisioning)
 
         if config.install_llm:
             create_system_notifications_conversation(host, agent_state_dir, provisioning)

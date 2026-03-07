@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 from loguru import logger
+from pydantic import ValidationError
 
 from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.config.data_types import DEFAULT_FORWARDING_SERVER_PORT
@@ -241,7 +242,7 @@ def _resolve_agent_type(temp_dir: Path, cli_agent_type: str | None) -> str:
     settings_path = temp_dir / SETTINGS_FILENAME
     try:
         settings = load_settings_from_path(settings_path)
-    except tomllib.TOMLDecodeError as e:
+    except (tomllib.TOMLDecodeError, ValidationError) as e:
         raise MissingAgentTypeError(
             "Failed to parse {}: {}. Fix the syntax error or provide --agent-type on the CLI.".format(
                 SETTINGS_FILENAME, e

@@ -26,6 +26,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -42,19 +43,20 @@ from loguru import logger
 
 try:
     from imbue.mng_claude_changeling.resources.watcher_common import DEFAULT_CEL_FILTER
+    from imbue.mng_claude_changeling.resources.watcher_common import MngNotInstalledError
+    from imbue.mng_claude_changeling.resources.watcher_common import get_mng_command
     from imbue.mng_claude_changeling.resources.watcher_common import load_watchers_section
     from imbue.mng_claude_changeling.resources.watcher_common import require_env
     from imbue.mng_claude_changeling.resources.watcher_common import setup_watcher_logging
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from watcher_common import DEFAULT_CEL_FILTER  # type: ignore[no-redef]
+    from watcher_common import MngNotInstalledError  # type: ignore[no-redef]
+    from watcher_common import get_mng_command  # type: ignore[no-redef]
     from watcher_common import load_watchers_section  # type: ignore[no-redef]
     from watcher_common import require_env  # type: ignore[no-redef]
     from watcher_common import setup_watcher_logging  # type: ignore[no-redef]
 
-
-# FIXME: the below comment is stupid--the defaults should simply be moved to watcher_common, which *can* be imported from data_types.py
-#  (just like we're doing for DEFAULT_CEL_FILTER)
 
 # -- Constants --
 # NOTE: These defaults must be kept in sync with the Field defaults in
@@ -288,7 +290,7 @@ def _send_message(agent_name: str, message: str) -> bool:
     """Send a message to the agent via mng message. Returns True on success."""
     try:
         result = subprocess.run(
-            ["uv", "run", "mng", "message", agent_name, "--provider", "local", "-m", message],
+            [*get_mng_command(), "message", agent_name, "--provider", "local", "-m", message],
             capture_output=True,
             text=True,
             timeout=_MESSAGE_SEND_TIMEOUT_SECONDS,
@@ -296,7 +298,7 @@ def _send_message(agent_name: str, message: str) -> bool:
     except subprocess.TimeoutExpired:
         logger.error("Timed out sending message to {}", agent_name)
         return False
-    except OSError as exc:
+    except (OSError, MngNotInstalledError) as exc:
         logger.error("Failed to invoke mng message subprocess: {}", exc)
         return False
 
@@ -335,47 +337,53 @@ def _write_notification_event(events_dir: Path, message: str, level: str = "WARN
 _CHAT_NOTIFICATION_TIMEOUT_SECONDS: Final[float] = 30.0
 
 
-def _get_system_notifications_conversation_id(events_dir: Path) -> str | None:
-    """Read the first conversation_id from events/conversations/events.jsonl.
+def _get_system_notifications_conversation_id() -> str | None:
+    """Read the system_notifications conversation ID from the changeling_conversations table.
 
-    The system_notifications conversation is always created first during
-    provisioning, so its ID is the first entry in the conversations event log.
-
-    Returns None if the file does not exist or contains no valid entries.
+    Looks for a conversation tagged with ``{"internal": "system_notifications"}``
+    in the llm database at ``$LLM_USER_PATH/logs.db``.
+    Falls back to None if the database or table does not exist.
     """
-    conversations_file = events_dir / "conversations" / "events.jsonl"
+    llm_user_path = os.environ.get("LLM_USER_PATH", "")
+    if not llm_user_path:
+        logger.warning("LLM_USER_PATH not set, cannot look up system_notifications conversation")
+        return None
+    db_path = Path(llm_user_path) / "logs.db"
+
+    if not db_path.is_file():
+        logger.debug("LLM database not found at {}", db_path)
+        return None
+
     try:
-        if not conversations_file.is_file():
-            return None
-        with conversations_file.open() as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                    conversation_id = event.get("conversation_id")
-                    if conversation_id:
-                        return str(conversation_id)
-                except (json.JSONDecodeError, KeyError):
-                    continue
-    except OSError as exc:
-        logger.warning("Failed to read conversations file for notification CID: {}", exc)
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT conversation_id FROM changeling_conversations "
+                "WHERE json_extract(tags, '$.internal') = 'system_notifications'",
+            ).fetchall()
+            if rows:
+                return str(rows[0][0])
+        except sqlite3.Error as exc:
+            logger.debug("Failed to query changeling_conversations: {}", exc)
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError) as exc:
+        logger.warning("Failed to read system_notifications conversation from DB: {}", exc)
     return None
 
 
 def _send_chat_notification(events_dir: Path, message: str) -> bool:
     """Send a notification as a chat message via ``llm``.
 
-    Uses the system_notifications conversation (the first conversation
-    created during provisioning) so that all system notifications appear
+    Uses the system_notifications conversation (found by tag in the
+    changeling_conversations table) so that all system notifications appear
     in the same thread. The message is sent as the user prompt; the model
     response is discarded.
 
     Returns True on success, False if ``llm`` is not available or fails.
     This is best-effort: the caller should not depend on success.
     """
-    conversation_id = _get_system_notifications_conversation_id(events_dir)
+    conversation_id = _get_system_notifications_conversation_id()
     if conversation_id is None:
         logger.warning("No system_notifications conversation found, skipping chat notification")
         return False
@@ -430,7 +438,7 @@ def _compute_backoff_seconds(consecutive_failures: int) -> float:
 
 def _start_events_subprocess(agent_name: str, cel_filter: str) -> subprocess.Popen[str]:
     """Start ``mng events <agent_name> --follow --filter <cel_filter>`` as a subprocess."""
-    cmd = ["uv", "run", "mng", "events", agent_name, "--follow"]
+    cmd = [*get_mng_command(), "events", agent_name, "--follow"]
     if cel_filter:
         cmd.extend(["--filter", cel_filter])
     logger.info("Starting events subprocess: {}", " ".join(cmd))

@@ -26,6 +26,36 @@ from watchdog.events import FileSystemEvent
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+
+class MngNotInstalledError(RuntimeError):
+    """Raised when the per-agent mng binary cannot be found."""
+
+
+def get_mng_command() -> list[str]:
+    """Return the command for invoking the per-agent mng binary.
+
+    Looks for the mng binary in ``$UV_TOOL_BIN_DIR/mng``. This env var
+    is set by ``ClaudeChangelingAgent.modify_env_vars()`` during agent
+    creation and points to the per-agent bin directory where
+    ``uv tool install`` places the mng entrypoint.
+
+    Raises MngNotInstalledError if the binary cannot be found, which
+    indicates that mng was not properly provisioned for this agent.
+    """
+    bin_dir = os.environ.get("UV_TOOL_BIN_DIR", "")
+    if not bin_dir:
+        raise MngNotInstalledError(
+            "UV_TOOL_BIN_DIR is not set. The per-agent mng binary cannot be located without it."
+        )
+    mng_bin = os.path.join(bin_dir, "mng")
+    if not os.path.isfile(mng_bin):
+        raise MngNotInstalledError(
+            f"Per-agent mng binary not found at {mng_bin}. "
+            "Ensure the mng_recursive plugin is enabled and provisioning completed successfully."
+        )
+    return [mng_bin]
+
+
 DEFAULT_CEL_FILTER: Final[str] = (
     # only include events that are:
     # not from the common_transcript (to avoid seeing our own thoughts)

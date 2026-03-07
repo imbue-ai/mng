@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 import sqlite3
@@ -15,6 +14,7 @@ from loguru import logger
 from imbue.mng.providers.ssh_host_setup import load_resource_script
 from imbue.mng.utils.plugin_testing import register_plugin_test_fixtures
 from imbue.mng.utils.testing import init_git_repo_with_config
+from imbue.mng_claude_changeling.provisioning import CHANGELING_CONVERSATIONS_TABLE_SQL
 from imbue.mng_claude_changeling.provisioning import load_changeling_resource
 from imbue.mng_claude_changeling.resources import event_watcher as event_watcher_module
 
@@ -126,7 +126,8 @@ class ChatScriptEnv:
     """Environment for running the chat.sh script in tests.
 
     Provides the script path, agent state directory, and environment variables
-    needed to invoke chat.sh in a subprocess.
+    needed to invoke chat.sh in a subprocess. Sets up the llm database with
+    the changeling_conversations table.
     """
 
     def __init__(self, temp_host_dir: Path) -> None:
@@ -141,11 +142,19 @@ class ChatScriptEnv:
         self.chat_script.write_text(load_changeling_resource("chat.sh"))
         os.chmod(self.chat_script, 0o755)
 
+        # Write the conversation_db.py helper (used by chat.sh for DB operations)
+        conv_db_path = temp_host_dir / "commands" / "conversation_db.py"
+        conv_db_path.write_text(load_changeling_resource("conversation_db.py"))
+
         self.agent_state_dir = temp_host_dir / "agents" / "test-agent"
-        self.conversations_dir = self.agent_state_dir / "events" / "conversations"
-        self.conversations_dir.mkdir(parents=True)
         self.messages_dir = self.agent_state_dir / "events" / "messages"
         self.messages_dir.mkdir(parents=True)
+
+        # Set up LLM_USER_PATH and create the DB with the changeling_conversations table
+        self.llm_data_dir = self.agent_state_dir / "llm_data"
+        self.llm_data_dir.mkdir(parents=True)
+        self.llm_db_path = self.llm_data_dir / "logs.db"
+        create_changeling_conversations_table_in_test_db(self.llm_db_path)
 
         self.work_dir = temp_host_dir / "work"
         self.work_dir.mkdir(parents=True)
@@ -154,6 +163,7 @@ class ChatScriptEnv:
         self.env["MNG_AGENT_STATE_DIR"] = str(self.agent_state_dir)
         self.env["MNG_HOST_DIR"] = str(temp_host_dir)
         self.env["MNG_AGENT_WORK_DIR"] = str(self.work_dir)
+        self.env["LLM_USER_PATH"] = str(self.llm_data_dir)
 
     def set_default_model(self, model: str) -> None:
         """Write the chat model to changelings.toml in the work dir."""
@@ -281,13 +291,24 @@ LLM_RESPONSES_SCHEMA = """
 """
 
 
+def create_changeling_conversations_table_in_test_db(db_path: Path) -> None:
+    """Create the changeling_conversations and llm conversations tables in the given database."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(CHANGELING_CONVERSATIONS_TABLE_SQL)
+        conn.execute(LLM_CONVERSATIONS_SCHEMA)
+        conn.commit()
+
+
 def create_test_llm_db(db_path: Path, rows: list[tuple[str, str, str, str, str, str]]) -> None:
-    """Create a minimal llm-compatible SQLite database with responses.
+    """Create a minimal llm-compatible SQLite database with responses and changeling_conversations.
 
     Each row is (id, prompt, response, model, datetime_utc, conversation_id).
     """
     with sqlite3.connect(str(db_path)) as conn:
         conn.execute(LLM_RESPONSES_SCHEMA)
+        conn.execute(LLM_CONVERSATIONS_SCHEMA)
+        conn.execute(CHANGELING_CONVERSATIONS_TABLE_SQL)
         for row_id, prompt, response, model, dt, conversation_id in rows:
             conn.execute(
                 "INSERT INTO responses (id, prompt, response, model, datetime_utc, conversation_id) "
@@ -295,6 +316,36 @@ def create_test_llm_db(db_path: Path, rows: list[tuple[str, str, str, str, str, 
                 (row_id, prompt, response, model, dt, conversation_id),
             )
         conn.commit()
+
+
+def create_fake_mng_binary(bin_dir: Path) -> Path:
+    """Create a fake mng binary at <bin_dir>/mng.
+
+    This satisfies the get_mng_command() check that the per-agent mng
+    binary exists. The binary delegates to the system mng.
+
+    Returns the path to the fake mng binary.
+    """
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    mng_bin = bin_dir / "mng"
+    mng_bin.write_text('#!/bin/bash\nexec mng "$@"\n')
+    mng_bin.chmod(0o755)
+    return mng_bin
+
+
+@pytest.fixture()
+def fake_mng_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Create a fake mng binary and set UV_TOOL_BIN_DIR to point to it.
+
+    Use this fixture in tests that invoke code paths which call
+    get_mng_command() (e.g. event_watcher._send_message, web_server polling).
+
+    Returns the path to the bin dir containing the fake mng binary.
+    """
+    bin_dir = tmp_path / "fake_bin"
+    create_fake_mng_binary(bin_dir)
+    monkeypatch.setenv("UV_TOOL_BIN_DIR", str(bin_dir))
+    return bin_dir
 
 
 class EventWatcherSubprocessCapture:
@@ -311,7 +362,7 @@ class EventWatcherSubprocessCapture:
 
 
 @pytest.fixture()
-def mock_subprocess_success(monkeypatch: pytest.MonkeyPatch) -> EventWatcherSubprocessCapture:
+def mock_subprocess_success(monkeypatch: pytest.MonkeyPatch, fake_mng_binary: Path) -> EventWatcherSubprocessCapture:
     """Replace event_watcher's subprocess with a recording stub (returncode=0)."""
     capture = EventWatcherSubprocessCapture(returncode=0)
     mock_sp = types.SimpleNamespace(run=capture.run, TimeoutExpired=subprocess.TimeoutExpired)
@@ -320,7 +371,7 @@ def mock_subprocess_success(monkeypatch: pytest.MonkeyPatch) -> EventWatcherSubp
 
 
 @pytest.fixture()
-def mock_subprocess_failure(monkeypatch: pytest.MonkeyPatch) -> EventWatcherSubprocessCapture:
+def mock_subprocess_failure(monkeypatch: pytest.MonkeyPatch, fake_mng_binary: Path) -> EventWatcherSubprocessCapture:
     """Replace event_watcher's subprocess with a recording stub (returncode=1)."""
     capture = EventWatcherSubprocessCapture(returncode=1, stderr="send failed")
     mock_sp = types.SimpleNamespace(run=capture.run, TimeoutExpired=subprocess.TimeoutExpired)
@@ -328,18 +379,48 @@ def mock_subprocess_failure(monkeypatch: pytest.MonkeyPatch) -> EventWatcherSubp
     return capture
 
 
-def write_conversation_event(events_file: Path, conversation_id: str, model: str = "claude-sonnet-4-6") -> None:
-    """Append a conversation_created event to a JSONL file."""
-    event = json.dumps(
-        {
-            "timestamp": "2025-01-15T10:00:00.000Z",
-            "type": "conversation_created",
-            "event_id": f"evt-{conversation_id}",
-            "source": "conversations",
-            "conversation_id": conversation_id,
-            "model": model,
-        }
+LLM_CONVERSATIONS_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        model TEXT
     )
-    events_file.parent.mkdir(parents=True, exist_ok=True)
-    with events_file.open("a") as f:
-        f.write(event + "\n")
+"""
+
+
+def write_conversation_to_db(
+    db_path: Path,
+    conversation_id: str,
+    model: str = "claude-sonnet-4-6",
+    tags: str = "{}",
+    created_at: str = "2025-01-15T10:00:00.000Z",
+) -> None:
+    """Insert a conversation into both the changeling and llm conversations tables.
+
+    The model is stored in the llm-native ``conversations`` table (matching
+    how the llm tool works), while tags and created_at go into the
+    ``changeling_conversations`` table.
+    """
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(CHANGELING_CONVERSATIONS_TABLE_SQL)
+        conn.execute(LLM_CONVERSATIONS_SCHEMA)
+        conn.execute(
+            "INSERT OR REPLACE INTO changeling_conversations (conversation_id, tags, created_at) VALUES (?, ?, ?)",
+            (conversation_id, tags, created_at),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO conversations (id, name, model) VALUES (?, ?, ?)",
+            (conversation_id, conversation_id, model),
+        )
+        conn.commit()
+
+
+def assert_conversation_exists_in_db(db_path: Path, conversation_id: str) -> None:
+    """Assert that a conversation record exists in the changeling_conversations table."""
+    with sqlite3.connect(str(db_path)) as conn:
+        rows = conn.execute(
+            "SELECT conversation_id FROM changeling_conversations WHERE conversation_id = ?",
+            (conversation_id,),
+        ).fetchall()
+    assert len(rows) == 1, f"Expected conversation {conversation_id} in DB, found {len(rows)} rows"
