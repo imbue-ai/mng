@@ -424,35 +424,18 @@ Web interface for managing AI agents programmatically. FastAPI-based with python
 
 The codebase follows a **stateless, functional, immutable** style:
 
-- Domain-specific types instead of raw primitives (e.g., `AgentName` not `str`)
 - `FrozenModel` for data, `MutableModel` only where mutation is required
 - `pathlib.Path` for all file paths
-- No code in `__init__.py` files
-- No `__all__` declarations
-- Minimal use of `TYPE_CHECKING` guards
-- 80% minimum test coverage, enforced in CI
 
-## Testing
-
-- **Unit tests**: `*_test.py` files (fast, isolated)
-- **Integration tests**: `test_*.py` files (no marker)
-- **Acceptance tests**: `test_*.py` with `@pytest.mark.acceptance` (run in CI)
-- **Release tests**: `test_*.py` with `@pytest.mark.release` (run in CI)
-
-Run all tests: `uv run pytest` from the repo root. Tests run in parallel via `pytest-xdist` with 4 workers.
-
-Key fixtures: `temp_host_dir`, `temp_mng_ctx`, `local_provider`, `plugin_manager`, `cg` (ConcurrencyGroup), `mng_test_id`.
-
-Coverage requirements: 80% minimum (hard), 81% warning threshold. Excluded: test files, TUI files, Modal/Docker providers.
+See `style_guide.md` and `CLAUDE.md` for detailed coding rules.
 
 ## Build and CI/CD
 
 - **Build backend**: Hatchling
-- **Dependency management**: uv (workspace-aware)
 - **Linting/formatting**: ruff (line length 119, double quotes)
 - **Import enforcement**: import-linter (layer contracts)
 - **Type checking**: ty, run via `uv run ty check`
-- **Pre-commit hooks**: ruff formatting on commit
+- **Coverage**: 80% minimum (hard), 81% warning threshold. Excluded: test files, TUI files, Modal/Docker providers.
 
 **GitHub Actions CI** (`.github/workflows/ci.yml`):
 - **test-integration**: 4 parallel groups with pytest-split, runs unit + integration tests
