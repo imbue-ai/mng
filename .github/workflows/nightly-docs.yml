@@ -68,9 +68,7 @@ jobs:
             ## Step 3: Update ARCHITECTURE.md (if needed)
 
             Read the current ARCHITECTURE.md. Update it if the commits changed the architecture.
-            The bar is high -- most days there should be no changes. Having just written the
-            changelog, you now have full context on what changed -- use that to decide whether
-            any architectural updates are warranted.
+            The bar is high -- most days there should be no changes.
 
             ## Step 3b: Review ARCHITECTURE.md for quality
 
