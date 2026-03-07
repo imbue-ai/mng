@@ -242,6 +242,14 @@ class ProviderBackendName(NonEmptyStr):
     """Name of a provider backend."""
 
 
+class InvalidNameError(ValueError):
+    """Raised when a name (agent, host, etc.) violates naming constraints.
+
+    Defined in primitives.py (not errors.py) to avoid a circular import,
+    since errors.py imports from primitives.py.
+    """
+
+
 # FIXME: actually, there are more restrictions here, like: only alphanumeric and dashes, must not start or end with a dash, etc. We must enforce those.
 #  the same restrictions should apply to ProviderInstanceName, ProviderBackendName, HostName, AgentName, and AgentTypeName
 class AgentName(NonEmptyStr):
@@ -249,7 +257,7 @@ class AgentName(NonEmptyStr):
 
     def __new__(cls, value: str) -> Self:
         if value.startswith("-") or value.endswith("-"):
-            raise ValueError(f"{cls.__name__} cannot start or end with a dash: '{value}'")
+            raise InvalidNameError(f"{cls.__name__} cannot start or end with a dash: '{value}'")
         return super().__new__(cls, value.strip())
 
 
