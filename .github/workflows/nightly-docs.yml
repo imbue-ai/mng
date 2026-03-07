@@ -54,38 +54,18 @@ jobs:
 
             ## Step 2: Update ARCHITECTURE.md (if needed)
 
-            Read the current ARCHITECTURE.md. Only update it if the commits introduce:
-            - New subsystems, modules, or architectural layers
-            - New interfaces or abstract base classes
-            - New plugin hooks or plugin types
-            - Changes to the layered architecture or dependency graph
-            - New applications or libraries in the monorepo
-
-            Do NOT update ARCHITECTURE.md for:
-            - Bug fixes, minor enhancements, or new fields on existing types
-            - Test changes, CI changes, or documentation-only changes
-            - Feature additions within existing subsystems (unless they add new patterns)
-
-            The bar for updating ARCHITECTURE.md is high -- most days there should be no changes.
+            Read the current ARCHITECTURE.md. Update it if the commits changed the architecture.
+            The bar is high -- most days there should be no changes.
 
             ## Step 3: Update CHANGELOG.md
 
-            Append new entries to CHANGELOG.md for user-visible changes. Follow the existing format
-            in the file. Group entries by date (## YYYY-MM-DD). Within each date, categorize as:
-            - **Added** -- new features, commands, or capabilities
-            - **Changed** -- modifications to existing behavior
-            - **Fixed** -- bug fixes
-            - **Removed** -- removed features or deprecated items
-
-            Skip internal-only changes (test infrastructure, CI config, refactoring with no
-            user-visible effect). Each entry should be one concise line describing what changed
-            from the user's perspective.
+            Append new entries to CHANGELOG.md for user-visible changes. Follow the existing
+            format in the file. Skip internal-only changes.
 
             ## Step 4: Commit and create PR
 
-            If you made any changes, commit them with message "docs: nightly update to ARCHITECTURE.md and CHANGELOG.md"
-            and push to a new branch named "docs/nightly-update-YYYY-MM-DD" (using today's date).
-            Then create a PR with a summary of what was updated and why.
+            If you made any changes, commit them and push to a new branch named
+            "docs/nightly-update-YYYY-MM-DD" (using today's date). Then create a PR.
 
             If no changes were needed, do nothing.
           claude_args: |
