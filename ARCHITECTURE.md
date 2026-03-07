@@ -440,8 +440,6 @@ The codebase follows a **stateless, functional, immutable** style:
 - **test-release**: 12 parallel groups on release branch only
 - **cleanup-modal-environments**: deletes stale Modal test environments (>1 hour old)
 
-**Local development** via justfile targets: `test-unit`, `test-integration`, `test-quick`, `test-acceptance`, `test-release`, `test <path>`.
-
 ## Key Technologies
 
 | Category | Technologies |
