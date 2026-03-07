@@ -1296,6 +1296,10 @@ class ClaudeAgent(BaseAgent):
         with log_span("Adopting session {} from {}", session_id, source_project_dir):
             if host.is_local:
                 host.execute_command(
+                    f"mkdir -p {shlex.quote(str(dest_project_dir))}",
+                    timeout_seconds=5.0,
+                )
+                host.execute_command(
                     f"rsync -a {shlex.quote(str(source_project_dir))}/ {shlex.quote(str(dest_project_dir))}/",
                     timeout_seconds=60.0,
                 )
