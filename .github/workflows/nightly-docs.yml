@@ -50,10 +50,9 @@ jobs:
             output a clear warning like "WARNING: no commits found in the last 3 days, the
             environment may be misconfigured" and exit with a non-zero status.
 
-            Read the diffs for any commits that touch non-test Python files, focusing on structural
-            and user-facing changes:
+            Read the diffs, focusing on structural and user-facing changes:
 
-              git diff <oldest_relevant_commit>..HEAD -- '*.py' ':(exclude)*_test.py' ':(exclude)test_*'
+              git diff <oldest_relevant_commit>..HEAD
 
             ## Step 2: Update ARCHITECTURE.md (if needed)
 
