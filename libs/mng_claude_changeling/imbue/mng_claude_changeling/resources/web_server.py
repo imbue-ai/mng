@@ -4,7 +4,8 @@
 Serves a web interface where all views (conversations, terminal) are displayed
 in iframes below a persistent navigation header:
 - Main page: shows the web chat for the most recent conversation (or conversation list if none)
-- Chat page: web-based chat with SSE streaming for real-time responses
+- Chat page: web-based chat with SSE streaming for real-time responses, with
+  optional Inworld WebRTC audio for TTS playback of streamed responses
 - Text Chat page: embeds a specific conversation's ttyd in an iframe (legacy terminal chat)
 - Conversations page: lists all conversations with links to open them
 - Terminal page: embeds the primary agent terminal in an iframe
@@ -14,6 +15,11 @@ The web chat uses SSE (Server-Sent Events) for streaming LLM responses and
 receives messages via POST requests from the frontend (plain JavaScript).
 It uses the llm library for calling LLMs and storing results.
 
+When INWORLD_API_KEY is set, the chat page includes an "Audio" toggle button
+that establishes a WebRTC connection to Inworld for real-time TTS. After each
+LLM response finishes streaming, the text is sent to Inworld via a data channel
+and played back as audio through the WebRTC audio track.
+
 The text chat (legacy) uses companion ttyd processes for terminal-based chat.
 
 Environment:
@@ -22,6 +28,7 @@ Environment:
     MNG_HOST_NAME        - Name of the host this agent runs on
     MNG_AGENT_WORK_DIR   - Agent work directory (contains changelings.toml)
     LLM_USER_PATH        - LLM data directory (contains logs.db)
+    INWORLD_API_KEY      - (optional) Inworld API key for WebRTC TTS audio
 """
 
 import hashlib
@@ -35,6 +42,8 @@ import sys
 import threading
 import time
 import tomllib
+import urllib.error
+import urllib.request
 from datetime import datetime
 from datetime import timezone
 from http.server import BaseHTTPRequestHandler
@@ -67,6 +76,11 @@ if not _LLM_USER_PATH:
 
 AGENT_WORK_DIR: Final[str] = os.environ.get("MNG_AGENT_WORK_DIR", "")
 
+# -- Inworld configuration --
+
+INWORLD_API_KEY: Final[str] = os.environ.get("INWORLD_API_KEY", "")
+INWORLD_PROXY: Final[str] = "https://api.inworld.ai"
+
 # -- Constants --
 
 WEB_SERVER_NAME: Final[str] = "web"
@@ -90,6 +104,43 @@ def _html_escape(text: str) -> str:
 def _log(message: str) -> None:
     sys.stderr.write(f"[web-server] {message}\n")
     sys.stderr.flush()
+
+
+# -- Inworld API --
+
+
+def _get_inworld_config() -> dict[str, Any]:
+    """Return Inworld configuration for browser WebRTC audio.
+
+    Fetches ICE servers from Inworld's API and returns the full config
+    needed by the browser to establish a WebRTC connection for TTS.
+    Returns an empty config (no api_key) if INWORLD_API_KEY is not set.
+
+    Security: the API key is returned to the browser so it can establish
+    a direct WebRTC connection to Inworld. This server is intended to run
+    on localhost or within a restricted network (behind the mng forwarding
+    proxy with its own access controls), not exposed to the public internet.
+    """
+    if not INWORLD_API_KEY:
+        return {"api_key": "", "ice_servers": [], "url": ""}
+
+    ice_servers: list[dict[str, Any]] = []
+    try:
+        req = urllib.request.Request(
+            f"{INWORLD_PROXY}/v1/realtime/ice-servers",
+            headers={"Authorization": f"Bearer {INWORLD_API_KEY}"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            ice_servers = data.get("ice_servers", [])
+    except (urllib.error.URLError, json.JSONDecodeError, OSError) as e:
+        _log(f"Failed to fetch ICE servers from Inworld: {e}")
+
+    return {
+        "api_key": INWORLD_API_KEY,
+        "ice_servers": ice_servers,
+        "url": f"{INWORLD_PROXY}/v1/realtime/calls",
+    }
 
 
 # -- Server registration --
@@ -675,6 +726,14 @@ _CHAT_CSS: Final[str] = """
     .chat-input-container button:hover { background: rgb(42, 42, 78); }
     .chat-input-container button:disabled { opacity: 0.5; cursor: not-allowed; }
     .streaming-indicator { font-size: 12px; color: rgb(153, 153, 153); padding: 4px 0; text-align: center; }
+    .audio-btn {
+      padding: 10px 16px; background: rgb(200, 200, 200); color: rgb(51, 51, 51);
+      border: none; border-radius: 8px; font-size: 14px; cursor: pointer; white-space: nowrap;
+    }
+    .audio-btn:hover { background: rgb(180, 180, 180); }
+    .audio-btn.active { background: rgb(34, 120, 60); color: white; }
+    .audio-btn.active:hover { background: rgb(40, 150, 70); }
+    .audio-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 """
 
 
@@ -703,6 +762,7 @@ def _render_web_chat_page(agent_name: str, conversation_id: str) -> str:
     <div class="chat-input-container">
       <textarea id="chat-input" placeholder="Type a message..." rows="1"></textarea>
       <button id="send-btn" onclick="sendMessage()">Send</button>
+      <button id="audio-btn" class="audio-btn" onclick="toggleAudio()">Audio</button>
     </div>
   </div>
 <script>
@@ -823,6 +883,9 @@ function sendMessage() {{
   }});
 
   function finishStreaming() {{
+    if (fullText && audioEnabled) {{
+      speakText(fullText);
+    }}
     isStreaming = false;
     document.getElementById("send-btn").disabled = false;
     document.getElementById("streaming-indicator").style.display = "none";
@@ -847,6 +910,107 @@ textarea.addEventListener("keydown", function(e) {{
 // Load history on page load
 if (conversationId && conversationId !== "NEW") {{
   loadHistory();
+}}
+
+// -- Audio (Inworld WebRTC TTS) --
+var audioEnabled = false;
+var audioPc = null;
+var audioDc = null;
+
+function toggleAudio() {{
+  if (audioEnabled) {{
+    stopAudio();
+  }} else {{
+    startAudio();
+  }}
+}}
+
+async function startAudio() {{
+  var btn = document.getElementById("audio-btn");
+  btn.disabled = true;
+  btn.textContent = "Connecting...";
+  try {{
+    var resp = await fetch("api/audio/config");
+    var cfg = await resp.json();
+    if (!cfg.api_key) {{
+      btn.textContent = "No API Key";
+      setTimeout(function() {{ btn.textContent = "Audio"; btn.disabled = false; }}, 2000);
+      return;
+    }}
+    audioPc = new RTCPeerConnection({{ iceServers: cfg.ice_servers }});
+    audioDc = audioPc.createDataChannel("oai-events", {{ ordered: true }});
+    audioPc.addTransceiver("audio", {{ direction: "recvonly" }});
+    audioPc.ontrack = function(e) {{
+      var a = document.createElement("audio");
+      a.autoplay = true;
+      a.srcObject = new MediaStream([e.track]);
+      a.className = "inworld-audio";
+      document.body.appendChild(a);
+    }};
+    audioDc.onopen = function() {{
+      audioDc.send(JSON.stringify({{
+        type: "session.update",
+        session: {{
+          type: "realtime",
+          model: "openai/gpt-4o-mini",
+          instructions: "Read the user message aloud exactly as written. Do not add or change anything.",
+          output_modalities: ["audio"],
+          audio: {{
+            output: {{ model: "inworld-tts-1.5-mini", voice: "Clive" }}
+          }}
+        }}
+      }}));
+      audioEnabled = true;
+      btn.textContent = "Audio On";
+      btn.disabled = false;
+      btn.classList.add("active");
+    }};
+    audioDc.onclose = function() {{ stopAudio(); }};
+    audioDc.onerror = function() {{ stopAudio(); }};
+    var offer = await audioPc.createOffer();
+    await audioPc.setLocalDescription(offer);
+    await new Promise(function(resolve) {{
+      if (audioPc.iceGatheringState === "complete") {{ resolve(); return; }}
+      var t;
+      var done = function() {{ clearTimeout(t); resolve(); }};
+      audioPc.onicecandidate = function(e) {{
+        if (e.candidate) {{ clearTimeout(t); t = setTimeout(done, 500); }}
+      }};
+      audioPc.onicegatheringstatechange = function() {{
+        if (audioPc.iceGatheringState === "complete") done();
+      }};
+      setTimeout(done, 3000);
+    }});
+    var res = await fetch(cfg.url, {{
+      method: "POST",
+      headers: {{ "Content-Type": "application/sdp", "Authorization": "Bearer " + cfg.api_key }},
+      body: audioPc.localDescription.sdp
+    }});
+    if (!res.ok) throw new Error("SDP exchange failed: " + res.status);
+    await audioPc.setRemoteDescription({{ type: "answer", sdp: await res.text() }});
+  }} catch(e) {{
+    console.error("Audio start failed:", e);
+    stopAudio();
+  }}
+}}
+
+function stopAudio() {{
+  if (audioPc) audioPc.close();
+  document.querySelectorAll(".inworld-audio").forEach(function(a) {{ a.remove(); }});
+  audioPc = null;
+  audioDc = null;
+  audioEnabled = false;
+  var btn = document.getElementById("audio-btn");
+  if (btn) {{ btn.textContent = "Audio"; btn.disabled = false; btn.classList.remove("active"); }}
+}}
+
+function speakText(text) {{
+  if (!audioEnabled || !audioDc || audioDc.readyState !== "open" || !text.trim()) return;
+  audioDc.send(JSON.stringify({{
+    type: "conversation.item.create",
+    item: {{ type: "message", role: "user", content: [{{ type: "input_text", text: text }}] }}
+  }}));
+  audioDc.send(JSON.stringify({{ type: "response.create" }}));
 }}
 </script>
 </body>
@@ -909,6 +1073,8 @@ class _WebServerHandler(BaseHTTPRequestHandler):
             else:
                 messages = _read_message_history(conversation_id)
                 self._send_json({"messages": messages, "conversation_id": conversation_id})
+        elif path == "/api/audio/config":
+            self._send_json(_get_inworld_config())
         else:
             self.send_error(404)
 
