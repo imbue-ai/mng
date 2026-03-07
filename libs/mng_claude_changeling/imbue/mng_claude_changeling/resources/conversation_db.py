@@ -13,11 +13,11 @@ The table is expected to already exist (created during provisioning). If it
 does not, the insert subcommand creates it as a safety net.
 
 Usage:
-    python3 conversation_db.py insert <db_path> <conversation_id> <tags_json> <created_at>
-    python3 conversation_db.py lookup-model <db_path> <conversation_id>
-    python3 conversation_db.py count <db_path>
-    python3 conversation_db.py max-rowid <db_path>
-    python3 conversation_db.py poll-new <db_path> <max_rowid>
+    mng changelingdb insert <db_path> <conversation_id> <tags_json> <created_at>
+    mng changelingdb lookup-model <db_path> <conversation_id>
+    mng changelingdb count <db_path>
+    mng changelingdb max-rowid <db_path>
+    mng changelingdb poll-new <db_path> <max_rowid>
 
 Environment: None required (all paths passed as arguments).
 """
@@ -26,7 +26,6 @@ import sqlite3
 import sys
 
 # SYNC: This schema MUST match CHANGELING_CONVERSATIONS_TABLE_SQL in provisioning.py.
-# This file runs standalone on remote hosts and cannot import from provisioning.
 # A test (test_conversation_db_schema_matches_provisioning) verifies they stay in sync.
 _CREATE_TABLE_SQL = (
     "CREATE TABLE IF NOT EXISTS changeling_conversations ("
@@ -46,7 +45,7 @@ def _warn(message: str) -> None:
     sys.stderr.flush()
 
 
-def _insert(db_path: str, conversation_id: str, tags: str, created_at: str) -> None:
+def db_insert(db_path: str, conversation_id: str, tags: str, created_at: str) -> None:
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(_CREATE_TABLE_SQL)
@@ -59,7 +58,7 @@ def _insert(db_path: str, conversation_id: str, tags: str, created_at: str) -> N
         conn.close()
 
 
-def _lookup_model(db_path: str, conversation_id: str) -> None:
+def db_lookup_model(db_path: str, conversation_id: str) -> None:
     """Look up the model from the llm tool's native conversations table."""
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -76,7 +75,7 @@ def _lookup_model(db_path: str, conversation_id: str) -> None:
         _warn(f"lookup-model failed: {e}")
 
 
-def _count(db_path: str) -> None:
+def db_count(db_path: str) -> None:
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
@@ -89,7 +88,7 @@ def _count(db_path: str) -> None:
         _write_stdout(0)
 
 
-def _max_rowid(db_path: str) -> None:
+def db_max_rowid(db_path: str) -> None:
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
@@ -102,7 +101,7 @@ def _max_rowid(db_path: str) -> None:
         _write_stdout(0)
 
 
-def _poll_new(db_path: str, max_rowid: str) -> None:
+def db_poll_new(db_path: str, max_rowid: str) -> None:
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
@@ -128,15 +127,15 @@ def main() -> None:
 
     match subcommand:
         case "insert":
-            _insert(db_path, sys.argv[3], sys.argv[4], sys.argv[5])
+            db_insert(db_path, sys.argv[3], sys.argv[4], sys.argv[5])
         case "lookup-model":
-            _lookup_model(db_path, sys.argv[3])
+            db_lookup_model(db_path, sys.argv[3])
         case "count":
-            _count(db_path)
+            db_count(db_path)
         case "max-rowid":
-            _max_rowid(db_path)
+            db_max_rowid(db_path)
         case "poll-new":
-            _poll_new(db_path, sys.argv[3])
+            db_poll_new(db_path, sys.argv[3])
         case _ as unreachable:
             _warn(f"Unknown subcommand: {unreachable}")
             sys.exit(1)

@@ -1,4 +1,4 @@
-"""Test fixtures for mng-tutor.
+"""Test fixtures for mng-kanpan.
 
 Uses shared plugin test fixtures from mng for common setup (plugin manager,
 environment isolation, git repos, temp_mng_ctx, local_provider, etc.).

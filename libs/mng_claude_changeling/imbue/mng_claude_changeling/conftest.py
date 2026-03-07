@@ -131,22 +131,20 @@ class ChatScriptEnv:
     """
 
     def __init__(self, temp_host_dir: Path) -> None:
-        self.chat_script = temp_host_dir / "commands" / "chat.sh"
-        self.chat_script.parent.mkdir(parents=True)
+        self.agent_state_dir = temp_host_dir / "agents" / "test-agent"
 
-        # Write the shared logging library (sourced by chat.sh and other scripts)
-        mng_log_path = temp_host_dir / "commands" / "mng_log.sh"
-        mng_log_path.write_text(load_resource_script("mng_log.sh"))
-        os.chmod(mng_log_path, 0o755)
+        # chat.sh and mng_log.sh are now provisioned to $MNG_AGENT_STATE_DIR/commands/
+        commands_dir = self.agent_state_dir / "commands"
+        commands_dir.mkdir(parents=True)
 
+        self.chat_script = commands_dir / "chat.sh"
         self.chat_script.write_text(load_changeling_resource("chat.sh"))
         os.chmod(self.chat_script, 0o755)
 
-        # Write the conversation_db.py helper (used by chat.sh for DB operations)
-        conv_db_path = temp_host_dir / "commands" / "conversation_db.py"
-        conv_db_path.write_text(load_changeling_resource("conversation_db.py"))
-
-        self.agent_state_dir = temp_host_dir / "agents" / "test-agent"
+        # Write the shared logging library (sourced by chat.sh and other scripts)
+        mng_log_path = commands_dir / "mng_log.sh"
+        mng_log_path.write_text(load_resource_script("mng_log.sh"))
+        os.chmod(mng_log_path, 0o755)
         self.messages_dir = self.agent_state_dir / "events" / "messages"
         self.messages_dir.mkdir(parents=True)
 

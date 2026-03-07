@@ -15,7 +15,6 @@ The actual terminal sessions are handled by companion ttyd processes
 
 Environment:
     MNG_AGENT_STATE_DIR  - Agent state directory (contains events/)
-    MNG_HOST_DIR         - Host data directory (contains commands/)
     MNG_AGENT_NAME       - This agent's name
     MNG_HOST_NAME        - Name of the host this agent runs on
 """
@@ -39,18 +38,12 @@ from typing import Final
 from urllib.parse import parse_qs
 from urllib.parse import urlparse
 
-try:
-    from imbue.mng_claude_changeling.resources.watcher_common import MngNotInstalledError
-    from imbue.mng_claude_changeling.resources.watcher_common import get_mng_command
-except ImportError:
-    sys.path.insert(0, os.path.join(os.environ.get("MNG_HOST_DIR", ""), "commands"))
-    from watcher_common import MngNotInstalledError  # type: ignore[no-redef]
-    from watcher_common import get_mng_command  # type: ignore[no-redef]
+from imbue.mng_claude_changeling.resources.watcher_common import MngNotInstalledError
+from imbue.mng_claude_changeling.resources.watcher_common import get_mng_command
 
 # -- Environment and paths --
 
 AGENT_STATE_DIR: Final[str] = os.environ.get("MNG_AGENT_STATE_DIR", "")
-HOST_DIR: Final[str] = os.environ.get("MNG_HOST_DIR", "")
 AGENT_NAME: Final[str] = os.environ.get("MNG_AGENT_NAME", "")
 HOST_NAME: Final[str] = os.environ.get("MNG_HOST_NAME", "")
 

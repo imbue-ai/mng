@@ -8,11 +8,10 @@ detection, with periodic mtime-based polling as a safety net.
 Tracked conversations are read from the changeling_conversations table
 in the llm database (created during provisioning).
 
-Usage: python3 conversation_watcher.py
+Usage: mng changelingconversations
 
 Environment:
   MNG_AGENT_STATE_DIR  - agent state directory (contains events/)
-  MNG_HOST_DIR         - host data directory (contains events/ for event and log output)
 """
 
 from __future__ import annotations
@@ -20,24 +19,15 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import sys
 from pathlib import Path
 
 from loguru import logger
 
-try:
-    from imbue.mng_claude_changeling.resources.watcher_common import load_watchers_section
-    from imbue.mng_claude_changeling.resources.watcher_common import read_event_ids_from_jsonl
-    from imbue.mng_claude_changeling.resources.watcher_common import require_env
-    from imbue.mng_claude_changeling.resources.watcher_common import run_watcher_loop
-    from imbue.mng_claude_changeling.resources.watcher_common import setup_watcher_logging
-except ImportError:
-    sys.path.insert(0, str(Path(__file__).parent))
-    from watcher_common import load_watchers_section  # type: ignore[no-redef]
-    from watcher_common import read_event_ids_from_jsonl  # type: ignore[no-redef]
-    from watcher_common import require_env  # type: ignore[no-redef]
-    from watcher_common import run_watcher_loop  # type: ignore[no-redef]
-    from watcher_common import setup_watcher_logging  # type: ignore[no-redef]
+from imbue.mng_claude_changeling.resources.watcher_common import load_watchers_section
+from imbue.mng_claude_changeling.resources.watcher_common import read_event_ids_from_jsonl
+from imbue.mng_claude_changeling.resources.watcher_common import require_env
+from imbue.mng_claude_changeling.resources.watcher_common import run_watcher_loop
+from imbue.mng_claude_changeling.resources.watcher_common import setup_watcher_logging
 
 
 def _load_poll_interval(agent_work_dir: Path) -> int:
@@ -223,12 +213,11 @@ def _sync_messages(
 def main() -> None:
     agent_state_dir = Path(require_env("MNG_AGENT_STATE_DIR"))
     agent_work_dir = Path(require_env("MNG_AGENT_WORK_DIR"))
-    host_dir = Path(require_env("MNG_HOST_DIR"))
 
     messages_file = agent_state_dir / "events" / "messages" / "events.jsonl"
     messages_file.parent.mkdir(parents=True, exist_ok=True)
 
-    setup_watcher_logging("conversation_watcher", host_dir / "events" / "logs")
+    setup_watcher_logging("conversation_watcher", agent_state_dir / "events" / "logs")
 
     poll_interval = _load_poll_interval(agent_work_dir)
     db_path = _get_llm_db_path()

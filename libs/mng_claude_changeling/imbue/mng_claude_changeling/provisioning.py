@@ -19,20 +19,16 @@ from imbue.mng.providers.ssh_host_setup import load_resource_script
 from imbue.mng_claude_changeling import resources as changeling_resources
 from imbue.mng_claude_changeling.data_types import ProvisioningSettings
 
-# Supporting service scripts to provision to $MNG_HOST_DIR/commands/
+# Supporting service shell scripts to provision to $MNG_AGENT_STATE_DIR/commands/.
+# Python scripts (event_watcher, conversation_watcher, transcript_watcher,
+# web_server, conversation_db) are now registered as mng CLI commands and
+# do not need to be provisioned.
 _SERVICE_SCRIPT_FILES: Final[tuple[str, ...]] = (
     "chat.sh",
     "chat_ttyd_handler.sh",
-    "web_server.py",
-    "conversation_watcher.py",
-    "event_watcher.py",
-    "transcript_watcher.py",
 )
 
-# Python modules provisioned alongside supporting service scripts (not executable, mode 0644)
-_SERVICE_MODULES: Final[tuple[str, ...]] = ("watcher_common.py", "conversation_db.py")
-
-# Python tool files to provision to $MNG_HOST_DIR/commands/llm_tools/
+# Python tool files to provision to $MNG_AGENT_STATE_DIR/commands/llm_tools/
 _LLM_TOOL_FILES: Final[tuple[str, ...]] = (
     "context_tool.py",
     "extra_context_tool.py",
@@ -329,12 +325,19 @@ def _create_symlink_if_target_exists(
             raise RuntimeError(f"Failed to create symlink {link_path} -> {target_path}: {result.stderr}")
 
 
-def provision_supporting_services(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
-    """Write supporting service scripts to $MNG_HOST_DIR/commands/.
+def provision_supporting_services(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+) -> None:
+    """Write supporting service shell scripts to $MNG_AGENT_STATE_DIR/commands/.
 
     Scripts are loaded from the resources package and written with execute permission.
+    Python supporting services (event_watcher, conversation_watcher, transcript_watcher,
+    web_server, conversation_db) are registered as mng CLI commands and do not need
+    to be provisioned.
     """
-    commands_dir = host.host_dir / "commands"
+    commands_dir = agent_state_dir / "commands"
     _execute_with_timing(
         host,
         f"mkdir -p {shlex.quote(str(commands_dir))}",
@@ -356,20 +359,18 @@ def provision_supporting_services(host: OnlineHostInterface, settings: Provision
         with log_span("Writing {} to host", script_name):
             host.write_file(script_path, script_content.encode(), mode="0755")
 
-    for module_name in _SERVICE_MODULES:
-        module_content = load_changeling_resource(module_name)
-        module_path = commands_dir / module_name
-        with log_span("Writing {} to host", module_name):
-            host.write_file(module_path, module_content.encode(), mode="0644")
 
-
-def provision_llm_tools(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
-    """Write LLM tool Python files to $MNG_HOST_DIR/commands/llm_tools/.
+def provision_llm_tools(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+) -> None:
+    """Write LLM tool Python files to $MNG_AGENT_STATE_DIR/commands/llm_tools/.
 
     These files are passed to `llm live-chat` via `--functions` to give
     conversation agents access to changeling context.
     """
-    tools_dir = host.host_dir / "commands" / "llm_tools"
+    tools_dir = agent_state_dir / "commands" / "llm_tools"
     _execute_with_timing(
         host,
         f"mkdir -p {shlex.quote(str(tools_dir))}",
