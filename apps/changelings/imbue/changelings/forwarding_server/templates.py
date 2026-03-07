@@ -43,6 +43,22 @@ _LANDING_PAGE_TEMPLATE: Final[str] = """<!DOCTYPE html>
     No changelings are accessible. Use a login link to authenticate with a changeling.
   </p>
   {% endif %}
+  <script>
+  (function() {
+    if (!navigator.serviceWorker) return;
+    var activeIds = [{% for agent_id in agent_ids %}'{{ agent_id }}'{% if not loop.last %}, {% endif %}{% endfor %}];
+    var activeSet = new Set(activeIds);
+    var scopePattern = new RegExp('/agent' + 's/([^/]+)/');
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      registrations.forEach(function(reg) {
+        var match = reg.scope.match(scopePattern);
+        if (match && !activeSet.has(match[1])) {
+          reg.unregister();
+        }
+      });
+    });
+  })();
+  </script>
 </body>
 </html>"""
 
