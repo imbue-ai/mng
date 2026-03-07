@@ -917,14 +917,17 @@ class _WebServerHandler(BaseHTTPRequestHandler):
             if conversation_id == "NEW":
                 conversation_id = _create_new_conversation()
 
-            # Start SSE streaming response
+            # Start SSE streaming response.
+            # Connection: close ensures the TCP connection is closed after the
+            # handler finishes, signaling end-of-stream to the client.
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "keep-alive")
+            self.send_header("Connection", "close")
             self.end_headers()
 
             _handle_chat_send(conversation_id, message, self.wfile)
+            self.close_connection = True
         elif path == "/api/chat/new":
             new_cid = _create_new_conversation()
             self._send_json({"conversation_id": new_cid})
