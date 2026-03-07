@@ -265,11 +265,6 @@ This is a monorepo that contains the code for `mng` here:
 
 - [libs/mng/](libs/mng/README.md)
 
-As well as the code for some plugins that we maintain, including:
-
-- [libs/mng_pair/](libs/mng_pair/README.md)
-- [libs/mng_opencode/](libs/mng_opencode/README.md)
-
 The repo also contains code for some dependencies and related projects, including:
 
 - [libs/concurrency_group](libs/concurrency_group/README.md): a simple Python library for managing synchronous concurrent primitives (threads and processes) in a way that makes it easy to ensure that they are cleaned up.
