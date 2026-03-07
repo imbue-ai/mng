@@ -1,6 +1,6 @@
 ---
 description: Review the conversation transcript for behavioral issues (misleading behavior, disobeyed instructions, instructions worth saving).
-model: claude-opus-4-6
+model: claude-opus-4-6-max
 allowed-tools: Bash:*, Read, Write, Agent
 ---
 
