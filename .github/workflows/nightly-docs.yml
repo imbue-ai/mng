@@ -18,12 +18,20 @@ jobs:
         with:
           fetch-depth: 0 # Full history needed for git log
 
+      - name: Set timestamp
+        id: ts
+        run: |
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          echo "time=$(date -u +%H%M)" >> "$GITHUB_OUTPUT"
+
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
             You are maintaining two living documents in this repository:
             ARCHITECTURE.md (developer architecture overview) and CHANGELOG.md (user-facing changelog).
+
+            Today's date is ${{ steps.ts.outputs.date }} (UTC).
 
             ## Step 1: Determine what changed
 
@@ -67,10 +75,10 @@ jobs:
             ## Step 4: Commit and create PR
 
             If you made any changes, commit them and push to a new branch named
-            "docs/nightly-update-YYYY-MM-DD-HHMM" (using today's date and current time in UTC).
+            "docs/nightly-update-${{ steps.ts.outputs.date }}-${{ steps.ts.outputs.time }}".
             Then create a PR.
 
             If no changes were needed, do nothing.
           claude_args: |
             --model claude-opus-4
-            --allowedTools Read,Write,Edit,Bash(git:*),Bash(gh pr create:*),Bash(date:*)
+            --allowedTools Read,Write,Edit,Bash(git:*),Bash(gh pr create:*)
