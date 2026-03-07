@@ -72,6 +72,26 @@ jobs:
             changelog, you now have full context on what changed -- use that to decide whether
             any architectural updates are warranted.
 
+            ## Step 3b: Review ARCHITECTURE.md for quality
+
+            If you made changes to ARCHITECTURE.md in Step 3, do a critical review pass.
+            Also do this review if no changes were made but it has been more than 7 days
+            since the last review (check git log for commits with "review ARCHITECTURE.md"
+            in the message).
+
+            Review criteria -- fix any issues you find:
+            - **Importance**: every sentence should earn its place. Remove anything a developer
+              wouldn't need when navigating or extending the codebase.
+            - **No duplication**: if the same fact appears twice, keep the better version.
+            - **Tight wording**: cut filler phrases, redundant words, and verbose constructions.
+              Prefer "Built on X" over "It is built on X". Prefer label:value list items
+              (e.g., "- Tmux sessions: `mng-<name>`") over full sentences when listing facts.
+            - **Accuracy**: verify claims against the actual code. Remove anything that no
+              longer reflects reality.
+            - **Scope**: ARCHITECTURE.md is for orientation, not exhaustive documentation.
+              If a section reads like API docs, trim it back to what someone needs to know
+              to find and understand the right code.
+
             ## Step 4: Commit and create PR
 
             If you made any changes, commit them and push to a new branch named
