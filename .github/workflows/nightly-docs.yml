@@ -85,7 +85,9 @@ jobs:
               longer reflects reality.
             - **Scope**: ARCHITECTURE.md is for orientation, not exhaustive documentation.
               If a section reads like API docs, trim it back to what someone needs to know
-              to find and understand the right code.
+              to find and understand the right code, and link to the actual docs (e.g.,
+              a README or file in docs/) for details. Update those linked docs too if they
+              are outdated or missing the relevant information.
 
             ## Step 5: Commit and create PR
 
