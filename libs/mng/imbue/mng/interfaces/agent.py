@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -275,6 +276,17 @@ class AgentInterface(MutableModel, ABC):
     # Provisioning Lifecycle
     # =========================================================================
 
+    def get_extra_env_vars(self) -> dict[str, str]:
+        """Return additional env vars for this agent type.
+
+        Called during provisioning to collect agent-type-specific environment
+        variables (e.g., CLAUDE_CONFIG_DIR for claude agents). These are written
+        to the agent's env file and sourced before the agent command runs.
+
+        Default returns an empty dict.
+        """
+        return {}
+
     @abstractmethod
     def on_before_provisioning(
         self,
@@ -378,4 +390,37 @@ class AgentInterface(MutableModel, ABC):
         Use this method to perform agent-type-specific cleanup, such as
         removing external configuration entries or releasing resources.
         """
+        ...
+
+
+class NoPermissionsAgentMixin:
+    """Marker mixin for agents that are granted no permissions.
+
+    These agents have no tool access and cannot perform destructive actions
+    (e.g. configured with --tools ""). Because no permissions are granted,
+    trust validation and permission dialogs are unnecessary during provisioning.
+    """
+
+
+class HeadlessAgentMixin(ABC):
+    """Mixin for agent types that run headlessly (no TUI, no interactive input).
+
+    Headless agents produce their output non-interactively and expose it
+    via output(). This mixin serves as a marker interface so callers can
+    check for headless capability without depending on a specific agent
+    implementation.
+    """
+
+    @abstractmethod
+    def output(self) -> str:
+        """Wait for the agent to finish and return its complete output."""
+        ...
+
+
+class StreamingHeadlessAgentMixin(HeadlessAgentMixin):
+    """Headless agent that can also stream output incrementally."""
+
+    @abstractmethod
+    def stream_output(self) -> Iterator[str]:
+        """Yield output chunks as they become available."""
         ...
