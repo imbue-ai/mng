@@ -6,9 +6,10 @@ from typing import cast
 
 import pytest
 
-from imbue.mng.interfaces.data_types import CommandResult
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import CommandString
+from imbue.mng_claude_changeling.conftest import StubCommandResult
+from imbue.mng_claude_changeling.conftest import StubHost
 from imbue.mng_test_coder.plugin import TestCoderAgent
 from imbue.mng_test_coder.plugin import TestCoderConfig
 from imbue.mng_test_coder.plugin import _LLM_MATCHED_RESPONSES_LOCAL_CHECKOUT
@@ -31,35 +32,14 @@ def test_test_coder_config_defaults() -> None:
     assert config.trust_working_directory is True
 
 
-class _StubHost:
-    """Simple test double for OnlineHostInterface."""
-
-    def __init__(self, command_results: list[CommandResult] | None = None) -> None:
-        self.is_local = True
-        self.host_dir = Path("/tmp/mng-test/host")
-        self._command_results = command_results or [CommandResult(success=True, stdout="", stderr="")]
-        self._call_idx = 0
-        self.written_text_files: list[tuple[Path, str]] = []
-
-    def execute_command(self, command: str, **kwargs: Any) -> CommandResult:
-        if self._call_idx < len(self._command_results):
-            result = self._command_results[self._call_idx]
-            self._call_idx += 1
-            return result
-        return CommandResult(success=True, stdout="", stderr="")
-
-    def write_text_file(self, path: Path, content: str) -> None:
-        self.written_text_files.append((path, content))
-
-
 # --- assemble_command tests ---
 
 
 def test_assemble_command_returns_idle_loop() -> None:
     """assemble_command should return an idle loop command."""
     agent = TestCoderAgent.__new__(TestCoderAgent)
-    host = _StubHost()
-    result = agent.assemble_command(host, (), None)
+    host = StubHost()
+    result = agent.assemble_command(cast(Any, host), (), None)
     assert isinstance(result, CommandString)
     assert "sleep 60" in str(result)
     assert "Test agent running" in str(result)
@@ -70,7 +50,7 @@ def test_assemble_command_returns_idle_loop() -> None:
 
 def test_configure_model_as_default_writes_toml() -> None:
     """_configure_model_as_default should write changelings.toml with matched-responses."""
-    stub = _StubHost()
+    stub = StubHost()
     work_dir = Path("/work")
     _configure_model_as_default(cast(OnlineHostInterface, stub), work_dir)
     assert len(stub.written_text_files) == 1
@@ -84,15 +64,10 @@ def test_configure_model_as_default_writes_toml() -> None:
 
 def test_install_llm_matched_responses_succeeds_from_pypi() -> None:
     """Plugin install from PyPI should succeed when the command succeeds."""
-    host = cast(
-        OnlineHostInterface,
-        _StubHost(
-            command_results=[
-                CommandResult(success=True, stdout="", stderr=""),
-            ]
-        ),
+    host = StubHost(
+        command_results={"llm install": StubCommandResult(success=True)},
     )
-    _install_llm_matched_responses_plugin(host)
+    _install_llm_matched_responses_plugin(cast(OnlineHostInterface, host))
 
 
 @pytest.mark.skipif(
@@ -101,13 +76,10 @@ def test_install_llm_matched_responses_succeeds_from_pypi() -> None:
 )
 def test_install_llm_matched_responses_falls_back_to_local() -> None:
     """Should fall back to local checkout when PyPI fails and local checkout exists."""
-    host = cast(
-        OnlineHostInterface,
-        _StubHost(
-            command_results=[
-                CommandResult(success=False, stdout="", stderr="not found"),
-                CommandResult(success=True, stdout="", stderr=""),
-            ]
-        ),
+    host = StubHost(
+        command_results={
+            "llm install llm-matched-responses": StubCommandResult(success=False, stderr="not found"),
+            "llm install -e": StubCommandResult(success=True),
+        },
     )
-    _install_llm_matched_responses_plugin(host)
+    _install_llm_matched_responses_plugin(cast(OnlineHostInterface, host))
