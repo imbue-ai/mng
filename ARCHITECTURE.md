@@ -230,14 +230,6 @@ Commands follow a consistent pattern: CliOptions class -> @click.command -> setu
 
 **CLI** (`cli/events.py`): `mng events` (experimental) streams events in real-time (`--follow`) or historical, with CEL-based `--filter`, `--head`/`--tail` pagination, and source selection.
 
-### TUI Components
-
-The codebase includes interactive text user interfaces built with **urwid**:
-
-- **mng_kanpan**: Kanban-style board tracking agent tasks with color-coded states, CI check status, custom keybindings (r=refresh, p=push, d=delete, m=mute), and 10-minute auto-refresh
-- **mng_tutor**: Interactive lesson selector with arrow key navigation and real-time progress tracking
-- **connect**: Interactive agent selector when multiple agents are available
-
 ## Plugin System
 
 `mng` uses [pluggy](https://pluggy.readthedocs.io/) for extensibility. All extensible components -- agent types, provider backends, CLI commands -- are registered through the same plugin hook mechanism, but there are two tiers:
@@ -302,32 +294,7 @@ my_plugin = "my_package.plugin"
 
 ### Writing a Plugin
 
-**New agent type:**
-```python
-from imbue.mng import hookimpl
-from imbue.mng.config.data_types import AgentTypeConfig
-
-class MyAgentConfig(AgentTypeConfig):
-    pass
-
-@hookimpl
-def register_agent_type():
-    return ("my-agent", None, MyAgentConfig)  # None class = use BaseAgent
-```
-
-**New provider backend:**
-```python
-@hookimpl
-def register_provider_backend():
-    return (MyProviderBackend, MyProviderConfig)
-```
-
-**New CLI command:**
-```python
-@hookimpl
-def register_cli_commands() -> Sequence[click.Command]:
-    return [my_command]
-```
+See [libs/mng/docs/concepts/plugins.md](libs/mng/docs/concepts/plugins.md#writing-a-plugin) for a full guide on writing plugins, including package setup, hook implementations, plugin configuration, CLI commands, and error handling.
 
 ## Shared Libraries
 
