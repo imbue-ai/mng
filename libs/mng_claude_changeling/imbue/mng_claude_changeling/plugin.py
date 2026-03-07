@@ -219,8 +219,6 @@ class ClaudeChangelingAgent(ClaudeAgent):
             bin_dir = f"{agent_state_dir}/bin"
             env_vars["UV_TOOL_DIR"] = f"{agent_state_dir}/tools"
             env_vars["UV_TOOL_BIN_DIR"] = bin_dir
-            existing_path = env_vars.get("PATH", "$PATH")
-            env_vars["PATH"] = f"{bin_dir}:{existing_path}"
 
     def assemble_command(
         self,

@@ -79,9 +79,6 @@ def _load_env_file_into_dict(env_path: Path, env: dict[str, str]) -> None:
     if not env_path.exists():
         return
     parsed = parse_env_file(env_path.read_text())
-    # sigh, stupid hack to get this working for now:
-    if "PATH" in parsed and "$PATH" in parsed["PATH"]:
-        parsed["PATH"] = parsed["PATH"].replace("$PATH", env.get("PATH", ""))
     env.update(parsed)
 
 
