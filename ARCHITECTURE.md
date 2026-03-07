@@ -140,10 +140,7 @@ The codebase aggressively uses constrained primitive types to encode domain know
 - `AgentName`, `HostName`, `AgentTypeName`: semantic domain names
 - `CommandString`, `ProviderInstanceName`, `ProviderBackendName`, `PluginName`
 
-**Constrained Numeric Types**:
-- `NonNegativeInt`, `PositiveInt`, `NonNegativeFloat`, `PositiveFloat`
-- `Probability`: float constrained to [0.0, 1.0]
-- `SizeBytes`: non-negative integer for sizes
+**Constrained Numeric Types**: `NonNegativeInt`, `PositiveInt`, `NonNegativeFloat`, `PositiveFloat`, `Probability`, `SizeBytes` -- used sparingly for domain-specific validation.
 
 **Enums** (all inherit from `UpperCaseStrEnum`):
 - `HostState`: BUILDING, STARTING, RUNNING, STOPPING, STOPPED, PAUSED, CRASHED, FAILED, DESTROYED, UNAUTHENTICATED
