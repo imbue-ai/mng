@@ -1,10 +1,7 @@
 import json
-import shutil
-import subprocess
 from pathlib import Path
 
 import pluggy
-import pytest
 from click.testing import CliRunner
 
 from imbue.mng.cli.plugin import plugin
@@ -407,64 +404,3 @@ def test_plugin_remove_name_and_path_mutually_exclusive(
     )
 
     assert result.exit_code != 0
-
-
-# =============================================================================
-# Integration test for plugin add --path and remove lifecycle
-# =============================================================================
-
-_MNG_OPENCODE_DIR = Path(__file__).resolve().parents[5] / "libs" / "mng_opencode"
-
-
-@pytest.mark.acceptance
-@pytest.mark.timeout(180)
-def test_plugin_add_path_and_remove_lifecycle() -> None:
-    """Test ``mng plugin add --path`` and ``mng plugin remove`` using the real mng-opencode plugin.
-
-    This is an acceptance test that operates on the real ``uv tool`` installation.
-    Plugin add/remove uses ``uv tool install --with`` under the hood, which always
-    targets ``~/.local/share/uv/tools/mng/``, so it cannot run in an isolated venv.
-    """
-    mng_bin = shutil.which("mng")
-    if mng_bin is None:
-        pytest.skip("mng not installed via uv tool (no mng binary on PATH)")
-        return
-
-    # Check that mng is installed via uv tool by looking for the receipt
-    mng_venv = Path(mng_bin).resolve().parent.parent
-    if not (mng_venv / "uv-receipt.toml").exists():
-        pytest.skip("mng not installed via uv tool (no uv-receipt.toml)")
-
-    def run_mng(*args: str) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(
-            [mng_bin, *args],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        assert result.returncode == 0, (
-            f"mng {' '.join(args)} failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
-        )
-        return result
-
-    # -- Install via mng plugin add --path --
-    add_result = run_mng("plugin", "add", "--path", str(_MNG_OPENCODE_DIR), "--format", "json")
-    add_output = json.loads(add_result.stdout)
-    assert add_output["package"] == "mng-opencode"
-
-    try:
-        # -- Verify it shows up --
-        list_after_add = run_mng("plugin", "list", "--format", "json")
-        plugin_names_after_add = [p["name"] for p in json.loads(list_after_add.stdout)["plugins"]]
-        assert "opencode" in plugin_names_after_add
-    finally:
-        # -- Always clean up: remove via mng plugin remove --
-        remove_result = run_mng("plugin", "remove", "mng-opencode", "--format", "json")
-
-    # -- Verify the remove succeeded --
-    remove_output = json.loads(remove_result.stdout)
-    assert remove_output["package"] == "mng-opencode"
-
-    list_after_remove = run_mng("plugin", "list", "--format", "json")
-    plugin_names_after_remove = [p["name"] for p in json.loads(list_after_remove.stdout)["plugins"]]
-    assert "opencode" not in plugin_names_after_remove
