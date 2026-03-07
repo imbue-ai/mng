@@ -32,8 +32,8 @@ jobs:
 
               git log -1 --format=%ci -- CHANGELOG.md ARCHITECTURE.md
 
-            If that returns empty (the files don't exist yet), use "7 days ago" as the anchor.
-            Otherwise use the returned timestamp. Then find all commits since that anchor:
+            If that returns empty (the files don't exist yet), use "7 days ago" instead.
+            Then find all commits since that anchor:
 
               git log --oneline --since="<anchor>"
 
