@@ -667,14 +667,16 @@ def _read_message_history(conversation_id: str) -> list[dict[str, str]]:
 
 
 _NEW_CONVERSATION_GREETING: Final[str] = (
-    "Hi, I'm Selene! Welcome to the future.\n"
+    "Hi, I'm Selene. Welcome to the future!\n"
     "\n"
     "> You can interrupt at any time if you want to focus on something else\n"
     "\n"
     "Is it ok if I get to know you a little bit?\n"
     "\n"
     "> This simply generates a document for you to review (to save you time)\n"
+    "> \n"
     "> **Zero risk**: *none* of your data *ever* leaves your device\n"
+    "> \n"
     "> [Learn more](https://imbue.com/help/)"
 )
 
@@ -944,8 +946,9 @@ _CHAT_CSS: Final[str] = """
       background: transparent; color: rgb(51, 51, 51); border-bottom-left-radius: 4px;
     }
     .message-bubble blockquote {
-      border-left: 3px solid rgb(200, 200, 200); padding: 4px 0 4px 12px;
-      margin: 6px 0; color: rgb(100, 100, 100);
+      background: rgb(235, 235, 235); border-radius: 10px; border: none;
+      padding: 10px 14px; margin: 8px 0; color: rgb(100, 100, 100);
+      font-size: 12px; font-family: system-ui, -apple-system, sans-serif;
     }
     .message-bubble a { color: inherit; text-decoration: underline; }
     .message-bubble a:hover { opacity: 0.7; }
@@ -1385,7 +1388,7 @@ async function startAudio() {{
           instructions: "Read the user message aloud exactly as written. Do not add or change anything.",
           output_modalities: ["audio"],
           audio: {{
-            output: {{ model: "inworld-tts-1.5-mini", voice: "Clive" }}
+            output: {{ model: "inworld-tts-1.5-max", voice: "Selene", "speakingRate": 1.4, "temperature": 0.8 }}
           }}
         }}
       }};
@@ -1488,6 +1491,11 @@ function stopAudio() {{
 }}
 
 function speakText(text) {{
+  // Strip blockquote lines and markdown syntax so TTS reads clean text
+  text = text.split("\\n").filter(function(l) {{ return !l.startsWith("> "); }}).join("\\n");
+  // Strip bold/italic markers and link syntax
+  text = text.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1");
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   console.log("[audio] speakText called, audioEnabled:", audioEnabled, "dc readyState:", audioDc ? audioDc.readyState : "null", "text length:", text.length);
   if (!audioEnabled || !audioDc || audioDc.readyState !== "open" || !text.trim()) {{
     console.log("[audio] speakText bailing out: enabled=" + audioEnabled + " dc=" + (audioDc ? audioDc.readyState : "null") + " textEmpty=" + !text.trim());
