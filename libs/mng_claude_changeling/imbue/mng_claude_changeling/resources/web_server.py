@@ -1010,7 +1010,7 @@ _CHAT_CSS: Final[str] = """
     .chat-input-container .input-btn-right {
       position: absolute; right: 8px; bottom: 8px;
     }
-    .streaming-indicator { font-size: 12px; color: rgb(153, 153, 153); padding: 4px 0; text-align: left; }
+    .streaming-indicator { font-size: 12px; color: rgb(153, 153, 153); padding: 0 0 0 16px; text-align: left; }
 """
 
 
