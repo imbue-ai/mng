@@ -519,31 +519,32 @@ def _read_message_history(conversation_id: str) -> list[dict[str, str]]:
     return messages
 
 
-def _create_new_conversation() -> str:
-    """Create a new conversation and register it in the changeling_conversations table."""
-    conversation_id = f"conv-{int(time.time())}-{os.urandom(4).hex()}"
-    created_at = _iso_timestamp()
-    if LLM_DB_PATH:
+def _register_conversation(conversation_id: str) -> None:
+    """Register a conversation in the changeling_conversations table.
+
+    Creates the table if it doesn't exist, and inserts the conversation
+    (ignoring if it already exists).
+    """
+    if not LLM_DB_PATH:
+        return
+    try:
+        conn = sqlite3.connect(str(LLM_DB_PATH))
         try:
-            conn = sqlite3.connect(str(LLM_DB_PATH))
-            try:
-                conn.execute(
-                    "CREATE TABLE IF NOT EXISTS changeling_conversations ("
-                    "conversation_id TEXT PRIMARY KEY, "
-                    "tags TEXT NOT NULL DEFAULT '{}', "
-                    "created_at TEXT NOT NULL)"
-                )
-                conn.execute(
-                    "INSERT OR REPLACE INTO changeling_conversations "
-                    "(conversation_id, tags, created_at) VALUES (?, ?, ?)",
-                    (conversation_id, '{"name":"(new chat)"}', created_at),
-                )
-                conn.commit()
-            finally:
-                conn.close()
-        except sqlite3.Error as e:
-            _log(f"Failed to create conversation record: {e}")
-    return conversation_id
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS changeling_conversations ("
+                "conversation_id TEXT PRIMARY KEY, "
+                "tags TEXT NOT NULL DEFAULT '{}', "
+                "created_at TEXT NOT NULL)"
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO changeling_conversations (conversation_id, tags, created_at) VALUES (?, ?, ?)",
+                (conversation_id, '{"name":"(new chat)"}', _iso_timestamp()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        _log(f"Failed to register conversation {conversation_id}: {e}")
 
 
 class _SseOutputCallback:
@@ -570,18 +571,38 @@ class _SseOutputCallback:
             self.write_failed = True
 
 
-def _find_latest_conversation_id() -> str | None:
-    """Find the conversation_id of the most recently inserted llm response."""
+def _get_max_response_rowid() -> int:
+    """Return the current max rowid in the responses table, or 0 if empty/missing."""
+    if not LLM_DB_PATH or not LLM_DB_PATH.is_file():
+        return 0
+    try:
+        conn = sqlite3.connect(f"file:{LLM_DB_PATH}?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT MAX(rowid) FROM responses").fetchone()
+            return row[0] or 0 if row else 0
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        _log(f"Failed to query max response rowid: {e}")
+        return 0
+
+
+def _find_conversation_id_after_rowid(after_rowid: int) -> str | None:
+    """Find the conversation_id of the first response inserted after the given rowid."""
     if not LLM_DB_PATH or not LLM_DB_PATH.is_file():
         return None
     try:
         conn = sqlite3.connect(f"file:{LLM_DB_PATH}?mode=ro", uri=True)
         try:
-            row = conn.execute("SELECT conversation_id FROM responses ORDER BY rowid DESC LIMIT 1").fetchone()
+            row = conn.execute(
+                "SELECT conversation_id FROM responses WHERE rowid > ? ORDER BY rowid ASC LIMIT 1",
+                (after_rowid,),
+            ).fetchone()
             return row[0] if row else None
         finally:
             conn.close()
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        _log(f"Failed to find conversation after rowid {after_rowid}: {e}")
         return None
 
 
@@ -596,6 +617,10 @@ def _handle_chat_send(conversation_id: str, message: str, wfile: Any) -> None:
 
     is_new_conversation = conversation_id == "NEW"
     model_id = _get_default_chat_model()
+
+    # Snapshot the max response rowid before running llm so we can find
+    # exactly which conversation was created by this request (race-safe).
+    rowid_before = _get_max_response_rowid() if is_new_conversation else 0
 
     cmd = ["stdbuf", "-oL", "llm", "prompt", "-m", model_id]
 
@@ -690,30 +715,11 @@ def _handle_chat_send(conversation_id: str, message: str, wfile: Any) -> None:
     # and register it in changeling_conversations so it appears in the list and
     # persists across reloads.
     if is_new_conversation and result.returncode == 0:
-        real_cid = _find_latest_conversation_id()
+        real_cid = _find_conversation_id_after_rowid(rowid_before)
         if real_cid:
             _log(f"[chat-stream] new conversation created by llm: {real_cid}")
             conversation_id = real_cid
-            if LLM_DB_PATH:
-                try:
-                    conn = sqlite3.connect(str(LLM_DB_PATH))
-                    try:
-                        conn.execute(
-                            "CREATE TABLE IF NOT EXISTS changeling_conversations ("
-                            "conversation_id TEXT PRIMARY KEY, "
-                            "tags TEXT NOT NULL DEFAULT '{}', "
-                            "created_at TEXT NOT NULL)"
-                        )
-                        conn.execute(
-                            "INSERT OR IGNORE INTO changeling_conversations "
-                            "(conversation_id, tags, created_at) VALUES (?, ?, ?)",
-                            (real_cid, '{"name":"(new chat)"}', _iso_timestamp()),
-                        )
-                        conn.commit()
-                    finally:
-                        conn.close()
-                except sqlite3.Error as e:
-                    _log(f"[chat-stream] failed to register new conversation: {e}")
+            _register_conversation(real_cid)
 
     done_data = json.dumps({"conversation_id": conversation_id, "full_text": full_text_from_result})
     _log("[chat-stream] sending done event")
@@ -1270,7 +1276,8 @@ class _WebServerHandler(BaseHTTPRequestHandler):
             _handle_chat_send(conversation_id, message, self.wfile)
             self.close_connection = True
         elif path == "/api/chat/new":
-            new_cid = _create_new_conversation()
+            new_cid = f"conv-{int(time.time())}-{os.urandom(4).hex()}"
+            _register_conversation(new_cid)
             self._send_json({"conversation_id": new_cid})
         else:
             self.send_error(404)
