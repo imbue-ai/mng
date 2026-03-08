@@ -366,8 +366,46 @@ _CSS: Final[str] = """
     .conv-picker-item.new-conv {
       border-top: 1px solid rgb(230, 230, 230); color: rgb(100, 100, 100);
     }
+    .app-layout { display: flex; height: 100%; }
+    .sidebar {
+      width: 48px; display: flex; flex-direction: column; align-items: center;
+      padding: 8px 0; gap: 4px; background: inherit; flex-shrink: 0;
+      border-right: 1px solid rgb(230, 230, 230); transition: width 0.15s ease;
+      overflow: hidden;
+    }
+    .sidebar.expanded { width: 200px; align-items: flex-start; padding: 8px; }
+    .sidebar-toggle {
+      width: 36px; height: 36px; padding: 0; background: none; color: rgb(130, 130, 130);
+      border: none; border-radius: 8px; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .sidebar-toggle:hover { background: rgb(230, 230, 230); color: rgb(51, 51, 51); }
+    .sidebar-toggle svg { width: 20px; height: 20px; }
+    .sidebar-link {
+      width: 36px; height: 36px; padding: 0; color: rgb(130, 130, 130);
+      text-decoration: none; border-radius: 8px;
+      display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+      white-space: nowrap; overflow: hidden;
+    }
+    .sidebar-link:hover { background: rgb(230, 230, 230); color: rgb(51, 51, 51); }
+    .sidebar-link.active { color: rgb(51, 51, 51); }
+    .sidebar-link svg { width: 20px; height: 20px; flex-shrink: 0; }
+    .sidebar.expanded .sidebar-link {
+      width: 100%; padding: 0 10px; gap: 10px; font-size: 13px;
+      font-family: inherit;
+    }
+    .sidebar-link-label { display: none; }
+    .sidebar.expanded .sidebar-link-label { display: inline; }
+    .app-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 """
 
+
+_ICON_SIDEBAR: Final[str] = (
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+    ' stroke-linecap="round" stroke-linejoin="round">'
+    '<rect x="3" y="3" width="18" height="18" rx="2"/>'
+    '<line x1="9" y1="3" x2="9" y2="21"/></svg>'
+)
 
 _ICON_CONVERSATIONS: Final[str] = (
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
@@ -389,17 +427,39 @@ _ICON_AGENTS: Final[str] = (
 )
 
 
+def _sidebar_link(href: str, icon: str, label: str, key: str, active: str) -> str:
+    """Render a single sidebar navigation link."""
+    cls = "sidebar-link active" if key == active else "sidebar-link"
+    return f'<a class="{cls}" href="{href}" title="{label}">{icon}<span class="sidebar-link-label">{label}</span></a>'
+
+
+def _render_sidebar(active: str = "") -> str:
+    """Render a collapsible icon sidebar."""
+    return (
+        '<nav class="sidebar" id="sidebar">'
+        f'<button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar"'
+        f" onclick=\"document.getElementById('sidebar').classList.toggle('expanded')\">"
+        f"{_ICON_SIDEBAR}</button>"
+        + _sidebar_link("conversations", _ICON_CONVERSATIONS, "Conversations", "conversations", active)
+        + _sidebar_link("terminal", _ICON_TERMINAL, "Terminal", "terminal", active)
+        + _sidebar_link("agents-page", _ICON_AGENTS, "Agents", "agents", active)
+        + "</nav>"
+    )
+
+
 def _render_header(
     agent_name: str,
     active: str = "",
     extra_right: str = "",
     left_content: str = "",
+    show_nav: bool = True,
 ) -> str:
     """Render the common header bar with navigation icon links.
 
     left_content replaces the default ``<h1>`` when provided (e.g. a
     conversation dropdown).  extra_right is raw HTML inserted between
-    the spacer and the nav icons.
+    the spacer and the nav icons.  Set show_nav=False when a sidebar
+    already provides navigation.
     """
 
     def _nav_link(href: str, icon: str, title: str, key: str) -> str:
@@ -408,16 +468,15 @@ def _render_header(
 
     left = left_content or f"<h1>{agent_name}</h1>"
 
-    return (
-        '<div class="header">'
-        + left
-        + '<div class="header-spacer"></div>'
-        + extra_right
-        + _nav_link("conversations", _ICON_CONVERSATIONS, "Conversations", "conversations")
-        + _nav_link("terminal", _ICON_TERMINAL, "Terminal", "terminal")
-        + _nav_link("agents-page", _ICON_AGENTS, "Agents", "agents")
-        + "</div>"
-    )
+    nav = ""
+    if show_nav:
+        nav = (
+            _nav_link("conversations", _ICON_CONVERSATIONS, "Conversations", "conversations")
+            + _nav_link("terminal", _ICON_TERMINAL, "Terminal", "terminal")
+            + _nav_link("agents-page", _ICON_AGENTS, "Agents", "agents")
+        )
+
+    return '<div class="header">' + left + '<div class="header-spacer"></div>' + extra_right + nav + "</div>"
 
 
 def _render_iframe_page(agent_name: str, title: str, iframe_src: str, active: str = "") -> str:
@@ -877,18 +936,21 @@ def _render_web_chat_page(agent_name: str, conversation_id: str) -> str:
 {_CHAT_CSS}
 </style>
 </head>
-<body class="chat-layout">
-  {_render_header(agent_name, active="conversations", extra_right=audio_btn, left_content=conv_dropdown)}
-  <div class="chat-messages" id="messages"></div>
-  <div id="streaming-indicator" class="streaming-indicator" style="display:none;">Thinking...</div>
-  <div class="chat-input-area">
-    <div class="chat-input-container">
-      <textarea id="chat-input" placeholder="Type a message..." rows="3"></textarea>
-      <button id="send-btn" class="icon-btn send-btn" onclick="sendMessage()" title="Send message">
-        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
-          <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405z"/>
-        </svg>
-      </button>
+<body class="app-layout">
+  {_render_sidebar(active="conversations")}
+  <div class="app-main chat-layout">
+    {_render_header(agent_name, extra_right=audio_btn, left_content=conv_dropdown, show_nav=False)}
+    <div class="chat-messages" id="messages"></div>
+    <div id="streaming-indicator" class="streaming-indicator" style="display:none;">Thinking...</div>
+    <div class="chat-input-area">
+      <div class="chat-input-container">
+        <textarea id="chat-input" placeholder="Type a message..." rows="3"></textarea>
+        <button id="send-btn" class="icon-btn send-btn" onclick="sendMessage()" title="Send message">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405z"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
 <script>
