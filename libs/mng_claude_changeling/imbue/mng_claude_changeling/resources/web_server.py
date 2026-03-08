@@ -1243,6 +1243,62 @@ function sendMessage() {{
   var currentBubble = null;
   var fullText = "";
 
+  // Event queue: stream reads eagerly into this, consumer drains with pauses at separators
+  var eventQueue = [];
+  var streamDone = false;
+  var queueProcessing = false;
+
+  function processQueue() {{
+    if (queueProcessing) return;
+    queueProcessing = true;
+    drainQueue();
+  }}
+
+  function drainQueue() {{
+    while (eventQueue.length > 0) {{
+      var evt = eventQueue.shift();
+
+      if (evt.type === "separator") {{
+        // Speak text so far, start new bubble, then pause before continuing
+        if (fullText.trim() && audioEnabled) {{
+          speakText(fullText);
+        }}
+        fullText = "";
+        currentBubble = null;
+        setTimeout(drainQueue, 5000);
+        return;
+      }}
+
+      if (evt.type === "chunk") {{
+        if (!currentBubble) {{
+          currentBubble = appendMessage("assistant", "");
+          var ind = document.getElementById("streaming-indicator");
+          if (ind) document.getElementById("messages").appendChild(ind);
+        }}
+        fullText += evt.chunk;
+        currentBubble.innerHTML = renderMarkdown(fullText);
+        scrollToBottom();
+      }} else if (evt.type === "done") {{
+        if (evt.conversation_id && evt.conversation_id !== conversationId) {{
+          conversationId = evt.conversation_id;
+          history.replaceState(null, "", "chat?cid=" + encodeURIComponent(conversationId));
+        }}
+      }} else if (evt.type === "error") {{
+        if (!currentBubble) {{
+          currentBubble = appendMessage("assistant", "");
+        }}
+        currentBubble.innerHTML = escapeHtml("Error: " + (evt.error || "Unknown error"));
+        currentBubble.style.color = "#c00";
+      }}
+    }}
+
+    // Queue empty -- if stream is done, finish up
+    queueProcessing = false;
+    if (streamDone) {{
+      finishStreaming();
+    }}
+  }}
+
   fetch("api/chat/send", {{
     method: "POST",
     headers: {{"Content-Type": "application/json"}},
@@ -1254,7 +1310,8 @@ function sendMessage() {{
 
     function processChunk(result) {{
       if (result.done) {{
-        finishStreaming();
+        streamDone = true;
+        processQueue();
         return;
       }}
       buffer += decoder.decode(result.value, {{stream: true}});
@@ -1265,33 +1322,19 @@ function sendMessage() {{
         var line = lines[i];
         if (line.startsWith("event: ")) {{
           var eventType = line.substring(7).trim();
-          // next line should be data:
           i++;
           if (i < lines.length && lines[i].startsWith("data: ")) {{
             var dataStr = lines[i].substring(6);
             try {{
               var data = JSON.parse(dataStr);
-              if (eventType === "chunk") {{
-                if (!currentBubble) {{
-                  currentBubble = appendMessage("assistant", "");
-                  // Re-append indicator so it stays below the streaming bubble
-                  var ind = document.getElementById("streaming-indicator");
-                  if (ind) document.getElementById("messages").appendChild(ind);
-                }}
-                fullText += data.chunk;
-                currentBubble.innerHTML = renderMarkdown(fullText);
-                scrollToBottom();
+              if (eventType === "chunk" && data.chunk && data.chunk.indexOf("#!SPEECH_SEPARATOR") !== -1) {{
+                eventQueue.push({{type: "separator"}});
+              }} else if (eventType === "chunk") {{
+                eventQueue.push({{type: "chunk", chunk: data.chunk}});
               }} else if (eventType === "done") {{
-                if (data.conversation_id && data.conversation_id !== conversationId) {{
-                  conversationId = data.conversation_id;
-                  history.replaceState(null, "", "chat?cid=" + encodeURIComponent(conversationId));
-                }}
+                eventQueue.push({{type: "done", conversation_id: data.conversation_id, full_text: data.full_text}});
               }} else if (eventType === "error") {{
-                if (!currentBubble) {{
-                  currentBubble = appendMessage("assistant", "");
-                }}
-                currentBubble.innerHTML = escapeHtml("Error: " + (data.error || "Unknown error"));
-                currentBubble.style.color = "#c00";
+                eventQueue.push({{type: "error", error: data.error}});
               }}
             }} catch(e) {{
               console.error("Failed to parse SSE data:", e);
@@ -1299,6 +1342,7 @@ function sendMessage() {{
           }}
         }}
       }}
+      processQueue();
       return reader.read().then(processChunk);
     }}
 
@@ -1477,7 +1521,7 @@ async function startAudio() {{
           output_modalities: ["audio"],
           temperature: 0.7,
           audio: {{
-            output: {{ model: "inworld-tts-1.5-mini", voice: "Selene", speed: 1.4 }}
+            output: {{ model: "inworld-tts-1.5-max", voice: "Selene", speed: 1.4 }}
           }}
         }}
       }};

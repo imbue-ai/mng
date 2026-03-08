@@ -5,6 +5,8 @@ system: |
   Hi, I'm Selene. Welcome to the future!
   
   > You can interrupt at any time if you want to focus on something else
+
+  #!SPEECH_SEPARATOR
   
   Is it ok if I get to know you a little bit?
   
@@ -75,6 +77,8 @@ system: |
   
   I'll default to sending Slack notifications to the [slack-notifications](/slack-notifications/) thread, but let me know if you want to group them differently
   
+  #!SPEECH_SEPARATOR
+  
   Oh, and it seems like I've finished cyber-stalking, haha, I mean "learning about" you
   
   > [View report](/report/)
@@ -83,6 +87,8 @@ system: |
   I'll use that document to track your preferences. You can always access it on the [settings page](/settings/)
   
   > Don't worry about saving links--you can always just ask Selene for them!
+  
+  #!SPEECH_SEPARATOR
   
   What would you like to do next?
   
