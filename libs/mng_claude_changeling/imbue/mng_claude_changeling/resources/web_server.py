@@ -1252,6 +1252,7 @@ function sendMessage() {{
 
   var currentBubble = null;
   var fullText = "";
+  var separatorCount = 0;
 
   // Event queue: stream reads eagerly into this, consumer drains with pauses at separators
   var eventQueue = [];
@@ -1282,7 +1283,9 @@ function sendMessage() {{
         var ind = document.getElementById("streaming-indicator");
         if (ind) document.getElementById("messages").appendChild(ind);
         scrollToBottom();
-        setTimeout(drainQueue, 10000);
+        separatorCount++;
+        var delay = separatorCount >= 2 ? 15000 : 10000;
+        setTimeout(drainQueue, delay);
         return;
       }}
 
