@@ -1278,8 +1278,11 @@ function sendMessage() {{
         var divider = document.createElement("div");
         divider.className = "message-divider";
         document.getElementById("messages").appendChild(divider);
+        // Re-append indicator after the divider so it shows below it
+        var ind = document.getElementById("streaming-indicator");
+        if (ind) document.getElementById("messages").appendChild(ind);
         scrollToBottom();
-        setTimeout(drainQueue, 5000);
+        setTimeout(drainQueue, 10000);
         return;
       }}
 
