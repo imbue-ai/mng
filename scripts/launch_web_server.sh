@@ -55,7 +55,16 @@ stop_server() {
     fi
 }
 
+install_demo_template() {
+    local templates_dir="$LLM_DATA_DIR/templates"
+    mkdir -p "$templates_dir"
+    cp "$REPO_ROOT/libs/mng_claude_changeling/imbue/mng_claude_changeling/resources/demo_template.yaml" \
+       "$templates_dir/demo.yaml"
+    echo "[launch] Installed demo template -> $templates_dir/demo.yaml"
+}
+
 start_server() {
+    install_demo_template
     uv run python -m imbue.mng_claude_changeling.resources.web_server < /dev/null &
     SERVER_PID=$!
     echo "[launch] Server started (PID $SERVER_PID)"

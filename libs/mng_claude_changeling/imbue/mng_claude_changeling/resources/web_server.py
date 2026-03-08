@@ -805,12 +805,15 @@ def _find_conversation_id_after_rowid(after_rowid: int) -> str | None:
         return None
 
 
-def _handle_chat_send(conversation_id: str, message: str, wfile: Any) -> None:
+def _handle_chat_send(conversation_id: str, message: str, wfile: Any, is_demo: bool = False) -> None:
     """Send a message to the LLM and stream the response via SSE.
 
     Runs ``llm prompt`` via ConcurrencyGroup with an on_output callback that
     sends each stdout line as an SSE "chunk" event. Line-buffered: chunks are
     sent per-line as the LLM produces newlines in its output.
+
+    When is_demo is True, uses the ``demo`` llm template instead of the
+    normal system prompt.
     """
     from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
@@ -829,9 +832,12 @@ def _handle_chat_send(conversation_id: str, message: str, wfile: Any) -> None:
     if not is_new_conversation:
         cmd.extend(["--cid", conversation_id])
 
-    system_prompt = _get_system_prompt()
-    if system_prompt:
-        cmd.extend(["-s", system_prompt])
+    if is_demo:
+        cmd.extend(["-t", "demo"])
+    else:
+        system_prompt = _get_system_prompt()
+        if system_prompt:
+            cmd.extend(["-s", system_prompt])
 
     cmd.append(message)
 
@@ -1178,7 +1184,7 @@ function sendMessage() {{
   fetch("api/chat/send", {{
     method: "POST",
     headers: {{"Content-Type": "application/json"}},
-    body: JSON.stringify({{conversation_id: conversationId, message: message}})
+    body: JSON.stringify({{conversation_id: conversationId, message: message, demo: isDemoMode}})
   }}).then(function(response) {{
     var reader = response.body.getReader();
     var decoder = new TextDecoder();
@@ -1628,7 +1634,8 @@ class _WebServerHandler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
 
-            _handle_chat_send(conversation_id, message, self.wfile)
+            is_demo = data.get("demo", False)
+            _handle_chat_send(conversation_id, message, self.wfile, is_demo=is_demo)
             self.close_connection = True
         else:
             self.send_error(404)
