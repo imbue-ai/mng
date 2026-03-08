@@ -1261,8 +1261,31 @@ textarea.addEventListener("keydown", function(e) {{
   }}
 }});
 
-// Load history on page load
-if (conversationId && conversationId !== "NEW") {{
+// Demo mode: wait for audio before loading history
+var isDemoMode = new URLSearchParams(window.location.search).get("demo") === "true";
+
+function loadHistoryAndSpeak() {{
+  fetch("api/chat/history?cid=" + encodeURIComponent(conversationId))
+    .then(function(r) {{ return r.json(); }})
+    .then(function(data) {{
+      if (data.messages) {{
+        var spokenText = [];
+        for (var i = 0; i < data.messages.length; i++) {{
+          appendMessage(data.messages[i].role, data.messages[i].content);
+          if (data.messages[i].role === "assistant") {{
+            spokenText.push(data.messages[i].content);
+          }}
+        }}
+        if (spokenText.length > 0) {{
+          speakText(spokenText.join("\\n"));
+        }}
+      }}
+    }})
+    .catch(function(e) {{ console.error("Failed to load history:", e); }});
+}}
+
+// Load history on page load (unless demo mode, which waits for audio)
+if (conversationId && conversationId !== "NEW" && !isDemoMode) {{
   loadHistory();
 }}
 
@@ -1373,6 +1396,10 @@ async function startAudio() {{
       btn.disabled = false;
       btn.classList.add("active");
       console.log("[audio] Audio enabled, waiting for speakText calls");
+      if (isDemoMode && conversationId && conversationId !== "NEW") {{
+        console.log("[audio] Demo mode: loading history now that audio is ready");
+        loadHistoryAndSpeak();
+      }}
     }};
     audioDc.onclose = function() {{
       console.log("[audio] Data channel closed");
