@@ -668,15 +668,14 @@ def _read_message_history(conversation_id: str) -> list[dict[str, str]]:
 
 _NEW_CONVERSATION_GREETING: Final[str] = (
     "Hi, I'm Selene! Welcome to the future.\n"
-    "```\n"
-    "You can interrupt at any time if you want to focus on something else\n"
-    "```\n"
+    "\n"
+    "> You can interrupt at any time if you want to focus on something else\n"
+    "\n"
     "Is it ok if I get to know you a little bit?\n"
-    "```\n"
-    "This simply generates a document for you to review (to save you time)\n"
-    "Zero risk: *none* of your data *ever* leaves your device\n"
-    "Learn more here\n"
-    "```"
+    "\n"
+    "> This simply generates a document for you to review (to save you time)\n"
+    "> **Zero risk**: *none* of your data *ever* leaves your device\n"
+    "> [Learn more](https://imbue.com/help/)"
 )
 
 
@@ -944,6 +943,12 @@ _CHAT_CSS: Final[str] = """
     .message.assistant .message-bubble {
       background: transparent; color: rgb(51, 51, 51); border-bottom-left-radius: 4px;
     }
+    .message-bubble blockquote {
+      border-left: 3px solid rgb(200, 200, 200); padding: 4px 0 4px 12px;
+      margin: 6px 0; color: rgb(100, 100, 100);
+    }
+    .message-bubble a { color: inherit; text-decoration: underline; }
+    .message-bubble a:hover { opacity: 0.7; }
     .chat-input-area {
       background: inherit; padding: 8px 16px 12px;
     }
@@ -1080,13 +1085,52 @@ function scrollToBottom() {{
   el.scrollTop = el.scrollHeight;
 }}
 
+function escapeHtml(text) {{
+  var d = document.createElement("div");
+  d.textContent = text;
+  return d.innerHTML;
+}}
+
+function renderMarkdown(text) {{
+  // Split into lines, group consecutive "> " lines into blockquotes
+  var lines = text.split("\\n");
+  var parts = [];
+  var quoteLines = [];
+  function flushQuote() {{
+    if (quoteLines.length > 0) {{
+      parts.push("<blockquote>" + quoteLines.join("<br>") + "</blockquote>");
+      quoteLines = [];
+    }}
+  }}
+  for (var i = 0; i < lines.length; i++) {{
+    if (lines[i].substring(0, 2) === "> ") {{
+      quoteLines.push(inlineMarkdown(escapeHtml(lines[i].substring(2))));
+    }} else {{
+      flushQuote();
+      parts.push(inlineMarkdown(escapeHtml(lines[i])));
+    }}
+  }}
+  flushQuote();
+  return parts.join("<br>");
+}}
+
+function inlineMarkdown(html) {{
+  // Links: [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Bold: **text**
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  // Italic: *text*
+  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  return html;
+}}
+
 function appendMessage(role, content) {{
   var messages = document.getElementById("messages");
   var div = document.createElement("div");
   div.className = "message " + role;
   var bubble = document.createElement("div");
   bubble.className = "message-bubble";
-  bubble.textContent = content;
+  bubble.innerHTML = renderMarkdown(content);
   div.appendChild(bubble);
   messages.appendChild(div);
   scrollToBottom();
@@ -1162,7 +1206,7 @@ function sendMessage() {{
                   if (ind) document.getElementById("messages").appendChild(ind);
                 }}
                 fullText += data.chunk;
-                currentBubble.textContent = fullText;
+                currentBubble.innerHTML = renderMarkdown(fullText);
                 scrollToBottom();
               }} else if (eventType === "done") {{
                 if (data.conversation_id && data.conversation_id !== conversationId) {{
@@ -1173,7 +1217,7 @@ function sendMessage() {{
                 if (!currentBubble) {{
                   currentBubble = appendMessage("assistant", "");
                 }}
-                currentBubble.textContent = "Error: " + (data.error || "Unknown error");
+                currentBubble.innerHTML = escapeHtml("Error: " + (data.error || "Unknown error"));
                 currentBubble.style.color = "#c00";
               }}
             }} catch(e) {{
