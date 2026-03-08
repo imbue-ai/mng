@@ -675,9 +675,7 @@ _NEW_CONVERSATION_GREETING: Final[str] = (
     "\n"
     "> This simply generates a document for you to review (to save you time)\n"
     "> \n"
-    "> **Zero risk**: *none* of your data *ever* leaves your device\n"
-    "> \n"
-    "> [Learn more](https://imbue.com/help/)"
+    "> None of your data ever leaves your device. [Learn more](https://imbue.com/help/) about why Imbue is the best option for privacy and security\n"
 )
 
 
@@ -927,16 +925,16 @@ def _handle_chat_send(conversation_id: str, message: str, wfile: Any) -> None:
 
 
 _CHAT_CSS: Final[str] = """
-    .chat-layout { display: flex; flex-direction: column; height: 100%; }
+    .chat-layout { display: flex; flex-direction: column; height: 100%; font-family: 'Nunito', sans-serif; }
     .chat-messages {
-      flex: 1; overflow-y: auto; padding: 16px; max-width: 800px;
+      flex: 1; overflow-y: auto; max-width: 800px;
       margin: 0 auto; width: 100%;
     }
     .message { margin-bottom: 16px; display: flex; flex-direction: column; }
     .message.user { align-items: flex-end; }
     .message.assistant { align-items: flex-start; }
     .message-bubble {
-      max-width: 80%; padding: 10px 14px; border-radius: 12px;
+      padding: 10px 14px; border-radius: 12px;
       font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;
     }
     .message.user .message-bubble {
@@ -944,11 +942,12 @@ _CHAT_CSS: Final[str] = """
     }
     .message.assistant .message-bubble {
       background: transparent; color: rgb(51, 51, 51); border-bottom-left-radius: 4px;
+      font-family: 'Crimson Text', serif; font-size: 16px;
     }
     .message-bubble blockquote {
       background: rgb(235, 235, 235); border-radius: 10px; border: none;
       padding: 10px 14px; margin: 8px 0; color: rgb(100, 100, 100);
-      font-size: 12px; font-family: system-ui, -apple-system, sans-serif;
+      font-family: 'Crimson Text', serif; font-size: 13px;
     }
     .message-bubble a { color: inherit; text-decoration: underline; }
     .message-bubble a:hover { opacity: 0.7; }
@@ -1006,6 +1005,9 @@ def _render_web_chat_page(agent_name: str, conversation_id: str) -> str:
 <html>
 <head>
 <title>Chat - {escaped_agent}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 {_CSS}
 {_CHAT_CSS}
@@ -1577,6 +1579,12 @@ class _WebServerHandler(BaseHTTPRequestHandler):
             self._send_html(_render_iframe_page(agent_name, "Terminal", "../agent/", active="terminal"))
         elif path == "/agents-page":
             self._send_html(_render_agents_page())
+        elif path == "/fonts":
+            try:
+                font_html = Path("font_preview.html").read_text()
+                self._send_html(font_html)
+            except OSError:
+                self.send_error(404, "font_preview.html not found in working directory")
         elif path == "/api/chat/history":
             conversation_id = (query.get("cid") or [""])[0]
             if not conversation_id:
