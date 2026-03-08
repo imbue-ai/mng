@@ -368,12 +368,16 @@ _CSS: Final[str] = """
     }
     .app-layout { display: flex; height: 100%; }
     .sidebar {
-      width: 48px; display: flex; flex-direction: column; align-items: center;
-      padding: 8px 0; gap: 4px; background: inherit; flex-shrink: 0;
+      width: 48px; display: flex; flex-direction: column;
+      padding: 8px 6px; gap: 4px; background: inherit; flex-shrink: 0;
       border-right: 1px solid rgb(230, 230, 230); transition: width 0.15s ease;
       overflow: hidden;
     }
-    .sidebar.expanded { width: 200px; align-items: flex-start; padding: 8px; }
+    .sidebar.expanded { width: 220px; padding: 8px 10px; }
+    .sidebar-top {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+      width: 100%; flex-shrink: 0;
+    }
     .sidebar-toggle {
       width: 36px; height: 36px; padding: 0; background: none; color: rgb(130, 130, 130);
       border: none; border-radius: 8px; cursor: pointer;
@@ -381,18 +385,22 @@ _CSS: Final[str] = """
     }
     .sidebar-toggle:hover { background: rgb(230, 230, 230); color: rgb(51, 51, 51); }
     .sidebar-toggle svg { width: 20px; height: 20px; }
+    .sidebar-agent-name {
+      display: none; font-size: 15px; font-weight: 600; color: rgb(51, 51, 51);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sidebar.expanded .sidebar-agent-name { display: block; }
     .sidebar-link {
       width: 36px; height: 36px; padding: 0; color: rgb(130, 130, 130);
       text-decoration: none; border-radius: 8px;
-      display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-      white-space: nowrap; overflow: hidden;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      white-space: nowrap; overflow: hidden; font-family: inherit; font-size: 14px;
     }
     .sidebar-link:hover { background: rgb(230, 230, 230); color: rgb(51, 51, 51); }
     .sidebar-link.active { color: rgb(51, 51, 51); }
     .sidebar-link svg { width: 20px; height: 20px; flex-shrink: 0; }
     .sidebar.expanded .sidebar-link {
-      width: 100%; padding: 0 10px; gap: 10px; font-size: 13px;
-      font-family: inherit;
+      width: 100%; justify-content: flex-start; padding: 0 8px; gap: 10px;
     }
     .sidebar-link-label { display: none; }
     .sidebar.expanded .sidebar-link-label { display: inline; }
@@ -433,13 +441,17 @@ def _sidebar_link(href: str, icon: str, label: str, key: str, active: str) -> st
     return f'<a class="{cls}" href="{href}" title="{label}">{icon}<span class="sidebar-link-label">{label}</span></a>'
 
 
-def _render_sidebar(active: str = "") -> str:
-    """Render a collapsible icon sidebar."""
+def _render_sidebar(active: str = "", agent_name: str = "") -> str:
+    """Render a collapsible icon sidebar with agent name in the top row."""
+    escaped_name = _html_escape(agent_name) if agent_name else ""
     return (
         '<nav class="sidebar" id="sidebar">'
+        '<div class="sidebar-top">'
         f'<button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar"'
         f" onclick=\"document.getElementById('sidebar').classList.toggle('expanded')\">"
         f"{_ICON_SIDEBAR}</button>"
+        f'<span class="sidebar-agent-name">{escaped_name}</span>'
+        "</div>"
         + _sidebar_link("conversations", _ICON_CONVERSATIONS, "Conversations", "conversations", active)
         + _sidebar_link("terminal", _ICON_TERMINAL, "Terminal", "terminal", active)
         + _sidebar_link("agents-page", _ICON_AGENTS, "Agents", "agents", active)
@@ -879,7 +891,6 @@ _CHAT_CSS: Final[str] = """
     .message.assistant .message-bubble {
       background: transparent; color: rgb(51, 51, 51); border-bottom-left-radius: 4px;
     }
-    .message-label { font-size: 11px; color: rgb(153, 153, 153); margin-bottom: 2px; padding: 0 4px; }
     .chat-input-area {
       background: inherit; padding: 8px 16px 12px;
     }
@@ -892,7 +903,10 @@ _CHAT_CSS: Final[str] = """
       outline: none; min-height: 72px; max-height: 160px; line-height: 1.4; background: white;
     }
     .chat-input-container textarea:focus { border-color: rgb(160, 160, 160); }
-    .chat-input-container .send-btn {
+    .chat-input-container .input-btn-left {
+      position: absolute; left: 8px; bottom: 8px;
+    }
+    .chat-input-container .input-btn-right {
       position: absolute; right: 8px; bottom: 8px;
     }
     .streaming-indicator { font-size: 12px; color: rgb(153, 153, 153); padding: 4px 0; text-align: center; }
@@ -937,17 +951,24 @@ def _render_web_chat_page(agent_name: str, conversation_id: str) -> str:
 </style>
 </head>
 <body class="app-layout">
-  {_render_sidebar(active="conversations")}
+  {_render_sidebar(active="conversations", agent_name=agent_name)}
   <div class="app-main chat-layout">
     {_render_header(agent_name, extra_right=audio_btn, left_content=conv_dropdown, show_nav=False)}
     <div class="chat-messages" id="messages"></div>
     <div id="streaming-indicator" class="streaming-indicator" style="display:none;">Thinking...</div>
     <div class="chat-input-area">
       <div class="chat-input-container">
-        <textarea id="chat-input" placeholder="Type a message..." rows="3"></textarea>
-        <button id="send-btn" class="icon-btn send-btn" onclick="sendMessage()" title="Send message">
-          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405z"/>
+        <button class="icon-btn input-btn-left" onclick="alert('Coming soon!')" title="Attach">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+        <textarea id="chat-input" placeholder="Reply..." rows="3"></textarea>
+        <button class="icon-btn input-btn-right" onclick="alert('Coming soon!')" title="Voice input">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
           </svg>
         </button>
       </div>
@@ -1011,13 +1032,9 @@ function appendMessage(role, content) {{
   var messages = document.getElementById("messages");
   var div = document.createElement("div");
   div.className = "message " + role;
-  var label = document.createElement("div");
-  label.className = "message-label";
-  label.textContent = role === "user" ? "You" : "Assistant";
   var bubble = document.createElement("div");
   bubble.className = "message-bubble";
   bubble.textContent = content;
-  div.appendChild(label);
   div.appendChild(bubble);
   messages.appendChild(div);
   scrollToBottom();
@@ -1047,7 +1064,6 @@ function sendMessage() {{
   input.style.height = "auto";
 
   isStreaming = true;
-  document.getElementById("send-btn").disabled = true;
   document.getElementById("streaming-indicator").style.display = "block";
 
   var currentBubble = null;
@@ -1121,7 +1137,6 @@ function sendMessage() {{
       speakText(fullText);
     }}
     isStreaming = false;
-    document.getElementById("send-btn").disabled = false;
     document.getElementById("streaming-indicator").style.display = "none";
   }}
 }}
