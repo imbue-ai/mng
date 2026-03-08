@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Inworld TTS Streaming Test</title>
+<style>
+  body { font-family: 'Nunito', system-ui, sans-serif; background: rgb(245,245,245); padding: 24px; max-width: 700px; margin: 0 auto; }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: rgb(100,100,100); margin-bottom: 4px; }
+  input, select, textarea { font-family: inherit; font-size: 14px; padding: 8px 12px; border: 1px solid rgb(215,215,215); border-radius: 8px; width: 100%; margin-bottom: 12px; }
+  textarea { min-height: 80px; resize: vertical; }
+  button { font-family: inherit; font-size: 14px; padding: 10px 20px; background: rgb(51,51,51); color: white; border: none; border-radius: 8px; cursor: pointer; }
+  button:hover { background: rgb(80,80,80); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #log { background: rgb(235,235,235); border-radius: 10px; padding: 12px 16px; margin-top: 16px; font-size: 12px; font-family: monospace; white-space: pre-wrap; max-height: 400px; overflow-y: auto; color: rgb(80,80,80); }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+</style>
+</head>
+<body>
+<h1>Inworld TTS Streaming Test</h1>
+
+<label>API Key</label>
+<input type="password" id="api-key" placeholder="Your INWORLD_API_KEY">
+
+<div class="row">
+  <div>
+    <label>Voice ID</label>
+    <input type="text" id="voice-id" value="Selene">
+  </div>
+  <div>
+    <label>Model ID</label>
+    <input type="text" id="model-id" value="inworld-tts-1.5-mini">
+  </div>
+</div>
+
+<div class="row">
+  <div>
+    <label>Speed</label>
+    <input type="number" id="speed" value="1.4" step="0.1" min="0.5" max="3.0">
+  </div>
+  <div>
+    <label>Temperature</label>
+    <input type="number" id="temperature" value="0.7" step="0.1" min="0.0" max="2.0">
+  </div>
+</div>
+
+<label>Lines to speak (one per line, each spoken separately)</label>
+<textarea id="text-input">Hi, I'm Selene. Welcome to the future!
+Is it ok if I get to know you a little bit?
+Great! While I'm working on that, maybe you could tell me what you want me to work on?</textarea>
+
+<button id="speak-btn" onclick="speakLines()">Speak</button>
+<button id="stop-btn" onclick="stopSpeaking()" disabled>Stop</button>
+
+<div id="log"></div>
+
+<script>
+var speaking = false;
+var abortController = null;
+
+function log(msg) {
+  var el = document.getElementById("log");
+  el.textContent += msg + "\n";
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById("log").textContent = "";
+}
+
+async function speakLines() {
+  var apiKey = document.getElementById("api-key").value.trim();
+  if (!apiKey) { alert("Please enter an API key"); return; }
+
+  var lines = document.getElementById("text-input").value.split("\n").filter(function(l) { return l.trim(); });
+  if (lines.length === 0) { alert("Please enter some text"); return; }
+
+  var voiceId = document.getElementById("voice-id").value.trim();
+  var modelId = document.getElementById("model-id").value.trim();
+  var speed = parseFloat(document.getElementById("speed").value) || 1.0;
+  var temperature = parseFloat(document.getElementById("temperature").value) || 0.7;
+
+  clearLog();
+  speaking = true;
+  document.getElementById("speak-btn").disabled = true;
+  document.getElementById("stop-btn").disabled = false;
+
+  for (var i = 0; i < lines.length; i++) {
+    if (!speaking) break;
+    log("--- Line " + (i + 1) + "/" + lines.length + " ---");
+    await speakOneLine(lines[i], voiceId, modelId, apiKey, speed, temperature);
+  }
+
+  speaking = false;
+  document.getElementById("speak-btn").disabled = false;
+  document.getElementById("stop-btn").disabled = true;
+  log("\nDone.");
+}
+
+function stopSpeaking() {
+  speaking = false;
+  if (abortController) abortController.abort();
+  document.getElementById("speak-btn").disabled = false;
+  document.getElementById("stop-btn").disabled = true;
+  log("Stopped.");
+}
+
+async function speakOneLine(text, voiceId, modelId, apiKey, speed, temperature) {
+  var url = "https://api.inworld.ai/tts/v1/voice:stream";
+
+  var requestData = {
+    text: text,
+    voice_id: voiceId,
+    model_id: modelId,
+    temperature: temperature,
+    audio_config: {
+      audio_encoding: "MP3",
+      speaking_rate: speed,
+      sample_rate_hertz: 24000,
+      bit_rate: 32000
+    }
+  };
+
+  log("Text: " + text);
+  log("Request: voice=" + voiceId + " model=" + modelId + " speed=" + speed + " temp=" + temperature);
+
+  abortController = new AbortController();
+  var startTime = Date.now();
+
+  try {
+    var response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Basic " + apiKey
+      },
+      body: JSON.stringify(requestData),
+      signal: abortController.signal
+    });
+
+    if (!response.ok) {
+      var errText = await response.text();
+      log("ERROR: HTTP " + response.status + ": " + errText);
+      return;
+    }
+
+    // Collect all audio chunks, then play them concatenated
+    var audioChunks = [];
+    var reader = response.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = "";
+    var chunkCount = 0;
+    var totalBytes = 0;
+
+    while (true) {
+      var result = await reader.read();
+      if (result.done) break;
+
+      buffer += decoder.decode(result.value, { stream: true });
+      var lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (var j = 0; j < lines.length; j++) {
+        var line = lines[j].trim();
+        if (!line) continue;
+        try {
+          var chunkData = JSON.parse(line);
+          if (chunkData.result && chunkData.result.audioContent) {
+            var b64 = chunkData.result.audioContent;
+            var raw = atob(b64);
+            var bytes = new Uint8Array(raw.length);
+            for (var k = 0; k < raw.length; k++) bytes[k] = raw.charCodeAt(k);
+            audioChunks.push(bytes);
+            chunkCount++;
+            totalBytes += bytes.length;
+
+            if (chunkCount === 1) {
+              log("Time to first chunk: " + ((Date.now() - startTime) / 1000).toFixed(2) + "s");
+            }
+          }
+        } catch (e) {
+          log("Parse error: " + e.message);
+        }
+      }
+    }
+
+    log("Received " + chunkCount + " chunks, " + totalBytes + " bytes total");
+
+    if (audioChunks.length === 0) {
+      log("No audio received.");
+      return;
+    }
+
+    // Concatenate all chunks into a single blob and play
+    var combined = new Uint8Array(totalBytes);
+    var offset = 0;
+    for (var c = 0; c < audioChunks.length; c++) {
+      combined.set(audioChunks[c], offset);
+      offset += audioChunks[c].length;
+    }
+
+    var blob = new Blob([combined], { type: "audio/mpeg" });
+    var audioUrl = URL.createObjectURL(blob);
+    var audio = new Audio(audioUrl);
+
+    log("Playing audio...");
+    await new Promise(function(resolve, reject) {
+      audio.onended = function() {
+        URL.revokeObjectURL(audioUrl);
+        log("Playback finished.");
+        resolve();
+      };
+      audio.onerror = function(e) {
+        log("Playback error: " + e.message);
+        URL.revokeObjectURL(audioUrl);
+        reject(e);
+      };
+      audio.play().catch(function(e) {
+        log("Play failed: " + e.message);
+        resolve();
+      });
+    });
+
+  } catch (e) {
+    if (e.name === "AbortError") {
+      log("Aborted.");
+    } else {
+      log("Error: " + e.message);
+    }
+  }
+}
+</script>
+</body>
+</html>

@@ -42,8 +42,6 @@ import sys
 import threading
 import time
 import tomllib
-import urllib.error
-import urllib.request
 from datetime import datetime
 from datetime import timezone
 from http.server import BaseHTTPRequestHandler
@@ -110,37 +108,17 @@ def _log(message: str) -> None:
 
 
 def _get_inworld_config() -> dict[str, Any]:
-    """Return Inworld configuration for browser WebRTC audio.
+    """Return Inworld configuration for browser HTTP streaming TTS.
 
-    Fetches ICE servers from Inworld's API and returns the full config
-    needed by the browser to establish a WebRTC connection for TTS.
-    Returns an empty config (no api_key) if INWORLD_API_KEY is not set.
+    Returns the API key needed by the browser to call the Inworld TTS
+    streaming endpoint directly. Returns an empty api_key if
+    INWORLD_API_KEY is not set.
 
-    Security: the API key is returned to the browser so it can establish
-    a direct WebRTC connection to Inworld. This server is intended to run
-    on localhost or within a restricted network (behind the mng forwarding
-    proxy with its own access controls), not exposed to the public internet.
+    Security: the API key is returned to the browser. This server is
+    intended to run on localhost or within a restricted network, not
+    exposed to the public internet.
     """
-    if not INWORLD_API_KEY:
-        return {"api_key": "", "ice_servers": [], "url": ""}
-
-    ice_servers: list[dict[str, Any]] = []
-    try:
-        req = urllib.request.Request(
-            f"{INWORLD_PROXY}/v1/realtime/ice-servers",
-            headers={"Authorization": f"Bearer {INWORLD_API_KEY}"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-            ice_servers = data.get("ice_servers", [])
-    except (urllib.error.URLError, json.JSONDecodeError, OSError) as e:
-        _log(f"Failed to fetch ICE servers from Inworld: {e}")
-
-    return {
-        "api_key": INWORLD_API_KEY,
-        "ice_servers": ice_servers,
-        "url": f"{INWORLD_PROXY}/v1/realtime/calls",
-    }
+    return {"api_key": INWORLD_API_KEY}
 
 
 # -- Server registration --
@@ -1460,12 +1438,12 @@ if (!isDemoMode) {{
   startPolling();
 }}
 
-// -- Audio (Inworld WebRTC TTS) --
+// -- Audio (Inworld HTTP Streaming TTS) --
 var audioEnabled = false;
-var audioPc = null;
-var audioDc = null;
-var audioEl = null;
-var audioCtx = null;
+var audioApiKey = "";
+var audioPlayQueue = [];
+var audioPlaying = false;
+var audioCurrentEl = null;
 
 function toggleAudio() {{
   if (audioEnabled) {{
@@ -1480,214 +1458,145 @@ async function startAudio() {{
   btn.disabled = true;
   btn.title = "Connecting...";
   try {{
-    console.log("[audio] Fetching audio config...");
     var resp = await fetch("api/audio/config");
     var cfg = await resp.json();
-    console.log("[audio] Config received:", JSON.stringify({{
-      has_api_key: !!cfg.api_key,
-      ice_server_count: cfg.ice_servers ? cfg.ice_servers.length : 0,
-      url: cfg.url
-    }}));
     if (!cfg.api_key) {{
-      console.warn("[audio] No API key in config");
       btn.title = "No API key";
       setTimeout(function() {{ btn.title = "Toggle audio"; btn.disabled = false; }}, 2000);
       return;
     }}
-
-    // Pre-create audio element during user gesture to satisfy autoplay policy.
-    // Browsers allow play() if initiated from a click handler.
-    audioEl = document.createElement("audio");
-    audioEl.autoplay = true;
-    audioEl.className = "inworld-audio";
-    document.body.appendChild(audioEl);
-    console.log("[audio] Audio element pre-created during user gesture");
-
-    audioPc = new RTCPeerConnection({{ iceServers: cfg.ice_servers }});
-    console.log("[audio] RTCPeerConnection created");
-
-    // Log all connection state changes
-    audioPc.onconnectionstatechange = function() {{
-      console.log("[audio] Connection state:", audioPc.connectionState);
-    }};
-    audioPc.oniceconnectionstatechange = function() {{
-      console.log("[audio] ICE connection state:", audioPc.iceConnectionState);
-    }};
-    audioPc.onsignalingstatechange = function() {{
-      console.log("[audio] Signaling state:", audioPc.signalingState);
-    }};
-
-    audioDc = audioPc.createDataChannel("oai-events", {{ ordered: true }});
-    console.log("[audio] Data channel created");
-
-    // Create a silent audio track to send to Inworld. A recvonly transceiver
-    // negotiates correctly in SDP, but Inworld's media server won't send RTP
-    // audio packets unless it receives incoming audio first. Sending silence
-    // satisfies this requirement without needing microphone access.
-    audioCtx = new AudioContext();
-    var silentDest = audioCtx.createMediaStreamDestination();
-    var silentTrack = silentDest.stream.getAudioTracks()[0];
-    audioPc.addTrack(silentTrack, silentDest.stream);
-    console.log("[audio] Added silent audio send track (no microphone needed)");
-
-    audioPc.ontrack = function(e) {{
-      console.log("[audio] ontrack fired! kind:", e.track.kind, "readyState:", e.track.readyState, "muted:", e.track.muted, "enabled:", e.track.enabled);
-      console.log("[audio] Track settings:", JSON.stringify(e.track.getSettings()));
-      // Attach incoming audio track to pre-created element
-      audioEl.srcObject = new MediaStream([e.track]);
-      audioEl.play().then(function() {{
-        console.log("[audio] Audio element playing successfully");
-      }}).catch(function(err) {{
-        console.error("[audio] Audio element play() failed:", err);
-      }});
-      // Monitor track state
-      e.track.onmute = function() {{ console.log("[audio] Track muted"); }};
-      e.track.onunmute = function() {{ console.log("[audio] Track unmuted"); }};
-      e.track.onended = function() {{ console.log("[audio] Track ended"); }};
-    }};
-
-    audioDc.onopen = function() {{
-      console.log("[audio] Data channel opened, sending session.update");
-      var sessionConfig = {{
-        type: "session.update",
-        session: {{
-          type: "realtime",
-          model: "openai/gpt-4o-mini",
-          instructions: "Read the user message aloud exactly as written. Do not add or change anything.",
-          output_modalities: ["audio"],
-          temperature: 0.7,
-          audio: {{
-            output: {{ model: "inworld-tts-1.5-max", voice: "Selene", speed: 1.4 }}
-          }}
-        }}
-      }};
-      console.log("[audio] session.update payload:", JSON.stringify(sessionConfig));
-      audioDc.send(JSON.stringify(sessionConfig));
-      audioEnabled = true;
-      btn.title = "Audio on";
-      btn.disabled = false;
-      btn.classList.add("active");
-      console.log("[audio] Audio enabled, waiting for speakText calls");
-      if (isDemoMode) {{
-        console.log("[audio] Demo mode: starting polling now that audio is ready");
-        pollForNewMessages();
-        startPolling();
-      }}
-    }};
-    audioDc.onclose = function() {{
-      console.log("[audio] Data channel closed");
-      stopAudio();
-    }};
-    audioDc.onerror = function(e) {{
-      console.error("[audio] Data channel error:", e);
-      stopAudio();
-    }};
-    audioDc.onmessage = function(e) {{
-      try {{
-        var msg = JSON.parse(e.data);
-        console.log("[audio] DC message:", msg.type, msg);
-      }} catch(err) {{
-        console.log("[audio] DC raw message:", e.data);
-      }}
-    }};
-
-    console.log("[audio] Creating SDP offer...");
-    var offer = await audioPc.createOffer();
-    await audioPc.setLocalDescription(offer);
-    console.log("[audio] Local description set, gathering ICE candidates...");
-    console.log("[audio] ICE gathering state:", audioPc.iceGatheringState);
-
-    await new Promise(function(resolve) {{
-      if (audioPc.iceGatheringState === "complete") {{
-        console.log("[audio] ICE gathering already complete");
-        resolve();
-        return;
-      }}
-      var t;
-      var done = function() {{ clearTimeout(t); console.log("[audio] ICE gathering done"); resolve(); }};
-      audioPc.onicecandidate = function(e) {{
-        if (e.candidate) {{
-          console.log("[audio] ICE candidate:", e.candidate.candidate.substring(0, 80));
-          clearTimeout(t);
-          t = setTimeout(done, 500);
-        }} else {{
-          console.log("[audio] ICE candidate gathering complete (null candidate)");
-        }}
-      }};
-      audioPc.onicegatheringstatechange = function() {{
-        console.log("[audio] ICE gathering state changed:", audioPc.iceGatheringState);
-        if (audioPc.iceGatheringState === "complete") done();
-      }};
-      setTimeout(done, 3000);
-    }});
-
-    console.log("[audio] Sending SDP offer to Inworld...");
-    console.log("[audio] SDP offer media lines:", audioPc.localDescription.sdp.split("\\n").filter(function(l) {{ return l.startsWith("m="); }}));
-    var res = await fetch(cfg.url, {{
-      method: "POST",
-      headers: {{ "Content-Type": "application/sdp", "Authorization": "Bearer " + cfg.api_key }},
-      body: audioPc.localDescription.sdp
-    }});
-    console.log("[audio] SDP response status:", res.status);
-    if (!res.ok) {{
-      var errBody = await res.text();
-      console.error("[audio] SDP exchange failed:", res.status, errBody);
-      throw new Error("SDP exchange failed: " + res.status + " " + errBody);
+    audioApiKey = cfg.api_key;
+    // Unlock audio playback during this user gesture
+    var unlock = new Audio();
+    unlock.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+    unlock.play().catch(function() {{}});
+    audioEnabled = true;
+    btn.title = "Audio on";
+    btn.disabled = false;
+    btn.classList.add("active");
+    console.log("[audio] Audio enabled (HTTP TTS)");
+    if (isDemoMode) {{
+      console.log("[audio] Demo mode: starting polling now that audio is ready");
+      pollForNewMessages();
+      startPolling();
     }}
-    var answerSdp = await res.text();
-    console.log("[audio] SDP answer media lines:", answerSdp.split("\\n").filter(function(l) {{ return l.startsWith("m=") || l.startsWith("a=sendonly") || l.startsWith("a=recvonly") || l.startsWith("a=sendrecv"); }}));
-    await audioPc.setRemoteDescription({{ type: "answer", sdp: answerSdp }});
-    console.log("[audio] Remote description set, connection state:", audioPc.connectionState, "ICE state:", audioPc.iceConnectionState);
   }} catch(e) {{
     console.error("[audio] Audio start failed:", e);
-    stopAudio();
+    btn.title = "Toggle audio";
+    btn.disabled = false;
   }}
 }}
 
 function stopAudio() {{
-  console.log("[audio] stopAudio called");
-  if (audioPc) {{
-    console.log("[audio] Closing peer connection, state was:", audioPc.connectionState);
-    audioPc.close();
-  }}
-  if (audioCtx) {{ audioCtx.close().catch(function() {{}}); audioCtx = null; }}
-  if (audioEl) {{ audioEl.remove(); audioEl = null; }}
-  document.querySelectorAll(".inworld-audio").forEach(function(a) {{ a.remove(); }});
-  audioPc = null;
-  audioDc = null;
   audioEnabled = false;
+  audioApiKey = "";
+  if (audioCurrentEl) {{ audioCurrentEl.pause(); audioCurrentEl = null; }}
+  audioPlayQueue = [];
+  audioPlaying = false;
   var btn = document.getElementById("audio-btn");
   if (btn) {{ btn.title = "Toggle audio"; btn.disabled = false; btn.classList.remove("active"); }}
 }}
 
-function speakText(text) {{
-  // Strip blockquote lines and markdown syntax so TTS reads clean text
+async function fetchTTS(sentence) {{
+  var resp = await fetch("https://api.inworld.ai/tts/v1/voice:stream", {{
+    method: "POST",
+    headers: {{
+      "Content-Type": "application/json",
+      "Authorization": "Basic " + audioApiKey
+    }},
+    body: JSON.stringify({{
+      text: sentence,
+      voice_id: "Selene",
+      model_id: "inworld-tts-1.5-max",
+      temperature: 0.3,
+      audio_config: {{
+        audio_encoding: "MP3",
+        speaking_rate: 1.5,
+        sample_rate_hertz: 24000,
+        bit_rate: 32000
+      }}
+    }})
+  }});
+  if (!resp.ok) {{
+    console.error("[audio] TTS request failed:", resp.status);
+    return null;
+  }}
+  var body = await resp.text();
+  var lines = body.split("\\n");
+  var chunks = [];
+  for (var i = 0; i < lines.length; i++) {{
+    if (!lines[i].trim()) continue;
+    try {{
+      var parsed = JSON.parse(lines[i]);
+      if (parsed.result && parsed.result.audioContent) {{
+        var b64 = parsed.result.audioContent;
+        var raw = atob(b64);
+        var bytes = new Uint8Array(raw.length);
+        for (var j = 0; j < raw.length; j++) bytes[j] = raw.charCodeAt(j);
+        chunks.push(bytes);
+      }}
+    }} catch(e) {{}}
+  }}
+  if (chunks.length === 0) return null;
+  var totalLen = 0;
+  for (var c = 0; c < chunks.length; c++) totalLen += chunks[c].length;
+  var merged = new Uint8Array(totalLen);
+  var offset = 0;
+  for (var c = 0; c < chunks.length; c++) {{
+    merged.set(chunks[c], offset);
+    offset += chunks[c].length;
+  }}
+  return new Blob([merged], {{ type: "audio/mpeg" }});
+}}
+
+function playNextInQueue() {{
+  if (audioPlaying || audioPlayQueue.length === 0) return;
+  audioPlaying = true;
+  var blob = audioPlayQueue.shift();
+  var url = URL.createObjectURL(blob);
+  audioCurrentEl = new Audio(url);
+  audioCurrentEl.onended = function() {{
+    URL.revokeObjectURL(url);
+    audioCurrentEl = null;
+    audioPlaying = false;
+    playNextInQueue();
+  }};
+  audioCurrentEl.onerror = function() {{
+    URL.revokeObjectURL(url);
+    audioCurrentEl = null;
+    audioPlaying = false;
+    playNextInQueue();
+  }};
+  audioCurrentEl.play().catch(function(e) {{
+    console.error("[audio] Playback failed:", e);
+    audioPlaying = false;
+    playNextInQueue();
+  }});
+}}
+
+async function speakText(text) {{
+  // Strip blockquote lines, separators, and markdown syntax for clean TTS
   text = text.split("\\n").filter(function(l) {{ return !l.startsWith("> ") && l !== "#!SPEECH_SEPARATOR"; }}).join("\\n");
-  // Strip bold/italic markers and link syntax
   text = text.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1");
   text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-  console.log("[audio] speakText called, audioEnabled:", audioEnabled, "dc readyState:", audioDc ? audioDc.readyState : "null", "text length:", text.length);
-  if (!audioEnabled || !audioDc || audioDc.readyState !== "open" || !text.trim()) {{
-    console.log("[audio] speakText bailing out: enabled=" + audioEnabled + " dc=" + (audioDc ? audioDc.readyState : "null") + " textEmpty=" + !text.trim());
-    return;
-  }}
-  var createMsg = {{
-    type: "conversation.item.create",
-    item: {{ type: "message", role: "user", content: [{{ type: "input_text", text: text }}] }}
-  }};
-  console.log("[audio] Sending conversation.item.create, text preview:", text.substring(0, 100));
-  audioDc.send(JSON.stringify(createMsg));
-  console.log("[audio] Sending response.create");
-  audioDc.send(JSON.stringify({{ type: "response.create" }}));
-  console.log("[audio] speakText commands sent, waiting for audio...");
-  // Log PC state
-  if (audioPc) {{
-    console.log("[audio] PC state: connection=" + audioPc.connectionState + " ice=" + audioPc.iceConnectionState + " signaling=" + audioPc.signalingState);
-    var receivers = audioPc.getReceivers();
-    console.log("[audio] Receivers:", receivers.length);
-    receivers.forEach(function(r, i) {{
-      console.log("[audio] Receiver " + i + ": kind=" + r.track.kind + " readyState=" + r.track.readyState + " muted=" + r.track.muted + " enabled=" + r.track.enabled);
-    }});
+  if (!audioEnabled || !audioApiKey || !text.trim()) return;
+
+  // Split into sentences for parallel TTS requests
+  var sentences = text.split(/(?<=[.!?])\\s+|\\n+/).filter(function(s) {{ return s.trim().length > 0; }});
+  if (sentences.length === 0) return;
+
+  console.log("[audio] speakText: " + sentences.length + " sentence(s)");
+
+  // Fire all requests in parallel, wait for all to complete (order preserved by Promise.all)
+  var promises = sentences.map(function(s) {{ return fetchTTS(s); }});
+  try {{
+    var blobs = await Promise.all(promises);
+    for (var i = 0; i < blobs.length; i++) {{
+      if (blobs[i]) audioPlayQueue.push(blobs[i]);
+    }}
+    playNextInQueue();
+  }} catch(e) {{
+    console.error("[audio] TTS batch failed:", e);
   }}
 }}
 </script>
@@ -1757,6 +1666,12 @@ class _WebServerHandler(BaseHTTPRequestHandler):
                 self._send_html(font_html)
             except OSError:
                 self.send_error(404, "font_preview.html not found in working directory")
+        elif path == "/tts_test":
+            try:
+                tts_html = Path("tts_test.html").read_text()
+                self._send_html(tts_html)
+            except OSError:
+                self.send_error(404, "tts_test.html not found in working directory")
         elif path == "/demo_slack_auth":
             conversation_id = (query.get("cid") or [""])[0]
             _log(f"[demo_slack_auth] called with cid={conversation_id!r}, query={query}")
