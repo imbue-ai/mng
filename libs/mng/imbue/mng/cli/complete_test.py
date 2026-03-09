@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-import imbue.mng.cli.complete as complete_mod
 from imbue.mng.cli.complete import _filter_aliases
 from imbue.mng.cli.complete import _get_completions
 from imbue.mng.cli.complete import _read_agent_names
@@ -620,24 +619,44 @@ def test_get_completions_subcommand_flag_allows_positional(
 # =============================================================================
 
 
-def _fake_git_output(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
-
-
-def test_read_git_branches_returns_branches(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_read_git_branches should parse branch names from git for-each-ref output."""
-    monkeypatch.setattr(
-        subprocess, "run", lambda *_a, **_kw: _fake_git_output("main\ndevelop\nfeature/foo\norigin/main\n")
+def _init_git_repo(repo_dir: Path, branches: list[str]) -> None:
+    """Create a real git repo at repo_dir with an initial commit and the given branches."""
+    subprocess.run(["git", "init", str(repo_dir)], capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "init"],
+        capture_output=True,
+        check=True,
+        cwd=repo_dir,
     )
+    for branch in branches:
+        subprocess.run(
+            ["git", "branch", branch],
+            capture_output=True,
+            check=True,
+            cwd=repo_dir,
+        )
 
+
+@pytest.fixture
+def git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Create a git repo with known branches and chdir into it."""
+    repo = tmp_path / "repo"
+    _init_git_repo(repo, ["develop", "feature/foo"])
+    monkeypatch.chdir(repo)
+    return repo
+
+
+def test_read_git_branches_returns_branches(git_repo: Path) -> None:
+    """_read_git_branches should return branch names from a real git repo."""
     result = _read_git_branches()
 
-    assert result == ["main", "develop", "feature/foo", "origin/main"]
+    assert "develop" in result
+    assert "feature/foo" in result
 
 
-def test_read_git_branches_returns_empty_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_read_git_branches should return an empty list when git fails."""
-    monkeypatch.setattr(subprocess, "run", lambda *_a, **_kw: _fake_git_output("", returncode=128))
+def test_read_git_branches_returns_empty_outside_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_read_git_branches should return an empty list when not in a git repo."""
+    monkeypatch.chdir(tmp_path)
 
     result = _read_git_branches()
 
@@ -647,7 +666,7 @@ def test_read_git_branches_returns_empty_on_failure(monkeypatch: pytest.MonkeyPa
 def test_get_completions_git_branch_option(
     completion_cache_dir: Path,
     set_comp_env: Callable[[str, str], None],
-    monkeypatch: pytest.MonkeyPatch,
+    git_repo: Path,
 ) -> None:
     """Completing values for a git branch option should offer branch names."""
     data = _make_cache_data(
@@ -656,18 +675,18 @@ def test_get_completions_git_branch_option(
         git_branch_options=["create.--base-branch"],
     )
     _write_command_cache(completion_cache_dir, data)
-    monkeypatch.setattr(complete_mod, "_read_git_branches", lambda: ["main", "develop", "feature/foo"])
     set_comp_env("mng create --base-branch ", "3")
 
     result = _get_completions()
 
-    assert result == ["main", "develop", "feature/foo"]
+    assert "develop" in result
+    assert "feature/foo" in result
 
 
 def test_get_completions_git_branch_option_with_prefix(
     completion_cache_dir: Path,
     set_comp_env: Callable[[str, str], None],
-    monkeypatch: pytest.MonkeyPatch,
+    git_repo: Path,
 ) -> None:
     """Completing values for a git branch option should filter by prefix."""
     data = _make_cache_data(
@@ -676,18 +695,17 @@ def test_get_completions_git_branch_option_with_prefix(
         git_branch_options=["create.--base-branch"],
     )
     _write_command_cache(completion_cache_dir, data)
-    monkeypatch.setattr(complete_mod, "_read_git_branches", lambda: ["main", "develop", "feature/foo"])
-    set_comp_env("mng create --base-branch ma", "3")
+    set_comp_env("mng create --base-branch dev", "3")
 
     result = _get_completions()
 
-    assert result == ["main"]
+    assert result == ["develop"]
 
 
 def test_get_completions_git_branch_option_not_triggered_for_other_options(
     completion_cache_dir: Path,
     set_comp_env: Callable[[str, str], None],
-    monkeypatch: pytest.MonkeyPatch,
+    git_repo: Path,
 ) -> None:
     """Options not in git_branch_options should not trigger git branch completion."""
     data = _make_cache_data(
@@ -696,7 +714,6 @@ def test_get_completions_git_branch_option_not_triggered_for_other_options(
         git_branch_options=["create.--base-branch"],
     )
     _write_command_cache(completion_cache_dir, data)
-    monkeypatch.setattr(complete_mod, "_read_git_branches", lambda: ["main", "develop"])
     set_comp_env("mng create --name ", "3")
 
     result = _get_completions()
