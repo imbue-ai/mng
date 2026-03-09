@@ -36,7 +36,7 @@ def test_prevent_time_sleep() -> None:
 
 
 def test_prevent_global_keyword() -> None:
-    rc.check_global_keyword(_DIR, snapshot(2))
+    rc.check_global_keyword(_DIR, snapshot(0))
 
 
 def test_prevent_bare_print() -> None:
@@ -86,7 +86,7 @@ def test_prevent_getattr() -> None:
 
 
 def test_prevent_setattr() -> None:
-    rc.check_setattr(_DIR, snapshot(6))
+    rc.check_setattr(_DIR, snapshot(0))
 
 
 # --- Banned libraries and patterns ---
@@ -127,7 +127,7 @@ def test_prevent_num_prefix() -> None:
 
 
 def test_prevent_trailing_comments() -> None:
-    rc.check_trailing_comments(_DIR, snapshot(5))
+    rc.check_trailing_comments(_DIR, snapshot(0))
 
 
 def test_prevent_init_docstrings() -> None:
