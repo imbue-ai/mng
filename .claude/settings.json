@@ -6,10 +6,6 @@
           {
             "type": "command",
             "command": "uv sync --all-packages"
-          },
-          {
-            "type": "command",
-            "command": "read INPUT; SID=$(echo \"$INPUT\" | jq -r '.session_id // empty'); [ -n \"$SID\" ] && [ -n \"${CLAUDE_ENV_FILE:-}\" ] && echo \"export MNG_CLAUDE_SESSION_ID=$SID\" >> \"$CLAUDE_ENV_FILE\" || true"
           }
         ]
       }
@@ -30,22 +26,6 @@
           {
             "type": "command",
             "command": "[ -e .git ] || { echo \"Be sure to return to the repo root when you finish! Otherwise the other stop hooks cannot run correctly.\" >&2; exit 2; }"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "HASH=$(git rev-parse HEAD 2>/dev/null) || exit 0; [ -f \".autofix/plans/${HASH}_verified.md\" ] && exit 0; echo \"Run /autofix to verify your changes before finishing.\" >&2; exit 2"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "HASH=$(git rev-parse HEAD 2>/dev/null) || exit 0; [ -f \".reviews/conversation/${HASH}.json\" ] && exit 0; echo \"Run /verify-conversation to review the conversation before finishing.\" >&2; exit 2"
           }
         ]
       }
