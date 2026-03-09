@@ -44,9 +44,6 @@ from uuid import uuid4
 import pytest
 from coverage.exceptions import CoverageException
 
-from imbue.resource_guards.resource_guards import _pytest_runtest_makereport
-from imbue.resource_guards.resource_guards import _pytest_runtest_setup
-from imbue.resource_guards.resource_guards import _pytest_runtest_teardown
 from imbue.resource_guards.resource_guards import start_resource_guards
 from imbue.resource_guards.resource_guards import stop_resource_guards
 
@@ -310,7 +307,7 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
         # Record start time AFTER acquiring the lock so wait time isn't counted
         setattr(session, "start_time", time.time())  # noqa: B010
 
-    start_resource_guards()
+    start_resource_guards(session)
 
 
 @pytest.hookimpl(trylast=True)
@@ -669,8 +666,7 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_configure"] = _pytest_configure
     namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
-    namespace["pytest_runtest_setup"] = _pytest_runtest_setup
-    namespace["pytest_runtest_teardown"] = _pytest_runtest_teardown
-    namespace["pytest_runtest_makereport"] = _pytest_runtest_makereport
+    # Resource guard hooks are registered as a plugin by start_resource_guards()
+    # during pytest_sessionstart, so they don't need to be injected here.
     # Register the JUnit test ID fixture (with public name for pytest discovery)
     namespace["set_junit_test_id"] = _set_junit_test_id

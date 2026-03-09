@@ -37,9 +37,6 @@ from imbue.resource_guards.resource_guards import (
     register_resource_guard,
     start_resource_guards,
     stop_resource_guards,
-    _pytest_runtest_setup,
-    _pytest_runtest_teardown,
-    _pytest_runtest_makereport,
 )
 
 # Register a binary guard for tmux
@@ -49,20 +46,13 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "tmux: marks tests that use tmux")
 
 def pytest_sessionstart(session):
-    start_resource_guards()
+    start_resource_guards(session)
 
 def pytest_sessionfinish(session, exitstatus):
     stop_resource_guards()
-
-# Wire up the per-test hooks
-pytest_runtest_setup = _pytest_runtest_setup
-pytest_runtest_teardown = _pytest_runtest_teardown
-pytest_runtest_makereport = _pytest_runtest_makereport
 ```
 
-The guard hooks are prefixed with `_` to prevent pytest from auto-discovering them when the module is imported. The assignments above expose them under the standard hook names so pytest finds them in your conftest.py.
-
-If you already have your own hooks in the same conftest.py, put the guard hooks in a separate conftest.py (e.g., in a parent or child directory). Pytest discovers and calls all hook implementations it finds, regardless of which conftest.py they live in.
+`start_resource_guards` registers the per-test hooks as a pytest plugin, so they coexist naturally with any hooks you define in the same conftest.py.
 
 ### 2. Add guards for Modal or Docker
 

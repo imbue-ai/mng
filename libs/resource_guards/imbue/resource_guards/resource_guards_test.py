@@ -28,14 +28,10 @@ _TEST_RESOURCES = ["echo", "cat", "ls"]
 # cat is a good choice: `cat /dev/null` succeeds, `cat /nonexistent` fails.
 _PYTESTER_CONFTEST = """\
 import os
-import pytest
 from imbue.resource_guards.resource_guards import (
     register_resource_guard,
     start_resource_guards,
     stop_resource_guards,
-    _pytest_runtest_setup,
-    _pytest_runtest_teardown,
-    _pytest_runtest_makereport,
 )
 
 # Clear inherited guard state so we create fresh wrappers for our resources.
@@ -47,14 +43,10 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "cat: test uses cat")
 
 def pytest_sessionstart(session):
-    start_resource_guards()
+    start_resource_guards(session)
 
 def pytest_sessionfinish(session, exitstatus):
     stop_resource_guards()
-
-pytest_runtest_setup = _pytest_runtest_setup
-pytest_runtest_teardown = _pytest_runtest_teardown
-pytest_runtest_makereport = _pytest_runtest_makereport
 """
 
 pytest_plugins = ["pytester"]
@@ -274,17 +266,24 @@ def test_create_wrappers_reuses_inherited_directory(
     assert resource_guards._guard_wrapper_dir is None
 
 
-def test_start_and_stop_resource_guards_round_trip(isolated_guard_state: None) -> None:
-    """start_resource_guards creates wrappers and installs SDK guards; stop reverses both."""
+def test_start_and_stop_resource_guards_round_trip(
+    isolated_guard_state: None,
+    request: pytest.FixtureRequest,
+) -> None:
+    """start_resource_guards creates wrappers, installs SDK guards, and registers hooks."""
     install_called = []
     cleanup_called = []
     register_resource_guard("echo")
     register_sdk_guard("test_sdk", lambda: install_called.append(1), lambda: cleanup_called.append(1))
 
-    start_resource_guards()
+    start_resource_guards(request.session)
 
     assert resource_guards._guard_wrapper_dir is not None
     assert install_called == [1]
+    assert request.config.pluginmanager.get_plugin("resource_guards") is not None
+
+    # Unregister the plugin before stop so it doesn't interfere with other tests
+    request.config.pluginmanager.unregister(name="resource_guards")
 
     stop_resource_guards()
 
@@ -524,14 +523,10 @@ def test_enforce_sdk_guard_skips_when_no_phase_set(
 # guard by calling enforce_sdk_guard directly (no real SDK needed).
 _PYTESTER_SDK_CONFTEST = """\
 import os
-import pytest
 from imbue.resource_guards.resource_guards import (
     register_sdk_guard,
     start_resource_guards,
     stop_resource_guards,
-    _pytest_runtest_setup,
-    _pytest_runtest_teardown,
-    _pytest_runtest_makereport,
 )
 
 # Clear inherited guard state so we create fresh wrappers.
@@ -543,14 +538,10 @@ def pytest_configure(config):
 register_sdk_guard("test_sdk", lambda: None, lambda: None)
 
 def pytest_sessionstart(session):
-    start_resource_guards()
+    start_resource_guards(session)
 
 def pytest_sessionfinish(session, exitstatus):
     stop_resource_guards()
-
-pytest_runtest_setup = _pytest_runtest_setup
-pytest_runtest_teardown = _pytest_runtest_teardown
-pytest_runtest_makereport = _pytest_runtest_makereport
 """
 
 

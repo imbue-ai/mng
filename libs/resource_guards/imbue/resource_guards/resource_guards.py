@@ -291,14 +291,20 @@ def cleanup_sdk_resource_guards() -> None:
         cleanup()
 
 
-def start_resource_guards() -> None:
-    """Create all resource guards (binary wrappers and SDK monkeypatches).
+def start_resource_guards(session: pytest.Session) -> None:
+    """Create all resource guards and register per-test hooks.
 
-    Call this from pytest_sessionstart. Safe to call with only binary guards,
-    only SDK guards, or both registered.
+    Call this from pytest_sessionstart. Handles binary wrappers, SDK
+    monkeypatches, and hook registration in one call. Safe to call with
+    only binary guards, only SDK guards, or both registered.
+
+    Idempotent: if the guard plugin is already registered (e.g., from a
+    parent conftest.py), the call is a no-op for plugin registration.
     """
     create_resource_guard_wrappers()
     create_sdk_resource_guards()
+    if session.config.pluginmanager.get_plugin("resource_guards") is None:
+        session.config.pluginmanager.register(_ResourceGuardPlugin(), "resource_guards")
 
 
 def stop_resource_guards() -> None:
@@ -311,7 +317,7 @@ def stop_resource_guards() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Pytest hook implementations (prefixed with _ to avoid accidental discovery)
+# Pytest hook implementations
 # ---------------------------------------------------------------------------
 
 
@@ -324,6 +330,32 @@ def _build_per_test_guard_env(marks: set[str], tracking_dir: str) -> dict[str, s
     for resource in _guarded_resources:
         env[f"_PYTEST_GUARD_{resource.upper()}"] = "allow" if resource in marks else "block"
     return env
+
+
+class _ResourceGuardPlugin:
+    """Pytest plugin registered by start_resource_guards().
+
+    Encapsulates the per-test hooks so they coexist naturally with any
+    hooks defined in the consumer's conftest.py.
+    """
+
+    @staticmethod
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
+        yield from _pytest_runtest_setup(item)
+
+    @staticmethod
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_teardown(item: pytest.Item) -> Generator[None, None, None]:
+        yield from _pytest_runtest_teardown(item)
+
+    @staticmethod
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_makereport(
+        item: pytest.Item,
+        call: pytest.CallInfo,  # ty: ignore[invalid-type-form]
+    ) -> Generator[None, None, None]:
+        yield from _pytest_runtest_makereport(item, call)
 
 
 @pytest.hookimpl(hookwrapper=True)
