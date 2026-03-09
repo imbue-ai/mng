@@ -698,7 +698,7 @@ def create_daily_conversation(
         settings,
         model=chat_model,
         prompt="",
-        response="Hi, I'm Elena! How can I help?",
+        response="Hi, I'm Selene! How can I help?",
         label="daily",
         llm_user_path=llm_data_dir,
     )
