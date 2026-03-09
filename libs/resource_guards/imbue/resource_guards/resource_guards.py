@@ -52,7 +52,7 @@ class ResourceGuardViolation(Exception):
 # create_sdk_resource_guards(); the hooks read from it at session start.
 _guard_wrapper_dir: str | None = None
 _owns_guard_wrapper_dir: bool = False
-_session_env_patcher: patch.dict | None = None  # type: ignore[type-arg]
+_session_env_patcher: patch.dict | None = None  # ty: ignore[invalid-type-form]
 _guarded_resources: list[str] = []
 
 # Module-level state for SDK guards. Each entry is (name, install_fn, cleanup_fn).
@@ -318,13 +318,13 @@ def _pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
 
     # Create per-test tracking directory
     tracking_dir = tempfile.mkdtemp(prefix="pytest_guard_track_")
-    setattr(item, "_resource_tracking_dir", tracking_dir)  # noqa: B010
-    setattr(item, "_resource_marks", marks)  # noqa: B010
+    item._resource_tracking_dir = tracking_dir  # ty: ignore[unresolved-attribute]
+    item._resource_marks = marks  # ty: ignore[unresolved-attribute]
 
     # Start a patch.dict that will be stopped in teardown
     patcher = patch.dict(os.environ, _build_per_test_guard_env(marks, tracking_dir))
     patcher.start()
-    setattr(item, "_guard_env_patcher", patcher)  # noqa: B010
+    item._guard_env_patcher = patcher  # ty: ignore[unresolved-attribute]
 
     yield
 
