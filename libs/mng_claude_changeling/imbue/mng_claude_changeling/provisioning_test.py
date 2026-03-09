@@ -649,7 +649,7 @@ def test_configure_llm_user_path_creates_dir() -> None:
     assert any("llm_data" in c and "mkdir" in c for c in host.executed_commands)
 
 
-# -- create_system_notifications_conversation tests --
+# -- internal conversation tests (system_notifications, slack_notifications) --
 
 
 _FAKE_INJECT_RESULT = StubCommandResult(
