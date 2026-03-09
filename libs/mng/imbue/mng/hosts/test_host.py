@@ -2196,8 +2196,25 @@ def test_new_tmux_window_inherits_env_vars(
             capture_output=True,
         )
 
-        # Keys sent before the shell is ready are buffered in the pty.
+        # Wait for the shell to be ready before sending keys. Under heavy
+        # load (e.g. xdist parallelism), the default-command's bash -c script
+        # that sources env files and exec's into the user's shell can take
+        # long enough that PTY-buffered keys are lost during the terminal
+        # mode transition (cooked -> raw) when the interactive shell starts.
         window_target = f"{session_name}:user-window"
+
+        def shell_prompt_visible() -> bool:
+            pane = capture_tmux_pane_contents(window_target)
+            # Check for common shell prompt characters that indicate the
+            # shell has finished initialization and is waiting for input.
+            return "$" in pane or "%" in pane or "#" in pane
+
+        if not poll_until(shell_prompt_visible, timeout=10.0):
+            pane_stdout = capture_tmux_pane_contents(window_target)
+            raise AssertionError(
+                f"Shell prompt did not appear in new tmux window within 10s.\nPane content:\n{pane_stdout}"
+            )
+
         subprocess.run(
             [
                 "tmux",
