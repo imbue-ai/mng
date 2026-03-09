@@ -1,14 +1,9 @@
 import pytest
 
-import imbue.resource_guards.resource_guards as resource_guards
+from imbue.resource_guards.testing import isolate_guard_state
 
 
 @pytest.fixture()
 def isolated_guard_state(monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate resource guard module state so create/cleanup don't affect the session."""
-    monkeypatch.setattr(resource_guards, "_guard_wrapper_dir", None)
-    monkeypatch.setattr(resource_guards, "_owns_guard_wrapper_dir", False)
-    monkeypatch.setattr(resource_guards, "_session_env_patcher", None)
-    monkeypatch.setattr(resource_guards, "_guarded_resources", [])
-    monkeypatch.setattr(resource_guards, "_registered_sdk_guards", [])
-    monkeypatch.delenv("_PYTEST_GUARD_WRAPPER_DIR", raising=False)
+    isolate_guard_state(monkeypatch)
