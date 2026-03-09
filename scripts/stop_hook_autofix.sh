@@ -34,8 +34,8 @@ fi
 EXTRA_ARGS=$(_read_config "extra_args" "")
 
 if [ -n "$EXTRA_ARGS" ]; then
-    echo "Run: /autofix ${EXTRA_ARGS}" >&2
+    echo "To verify your changes, run: \"/autofix ${EXTRA_ARGS}\"" >&2
 else
-    echo "Run /autofix to verify your changes before finishing." >&2
+    echo "To verify your changes, run: \"/autofix\"" >&2
 fi
 exit 2
