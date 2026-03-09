@@ -11,19 +11,27 @@ set -euo pipefail
 _find_session_file() {
     local session_id="$1"
     local jsonl_file
-    jsonl_file=$(find ~/.claude/projects/ -name "$session_id.jsonl" 2>/dev/null | head -1)
-    if [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ]; then
-        echo "$jsonl_file"
-    fi
+    # Search CLAUDE_CONFIG_DIR first (MNG agents use a custom config dir),
+    # then fall back to the default ~/.claude location.
+    for search_dir in "${CLAUDE_CONFIG_DIR:-}"/projects/ ~/.claude/projects/; do
+        [ -d "$search_dir" ] || continue
+        jsonl_file=$(find "$search_dir" -name "$session_id.jsonl" 2>/dev/null | head -1)
+        if [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ]; then
+            echo "$jsonl_file"
+            return
+        fi
+    done
 }
 
 # Collect all session IDs in chronological order from the history file
 _SESSION_IDS=()
 
 if [ -n "${MNG_AGENT_STATE_DIR:-}" ] && [ -f "$MNG_AGENT_STATE_DIR/claude_session_id_history" ]; then
+    declare -A _SEEN_SIDS
     while read -r sid _rest; do
-        if [ -n "$sid" ]; then
+        if [ -n "$sid" ] && [ -z "${_SEEN_SIDS[$sid]:-}" ]; then
             _SESSION_IDS+=("$sid")
+            _SEEN_SIDS[$sid]=1
         fi
     done < "$MNG_AGENT_STATE_DIR/claude_session_id_history"
 fi
