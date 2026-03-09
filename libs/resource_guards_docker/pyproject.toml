@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 license = "MIT"
 authors = [
     {name = "Imbue"},
+    {name = "Evan Ryan Gunter"},
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
