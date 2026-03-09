@@ -342,7 +342,7 @@ def _pytest_runtest_teardown(item: pytest.Item) -> Generator[None, None, None]:
 @pytest.hookimpl(hookwrapper=True)
 def _pytest_runtest_makereport(
     item: pytest.Item,
-    call: pytest.CallInfo,  # type: ignore[type-arg]
+    call: pytest.CallInfo,  # ty: ignore[invalid-type-form]
 ) -> Generator[None, None, None]:
     """Enforce resource guard invariants after each test.
 
