@@ -11,6 +11,14 @@ Iteratively verify the current branch for code issues, plan and implement fixes 
 
 ### Phase 1: Setup
 
+Autofix requires a clean git state. Before proceeding, check for uncommitted changes:
+
+```bash
+git status --porcelain
+```
+
+If there are any untracked, staged, or unstaged changes, commit them first (or add them to .gitignore if they should not be tracked). Do NOT proceed until `git status --porcelain` produces no output.
+
 - Initial HEAD (`initial_head`): !`git rev-parse HEAD`
 
 Determine the base branch: check the GIT_BASE_BRANCH environment variable. If it is set, use its value. Otherwise default to main.
