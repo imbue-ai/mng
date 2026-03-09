@@ -69,7 +69,7 @@ def test_prevent_builtin_exception_raises() -> None:
 
 
 def test_prevent_inline_imports() -> None:
-    rc.check_inline_imports(_DIR, snapshot(3))
+    rc.check_inline_imports(_DIR, snapshot(4))
 
 
 def test_prevent_relative_imports() -> None:
@@ -192,7 +192,7 @@ def test_prevent_unittest_mock_imports() -> None:
 
 
 def test_prevent_monkeypatch_setattr() -> None:
-    rc.check_monkeypatch_setattr(_DIR, snapshot(31))
+    rc.check_monkeypatch_setattr(_DIR, snapshot(36))
 
 
 def test_prevent_test_container_classes() -> None:
@@ -213,7 +213,7 @@ def test_prevent_os_fork() -> None:
 def test_prevent_direct_subprocess_usage() -> None:
     # testing.py files are test infrastructure and excluded alongside test files
     excluded = TEST_FILE_PATTERNS + ("testing.py",)
-    rc.check_direct_subprocess(_DIR, snapshot(23), excluded_patterns=excluded)
+    rc.check_direct_subprocess(_DIR, snapshot(24), excluded_patterns=excluded)
 
 
 # --- AST-based ratchets ---
