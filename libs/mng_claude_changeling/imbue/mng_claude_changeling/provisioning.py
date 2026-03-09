@@ -644,6 +644,44 @@ def create_system_notifications_conversation(
     logger.info("Created system_notifications conversation: conversation_id={}", conversation_id)
 
 
+def create_slack_notifications_conversation(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+) -> None:
+    """Create the slack_notifications conversation for Slack integration alerts.
+
+    Uses ``llm inject`` to create a new conversation, then inserts a record
+    into the ``changeling_conversations`` table in the llm database with
+    ``tags={"internal": "slack_notifications"}``. Slack integration plugins
+    can find this conversation by querying for the ``internal`` tag.
+    """
+    model = "matched-responses"
+
+    llm_data_dir = agent_state_dir / "llm_data"
+    conversation_id = _inject_conversation(
+        host,
+        settings,
+        model=model,
+        prompt="This channel is for Slack notifications and messages.",
+        response="Confirmed.",
+        label="slack_notifications",
+        llm_user_path=llm_data_dir,
+        env_vars=dict(LLM_MATCHED_RESPONSE=""),
+    )
+    if conversation_id is None:
+        return
+
+    _insert_conversation_record(
+        host,
+        agent_state_dir,
+        settings,
+        conversation_id=conversation_id,
+        tags={"internal": "slack_notifications", "name": "Slack Notifications"},
+    )
+    logger.info("Created slack_notifications conversation: conversation_id={}", conversation_id)
+
+
 def create_daily_conversation(
     host: OnlineHostInterface,
     agent_state_dir: Path,
