@@ -4,7 +4,9 @@
 # Set to false to disable the autofix stop hook entirely.
 enabled = true
 
-# Extra arguments to pass to /autofix when the stop hook triggers it.
-# This text is appended to the "Run /autofix" message shown to the agent.
-# Example: "Focus only on logic_error and runtime_error_risk categories."
+# Extra input appended to the /autofix command in the stop hook message.
+# The agent sees "Run: /autofix <extra_args>" and passes this text to the skill.
+# Examples:
+#   extra_args = "Only fix MAJOR and CRITICAL issues."
+#   extra_args = "Focus only on logic_error and runtime_error_risk categories."
 extra_args = ""
