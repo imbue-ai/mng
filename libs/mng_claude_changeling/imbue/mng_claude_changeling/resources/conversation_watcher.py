@@ -238,8 +238,8 @@ def main() -> None:
             logger.info("Synced {} new message event(s) -> events/messages/events.jsonl", synced_count)
         else:
             # IT IS IMPERATIVE THAT WE NOT LOG inside of this part of the code--otherwise the logs get huge and spammy,
-            logger.debug("No new messages to sync")
-            # pass
+            # logger.debug("No new messages to sync")
+            pass
 
     run_watcher_loop(
         "Conversation watcher",
