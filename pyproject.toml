@@ -14,8 +14,7 @@ dependencies = [
 imbue-common = { workspace = true }
 
 [tool.uv.workspace]
-members = ["libs/*", "libs/resource_guards/*", "apps/*"]
-exclude = ["libs/resource_guards"]
+members = ["libs/*", "apps/*"]
 
 [dependency-groups]
 dev = [

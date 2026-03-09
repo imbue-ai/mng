@@ -1,7 +1,7 @@
 [project]
-name = "resource-guards-docker"
+name = "resource-guards"
 version = "0.1.0"
-description = "Docker CLI and SDK resource guards for pytest"
+description = "Pytest resource guard infrastructure for enforcing test marks on external resource usage"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [
@@ -14,8 +14,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "resource-guards==0.1.0",
-    "docker>=7.1.0",
+    "pytest>=7.0",
 ]
 
 [project.optional-dependencies]
@@ -33,11 +32,8 @@ build-backend = "hatchling.build"
 packages = ["imbue"]
 exclude = ["*_test.py", "test_*.py", "**/conftest.py"]
 
-[tool.uv.sources]
-resource-guards = { workspace = true }
-
 [tool.pyright]
-venvPath = "../../.."
+venvPath = "../.."
 venv = ".venv"
 pythonVersion = "3.11"
 strict = ["**/*.py"]

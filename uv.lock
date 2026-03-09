@@ -2851,7 +2851,7 @@ wheels = [
 [[package]]
 name = "resource-guards"
 version = "0.1.0"
-source = { editable = "libs/resource_guards/core" }
+source = { editable = "libs/resource_guards" }
 dependencies = [
     { name = "pytest" },
 ]
@@ -2871,7 +2871,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "resource-guards-docker"
 version = "0.1.0"
-source = { editable = "libs/resource_guards/docker" }
+source = { editable = "libs/resource_guards_docker" }
 dependencies = [
     { name = "docker" },
     { name = "resource-guards" },
@@ -2886,14 +2886,14 @@ dev = [
 requires-dist = [
     { name = "docker", specifier = ">=7.1.0" },
     { name = "inline-snapshot", marker = "extra == 'dev'", specifier = ">=0.13" },
-    { name = "resource-guards", editable = "libs/resource_guards/core" },
+    { name = "resource-guards", editable = "libs/resource_guards" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
 name = "resource-guards-modal"
 version = "0.1.0"
-source = { editable = "libs/resource_guards/modal" }
+source = { editable = "libs/resource_guards_modal" }
 dependencies = [
     { name = "modal" },
     { name = "resource-guards" },
@@ -2908,7 +2908,7 @@ dev = [
 requires-dist = [
     { name = "inline-snapshot", marker = "extra == 'dev'", specifier = ">=0.13" },
     { name = "modal", specifier = ">=1.3.1" },
-    { name = "resource-guards", editable = "libs/resource_guards/core" },
+    { name = "resource-guards", editable = "libs/resource_guards" },
 ]
 provides-extras = ["dev"]
 

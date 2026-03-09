@@ -27,12 +27,12 @@ class PackageInfo(FrozenModel):
 
 # Hard-coded dependency graph. Validated by tests against actual pyproject.toml files.
 PACKAGES: Final[tuple[PackageInfo, ...]] = (
-    PackageInfo(dir_name="resource_guards/core", pypi_name="resource-guards", internal_deps=()),
+    PackageInfo(dir_name="resource_guards", pypi_name="resource-guards", internal_deps=()),
     PackageInfo(
-        dir_name="resource_guards/modal", pypi_name="resource-guards-modal", internal_deps=("resource-guards",)
+        dir_name="resource_guards_modal", pypi_name="resource-guards-modal", internal_deps=("resource-guards",)
     ),
     PackageInfo(
-        dir_name="resource_guards/docker", pypi_name="resource-guards-docker", internal_deps=("resource-guards",)
+        dir_name="resource_guards_docker", pypi_name="resource-guards-docker", internal_deps=("resource-guards",)
     ),
     PackageInfo(dir_name="imbue_common", pypi_name="imbue-common", internal_deps=()),
     PackageInfo(dir_name="concurrency_group", pypi_name="concurrency-group", internal_deps=("imbue-common",)),

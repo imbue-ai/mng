@@ -21,25 +21,14 @@ pytestmark = pytest.mark.xdist_group(name="meta_ratchets")
 
 
 def _get_all_project_dirs() -> list[Path]:
-    """Return all project directories (libs/* and apps/*) that are not excluded.
-
-    Handles nested packages: if a directory under libs/ has no pyproject.toml
-    but contains subdirectories that do, those subdirectories are included.
-    """
+    """Return all project directories (libs/* and apps/*) that are not excluded."""
     project_dirs: list[Path] = []
     for parent in [_REPO_ROOT / "libs", _REPO_ROOT / "apps"]:
         if not parent.is_dir():
             continue
         for child in sorted(parent.iterdir()):
-            if not child.is_dir() or child.name in _EXCLUDED_PROJECTS:
-                continue
-            if (child / "pyproject.toml").exists():
+            if child.is_dir() and (child / "pyproject.toml").exists() and child.name not in _EXCLUDED_PROJECTS:
                 project_dirs.append(child)
-            else:
-                # Check one level deeper for nested packages (e.g. libs/resource_guards/core/)
-                for grandchild in sorted(child.iterdir()):
-                    if grandchild.is_dir() and (grandchild / "pyproject.toml").exists():
-                        project_dirs.append(grandchild)
     return project_dirs
 
 
