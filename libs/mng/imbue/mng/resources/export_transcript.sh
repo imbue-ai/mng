@@ -22,6 +22,14 @@ _process_session() {
         jsonl_file=$(find "$search_dir" -name "$session_id.jsonl" 2>/dev/null | head -1)
         if [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ]; then
             cat "$jsonl_file"
+            # Also include any subagent transcripts for this session
+            local session_dir="${jsonl_file%.jsonl}"
+            local subagents_dir="$session_dir/subagents"
+            if [ -d "$subagents_dir" ]; then
+                for subagent_file in "$subagents_dir"/*.jsonl; do
+                    [ -f "$subagent_file" ] && cat "$subagent_file"
+                done
+            fi
             return
         fi
     done
