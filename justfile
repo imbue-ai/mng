@@ -27,6 +27,8 @@ run target:
 test-offload args="":
     #!/bin/bash
     set -ueo pipefail
+    source ./scripts/load_modal_creds.sh
+
     BASE_COMMIT=$(cat .offload-base-commit | tr -d '[:space:]')
     tmpdir=$(mktemp -d)
     trap "rm -rf $tmpdir" EXIT
@@ -41,12 +43,14 @@ test-offload args="":
     trap "rm -f current.tar.gz; rm -rf /tmp/$OFFLOAD_PATCH_UUID; rm -rf $tmpdir" EXIT
 
     # Run offload, and make sure to specifically permit error code 2 (flaky tests). Any other error code is a failure.
-    offload -c offload-modal.toml run {{args}} --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" || [[ $? -eq 2 ]]
+    offload -c offload-modal.toml run {{args}} --env MODAL_TOKEN_ID="${MODAL_TOKEN_ID:-}" --env MODAL_TOKEN_SECRET="${MODAL_TOKEN_SECRET:-}" --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" || [[ $? -eq 2 ]]
 
 # Run acceptance tests on Modal via Offload
 test-offload-acceptance args="":
     #!/bin/bash
     set -ueo pipefail
+    source ./scripts/load_modal_creds.sh
+
     BASE_COMMIT=$(cat .offload-base-commit | tr -d '[:space:]')
     tmpdir=$(mktemp -d)
     trap "rm -rf $tmpdir" EXIT
@@ -61,7 +65,7 @@ test-offload-acceptance args="":
     trap "rm -f current.tar.gz; rm -rf /tmp/$OFFLOAD_PATCH_UUID; rm -rf $tmpdir" EXIT
 
     # Run offload, and make sure to specifically permit error code 2 (flaky tests). Any other error code is a failure.
-    offload -c offload-modal-acceptance.toml run {{args}} --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" || [[ $? -eq 2 ]]
+    offload -c offload-modal-acceptance.toml -v run {{args}} --env MODAL_TOKEN_ID="${MODAL_TOKEN_ID:-}" --env MODAL_TOKEN_SECRET="${MODAL_TOKEN_SECRET:-}" --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" || [[ $? -eq 2 ]]
 
 test-unit:
   uv run pytest --ignore-glob="**/test_*.py" --cov-fail-under=36
