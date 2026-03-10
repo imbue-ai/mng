@@ -749,29 +749,13 @@ class ClaudeAgent(BaseAgent):
         """
         # Future improvement: use `claude --settings <path>` to load hooks from
         # outside the worktree (e.g. the agent state dir), eliminating the need
-        # to write to .claude/settings.local.json and check that it's gitignored.
+        # to write to .claude/settings.local.json and ensure that it's gitignored.
         settings_relative = Path(".claude") / "settings.local.json"
         settings_path = self.work_dir / settings_relative
 
-        # Only check gitignore if git is available and this is a git repository
-        is_git_repo = host.execute_command(
-            "git rev-parse --is-inside-work-tree",
-            cwd=self.work_dir,
-            timeout_seconds=5.0,
-        )
-        if is_git_repo.success:
-            # Verify .claude/settings.local.json is gitignored to avoid unstaged changes
-            result = host.execute_command(
-                f"git check-ignore -q {shlex.quote(str(settings_relative))}",
-                cwd=self.work_dir,
-                timeout_seconds=5.0,
-            )
-            if not result.success:
-                raise PluginMngError(
-                    f".claude/settings.local.json is not gitignored in {self.work_dir}.\n"
-                    "mng needs to write Claude hooks to this file, but it would appear as an unstaged change.\n"
-                    f"Add '.claude/settings.local.json' to your .gitignore and try again. (original error: {result.stderr})"
-                )
+        # Ensure .claude/settings.local.json is gitignored via .git/info/exclude
+        # so writing hooks doesn't create unstaged changes.
+        self._ensure_claude_settings_gitignored(host)
 
         hooks_config = build_readiness_hooks_config()
 
@@ -792,6 +776,51 @@ class ClaudeAgent(BaseAgent):
         # Write the merged settings
         with log_span("Configuring readiness hooks in {}", settings_path):
             host.write_text_file(settings_path, json.dumps(merged, indent=2) + "\n")
+
+    def _ensure_claude_settings_gitignored(self, host: OnlineHostInterface) -> None:
+        """Ensure .claude/settings.local.json is in .git/info/exclude.
+
+        Uses ``git rev-parse --git-common-dir`` to locate the correct
+        info/exclude file, which works for both regular repos and worktrees.
+
+        This prevents the settings file (written by _configure_readiness_hooks)
+        from appearing as an unstaged change. Only acts when work_dir is inside
+        a git repository; silently skips otherwise.
+        """
+        is_git_repo = host.execute_command(
+            "git rev-parse --is-inside-work-tree",
+            cwd=self.work_dir,
+            timeout_seconds=5.0,
+        )
+        if not is_git_repo.success:
+            return
+
+        exclude_entry = ".claude/settings.local.json"
+
+        # Check if already ignored (via .gitignore, .git/info/exclude, etc.)
+        already_ignored = host.execute_command(
+            f"git check-ignore -q {shlex.quote(exclude_entry)}",
+            cwd=self.work_dir,
+            timeout_seconds=5.0,
+        )
+        if already_ignored.success:
+            return
+
+        # Append to info/exclude using git-common-dir so it works in worktrees
+        result = host.execute_command(
+            'git_dir="$(git rev-parse --git-common-dir)"'
+            ' && mkdir -p "$git_dir/info"'
+            f" && echo {shlex.quote(exclude_entry)}"
+            ' >> "$git_dir/info/exclude"',
+            cwd=self.work_dir,
+            timeout_seconds=5.0,
+        )
+        if not result.success:
+            logger.warning(
+                "Failed to add {} to .git/info/exclude: {}",
+                exclude_entry,
+                result.stderr,
+            )
 
     def _ensure_no_blocking_dialogs(self, source_path: Path, mng_ctx: MngContext) -> None:
         """Ensure all known Claude startup dialogs are dismissed for source_path.
