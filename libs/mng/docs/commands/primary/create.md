@@ -7,7 +7,7 @@
 
 ```text
 mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
-    [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
+    [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--transfer <MODE>]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
@@ -109,9 +109,7 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--target` | text | Target [HOST][:PATH]. Defaults to current dir if no other target args are given | None |
 | `--target-path` | text | Directory to mount source inside agent host. Incompatible with --in-place | None |
 | `--in-place` | boolean | Run directly in source directory. Incompatible with --target-path | `False` |
-| `--copy` | boolean | Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo] | `False` |
-| `--clone` | boolean | Create a git clone that shares objects with original repo (only works for local agents) | `False` |
-| `--worktree` | boolean | Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires --new-branch (which is the default) | `False` |
+| `--transfer` | choice (`copy` &#x7C; `git-push` &#x7C; `git-worktree`) | How to transfer source code: copy (rsync), git-push (git push --mirror), git-worktree (shared worktree) [default: git-worktree for local git repos, copy otherwise] | None |
 
 ## Agent Git Configuration
 
@@ -119,10 +117,8 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | ---- | ---- | ----------- | ------- |
 | `--base-branch` | text | The starting point for the agent [default: current branch] | None |
 | `--new-branch` | text | Create a fresh branch (named TEXT if provided, otherwise auto-generated) [default: new branch] | `` |
-| `--no-new-branch` | boolean | Do not create a new branch; use the current branch directly. Incompatible with --worktree | None |
+| `--no-new-branch` | boolean | Do not create a new branch; use the current branch directly. Incompatible with --transfer=git-worktree | None |
 | `--new-branch-prefix` | text | Prefix for auto-generated branch names | `mng/` |
-| `--depth` | integer | Shallow clone depth [default: full] | None |
-| `--shallow-since` | text | Shallow clone since date | None |
 
 ## Agent Environment Variables
 

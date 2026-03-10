@@ -16,6 +16,7 @@ from typing import IO
 from typing import Iterator
 from typing import Mapping
 from typing import Sequence
+from typing import assert_never
 
 from loguru import logger
 from paramiko import SSHException
@@ -31,7 +32,6 @@ from tenacity import wait_chain
 from tenacity import wait_fixed
 
 from imbue.concurrency_group.errors import ProcessError
-from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
@@ -70,7 +70,7 @@ from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostState
-from imbue.mng.primitives import WorkDirCopyMode
+from imbue.mng.primitives import TransferMode
 from imbue.mng.primitives import default_branch_name
 from imbue.mng.utils.env_utils import build_source_env_shell_commands
 from imbue.mng.utils.env_utils import parse_env_file
@@ -932,25 +932,30 @@ class Host(BaseHost, OnlineHostInterface):
         options: CreateAgentOptions,
     ) -> CreateWorkDirResult:
         """Create the work_dir directory for a new agent."""
-        copy_mode = options.git.copy_mode if options.git else WorkDirCopyMode.COPY
-        with log_span("Creating agent work directory", copy_mode=str(copy_mode)):
-            if copy_mode == WorkDirCopyMode.WORKTREE:
+        transfer_mode = options.git.transfer_mode if options.git else TransferMode.COPY
+        with log_span("Creating agent work directory", transfer_mode=str(transfer_mode)):
+            if transfer_mode == TransferMode.GIT_WORKTREE:
                 return self._create_work_dir_as_git_worktree(host, path, options)
-            elif copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE):
-                return self._create_work_dir_as_copy(host, path, options)
+            elif transfer_mode == TransferMode.GIT_PUSH:
+                return self._create_work_dir_as_git_push(host, path, options)
+            elif transfer_mode == TransferMode.COPY:
+                return self._create_work_dir_as_file_copy(host, path, options)
             else:
-                raise SwitchError(f"Unsupported work dir copy mode: {copy_mode}")
+                assert_never(transfer_mode)
 
-    def _create_work_dir_as_copy(
+    def _resolve_target_work_dir(
         self,
         source_host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
-    ) -> CreateWorkDirResult:
-        # Check if source and target are on the same host
+    ) -> tuple[Path, bool]:
+        """Resolve the target work directory path and whether it's generated.
+
+        Returns (target_path, is_generated_work_dir). Creates the directory
+        and registers/unregisters it in the generated work dirs list.
+        """
         source_is_same_host = source_host.id == self.id
 
-        # If target path is specified, use it; otherwise derive one
         if options.target_path:
             target_path = options.target_path
             # If target equals source and same host, it's in-place
@@ -978,9 +983,21 @@ class Host(BaseHost, OnlineHostInterface):
         else:
             self._remove_generated_work_dir(target_path)
 
+        return target_path, is_generated_work_dir
+
+    def _create_work_dir_as_git_push(
+        self,
+        source_host: OnlineHostInterface,
+        source_path: Path,
+        options: CreateAgentOptions,
+    ) -> CreateWorkDirResult:
+        """Create work directory using git push --mirror to transfer git objects."""
+        target_path, _ = self._resolve_target_work_dir(source_host, source_path, options)
+
         created_branch_name: str | None = None
 
         # If source and target are same path on same host, nothing to transfer
+        source_is_same_host = source_host.id == self.id
         if source_is_same_host and source_path == target_path:
             logger.debug("Skipped file transfer: source and target are the same path")
             return CreateWorkDirResult(path=target_path)
@@ -1022,6 +1039,83 @@ class Host(BaseHost, OnlineHostInterface):
             )
 
         return CreateWorkDirResult(path=target_path, created_branch_name=created_branch_name)
+
+    def _create_work_dir_as_file_copy(
+        self,
+        source_host: OnlineHostInterface,
+        source_path: Path,
+        options: CreateAgentOptions,
+    ) -> CreateWorkDirResult:
+        """Create work directory via direct file copy (rsync).
+
+        Unlike git-push mode, this copies everything via rsync, including the
+        .git directory (unless --no-include-git is specified). After the copy,
+        a new branch is created on the target if requested.
+        """
+        target_path, _ = self._resolve_target_work_dir(source_host, source_path, options)
+
+        # If source and target are same path on same host, nothing to transfer
+        source_is_same_host = source_host.id == self.id
+        if source_is_same_host and source_path == target_path:
+            logger.debug("Skipped file transfer: source and target are the same path")
+            return CreateWorkDirResult(path=target_path)
+
+        # Determine whether to include .git in the copy:
+        # - If no git options specified (options.git is None), include everything
+        # - If git options exist, respect the is_git_synced flag (controlled by --include-git/--no-include-git)
+        has_git_options = options.git is not None
+        is_git_synced = options.git.is_git_synced if has_git_options else True
+        should_exclude_git = has_git_options and not is_git_synced
+
+        # rsync everything from source to target, including any user-provided rsync_args.
+        extra_rsync_args = "--delete"
+        if options.data_options.is_rsync_enabled and options.data_options.rsync_args:
+            extra_rsync_args = f"--delete {options.data_options.rsync_args}"
+
+        with log_span("Copying files via rsync"):
+            self._rsync_files(source_host, source_path, target_path, extra_rsync_args, exclude_git=should_exclude_git)
+
+        # If the source has a git repo and git is included,
+        # create the requested branch on the target.
+        created_branch_name: str | None = None
+        if is_git_synced:
+            if source_host.is_local:
+                source_has_git = (source_path / ".git").exists()
+            else:
+                result = source_host.execute_command(f"test -d {shlex.quote(str(source_path / '.git'))}")
+                source_has_git = result.success
+
+            if source_has_git:
+                created_branch_name = self._setup_branch_after_copy(target_path, options)
+
+        return CreateWorkDirResult(path=target_path, created_branch_name=created_branch_name)
+
+    def _setup_branch_after_copy(
+        self,
+        target_path: Path,
+        options: CreateAgentOptions,
+    ) -> str:
+        """Create a new branch on the target after a file copy.
+
+        The target already has a complete .git directory from rsync,
+        so we just need to create and check out the desired branch.
+        Returns the branch name.
+        """
+        new_branch_name = self._determine_branch_name(options)
+        base_branch = options.git.base_branch if options.git and options.git.base_branch else None
+
+        add_safe_directory_on_remote(self, target_path)
+
+        if base_branch:
+            checkout_cmd = f"git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch)}"
+        else:
+            checkout_cmd = f"git checkout -B {shlex.quote(new_branch_name)}"
+
+        result = self.execute_command(checkout_cmd, cwd=target_path)
+        if not result.success:
+            raise MngError(f"Failed to create branch on target: {result.stderr}")
+
+        return new_branch_name
 
     def _transfer_git_repo(
         self,

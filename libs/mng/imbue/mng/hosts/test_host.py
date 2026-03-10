@@ -2498,11 +2498,11 @@ def test_rsync_files_remote_to_remote_with_files_from(
 
 
 @pytest.mark.rsync
-def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test that rsync without --delete preserves existing files in target.
+def test_file_copy_deletes_extra_files_in_target(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that file copy mode (default) uses --delete to make an exact mirror.
 
-    This is intentional behavior: rsync is designed for adding extra files
-    (e.g., data files not in git), not for full directory sync.
+    When using COPY transfer mode (the default when no git options are specified),
+    pre-existing files in the target that don't exist in the source are removed.
     """
     host, temp_dir = host_with_temp_dir
 
@@ -2528,8 +2528,8 @@ def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tup
     assert work_dir == target_path
     # New file should be copied
     assert (work_dir / "new_file.txt").read_text() == "new content"
-    # Existing file should NOT be deleted (rsync doesn't use --delete by default)
-    assert (work_dir / "existing_file.txt").read_text() == "existing content"
+    # Existing file IS deleted (file copy mode produces an exact mirror)
+    assert not (work_dir / "existing_file.txt").exists()
 
 
 @pytest.mark.rsync

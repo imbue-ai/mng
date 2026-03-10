@@ -129,12 +129,12 @@ class CleanupAction(UpperCaseStrEnum):
     STOP = auto()
 
 
-class WorkDirCopyMode(UpperCaseStrEnum):
-    """Mode for copying work directory content."""
+class TransferMode(UpperCaseStrEnum):
+    """Mode for transferring source code to the agent work directory."""
 
     COPY = auto()
-    CLONE = auto()
-    WORKTREE = auto()
+    GIT_PUSH = auto()
+    GIT_WORKTREE = auto()
 
 
 class UncommittedChangesMode(UpperCaseStrEnum):

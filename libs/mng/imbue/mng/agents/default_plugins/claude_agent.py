@@ -51,7 +51,7 @@ from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import CommandString
-from imbue.mng.primitives import WorkDirCopyMode
+from imbue.mng.primitives import TransferMode
 from imbue.mng.providers.ssh_host_setup import load_resource_script
 from imbue.mng.utils.git_utils import find_git_common_dir
 from imbue.mng.utils.polling import poll_until
@@ -675,12 +675,12 @@ class ClaudeAgent(BaseAgent):
         so we fail early with a clear message. Interactive and auto-approve
         runs skip these checks because provision() will handle them.
         """
-        if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
+        if options.git and options.git.transfer_mode == TransferMode.GIT_WORKTREE:
             if not host.is_local:
                 raise PluginMngError(
                     "Worktree mode is not supported on remote hosts.\n"
                     "Claude trust extension requires local filesystem access. "
-                    "Use --copy or --clone instead."
+                    "Use --transfer=copy or --transfer=git-push instead."
                 )
             if not mng_ctx.is_interactive and not mng_ctx.is_auto_approve:
                 git_common_dir = find_git_common_dir(self.work_dir, mng_ctx.concurrency_group)
@@ -829,7 +829,7 @@ class ClaudeAgent(BaseAgent):
         for the agent's working directory (used by changelings that run
         --in-place in their own repo directory).
         """
-        if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
+        if options.git and options.git.transfer_mode == TransferMode.GIT_WORKTREE:
             git_common_dir = find_git_common_dir(self.work_dir, mng_ctx.concurrency_group)
             if git_common_dir is not None:
                 source_path = git_common_dir.parent

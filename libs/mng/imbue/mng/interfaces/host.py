@@ -39,7 +39,7 @@ from imbue.mng.primitives import HostState
 from imbue.mng.primitives import Permission
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotName
-from imbue.mng.primitives import WorkDirCopyMode
+from imbue.mng.primitives import TransferMode
 
 # Default timeout for waiting for agent readiness before sending messages.
 # With hook-based polling, we return early when the agent signals readiness,
@@ -490,9 +490,9 @@ class AgentGitOptions(FrozenModel):
         default=True,
         description="Whether to sync git data from the source repository",
     )
-    copy_mode: WorkDirCopyMode = Field(
-        default=WorkDirCopyMode.COPY,
-        description="How to set up the work_dir: copy, clone, or worktree",
+    transfer_mode: TransferMode = Field(
+        default=TransferMode.COPY,
+        description="How to transfer source code to the work_dir: copy (rsync), git-push (git push --mirror), or git-worktree",
     )
     base_branch: str | None = Field(
         default=None,
@@ -509,14 +509,6 @@ class AgentGitOptions(FrozenModel):
     new_branch_prefix: str = Field(
         default="mng/",
         description="Prefix for auto-generated branch names",
-    )
-    depth: int | None = Field(
-        default=None,
-        description="Shallow clone depth (None for full clone)",
-    )
-    shallow_since: str | None = Field(
-        default=None,
-        description="Shallow clone since date",
     )
     is_include_unclean: bool = Field(
         # the default is true because we should not assume that git is even being used
