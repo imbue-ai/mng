@@ -313,7 +313,7 @@ def test_error_from_nested_group_in_another_thread_gets_properly_propagated() ->
             cg_outer.start_new_thread(
                 target=_create_nested_failing_concurrency_group, args=(cg_outer, thread_started_event)
             )
-            thread_started_event.wait(timeout=SMALL_SLEEP)
+            thread_started_event.wait(timeout=5.0)
     assert len(exception_info.value.exceptions) == 1
     assert isinstance(exception_info.value.exceptions[0], ConcurrencyExceptionGroup)
     assert len(exception_info.value.exceptions[0].exceptions) == 1
@@ -418,7 +418,7 @@ def test_shutdown_propagates_to_children_and_kills_processes(tmp_path: Path) -> 
             target=_create_nested_concurrency_group_and_run_process,
             args=(cg, closure, tmp_path, process_started_event),
         )
-        process_started_event.wait(timeout=SMALL_SLEEP)
+        process_started_event.wait(timeout=5.0)
         cg.shutdown()
     assert closure["i"] == 10
 
@@ -432,7 +432,7 @@ def _create_nested_concurrency_group_and_run_process_while_shutting_down(
     with pytest.raises(ConcurrencyExceptionGroup) as exception_info:
         with concurrency_group.make_concurrency_group(name="inner") as cg:
             process_started_event.set()
-            poll_until(lambda: concurrency_group.is_shutting_down(), timeout=5.0)
+            assert poll_until(lambda: concurrency_group.is_shutting_down(), timeout=5.0)
             closure["i"] += 1
             process = cg.run_process_in_background(LONG_RUNNING_COMMAND, is_checked_by_group=True)
             process.wait()
@@ -448,7 +448,7 @@ def test_new_resources_cannot_be_created_when_shutting_down(tmp_path: Path) -> N
             target=_create_nested_concurrency_group_and_run_process_while_shutting_down,
             args=(cg, tmp_path, closure, process_started_event),
         )
-        process_started_event.wait(timeout=SMALL_SLEEP)
+        process_started_event.wait(timeout=5.0)
         cg.shutdown()
     assert closure["i"] == 1
 
