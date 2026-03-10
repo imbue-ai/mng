@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # Load Modal credentials from env vars or ~/.modal.toml.
 # Source this script to set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.
 if [[ -z "${MODAL_TOKEN_ID:-}" || -z "${MODAL_TOKEN_SECRET:-}" ]]; then
