@@ -298,7 +298,11 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--source-agent", "--from-agent", "source_agent", help="Source agent for cloning work_dir")
 @optgroup.option("--source-host", help="Source host")
 @optgroup.option("--source-path", help="Source path")
-@optgroup.option("--rsync-args", help="Additional arguments to pass to rsync")
+@optgroup.option(
+    "--extra-rsync-pass-args",
+    "rsync_args",
+    help="Additional arguments to pass to rsync during the supplementary rsync pass",
+)
 @optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
 @optgroup.group("Agent Target (where to put the new agent)")
 @optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
@@ -1348,7 +1352,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     one_line_description="Create and run an agent",
     synopsis="""mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [-w WINDOW_NAME=COMMAND]
     [--label KEY=VALUE] [--host-label KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--transfer <MODE>]
-    [--rsync-args <ARGS>] [--branch [BASE][:NEW]] [--[no-]ensure-clean]
+    [--extra-rsync-pass-args <ARGS>] [--branch [BASE][:NEW]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]

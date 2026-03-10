@@ -112,8 +112,8 @@ mng create my-task --transfer=git-push
 mng create my-task --from other-agent
 # (--source, --source-agent, and --source-host are alternative forms for more specific control)
 
-# you can use rsync to transfer extra data as well, beyond just the git data:
-mng create my-task --in modal --rsync --rsync-args "--exclude=node_modules"
+# you can pass extra arguments to the supplementary rsync pass (e.g., to exclude files):
+mng create my-task --in modal --extra-rsync-pass-args "--exclude=node_modules"
 
 ## CREATING AGENTS REMOTELY
 
