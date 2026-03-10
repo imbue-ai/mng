@@ -71,7 +71,6 @@ def default_create_cli_opts() -> CreateCliOptions:
         target_path=None,
         in_place=False,
         transfer=None,
-        rsync=None,
         rsync_args=None,
         include_git=True,
         include_unclean=None,

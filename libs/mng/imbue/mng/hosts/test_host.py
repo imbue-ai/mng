@@ -2285,7 +2285,6 @@ def test_rsync_extra_args_parsing(host_with_temp_dir: tuple[Host, Path]) -> None
         command=CommandString("sleep 1"),
         target_path=target_path,
         data_options=AgentDataOptions(
-            is_rsync_enabled=True,
             rsync_args="--exclude exclude_me.txt",
         ),
     )
@@ -2319,7 +2318,6 @@ def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> 
         command=CommandString("sleep 1"),
         target_path=target_path,
         data_options=AgentDataOptions(
-            is_rsync_enabled=True,
             rsync_args='--exclude "file with spaces.txt"',
         ),
     )
@@ -2520,7 +2518,7 @@ def test_file_copy_deletes_extra_files_in_target(host_with_temp_dir: tuple[Host,
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        data_options=AgentDataOptions(is_rsync_enabled=True),
+        data_options=AgentDataOptions(),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options).path
@@ -2555,7 +2553,6 @@ def test_rsync_with_delete_removes_extra_files(host_with_temp_dir: tuple[Host, P
         command=CommandString("sleep 1"),
         target_path=target_path,
         data_options=AgentDataOptions(
-            is_rsync_enabled=True,
             rsync_args="--delete",
         ),
     )
@@ -2620,7 +2617,7 @@ def test_create_work_dir_cross_host_generates_unique_paths(
         name=AgentName("agent-one"),
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
-        data_options=AgentDataOptions(is_rsync_enabled=True),
+        data_options=AgentDataOptions(),
     )
 
     work_dir_1 = target_host.create_agent_work_dir(source_host, source_path, options).path
@@ -2634,7 +2631,7 @@ def test_create_work_dir_cross_host_generates_unique_paths(
         name=AgentName("agent-two"),
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
-        data_options=AgentDataOptions(is_rsync_enabled=True),
+        data_options=AgentDataOptions(),
     )
 
     work_dir_2 = target_host.create_agent_work_dir(source_host, source_path, options_2).path

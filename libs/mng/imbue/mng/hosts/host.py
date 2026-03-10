@@ -1023,19 +1023,17 @@ class Host(BaseHost, OnlineHostInterface):
                 created_branch_name = self._transfer_git_repo(source_host, source_path, target_path, options)
                 self._transfer_extra_files(source_host, source_path, target_path, options)
 
-        # Run rsync if enabled. This is designed for adding extra files (e.g., data files not in git),
-        # not for full directory sync. By default, rsync does NOT use --delete, so existing files
-        # in the target won't be removed. Users can add --delete to rsync_args if they want
-        # full sync behavior with file deletion.
+        # Run a supplementary rsync for adding extra files (e.g., data files not in git).
+        # By default, rsync does NOT use --delete, so existing files in the target won't
+        # be removed. Users can add --delete to rsync_args if they want full sync behavior.
         # Exclude .git from rsync if user specified git options (they're making an explicit choice about git handling)
-        if options.data_options.is_rsync_enabled:
-            self._rsync_files(
-                source_host,
-                source_path,
-                target_path,
-                extra_args=options.data_options.rsync_args,
-                exclude_git=has_git_options,
-            )
+        self._rsync_files(
+            source_host,
+            source_path,
+            target_path,
+            extra_args=options.data_options.rsync_args,
+            exclude_git=has_git_options,
+        )
 
         return CreateWorkDirResult(path=target_path, created_branch_name=created_branch_name)
 

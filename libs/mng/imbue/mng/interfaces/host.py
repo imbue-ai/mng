@@ -674,10 +674,6 @@ class NamedCommand(FrozenModel):
 class AgentDataOptions(FrozenModel):
     """Options for what data to include from the source."""
 
-    is_rsync_enabled: bool = Field(
-        default=True,
-        description="Whether to use rsync for file transfer",
-    )
     rsync_args: str = Field(
         default="",
         description="Additional arguments to pass to rsync",
