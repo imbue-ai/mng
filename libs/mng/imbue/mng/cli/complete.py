@@ -47,15 +47,6 @@ def _read_cache() -> dict:
     return {}
 
 
-def _read_agent_names() -> list[str]:
-    """Read agent names from the discovery event stream."""
-    try:
-        agent_names, _ = resolve_names_from_discovery_stream()
-        return agent_names
-    except (OSError, json.JSONDecodeError):
-        return []
-
-
 def _read_host_names() -> list[str]:
     """Read host names from the discovery event stream."""
     try:

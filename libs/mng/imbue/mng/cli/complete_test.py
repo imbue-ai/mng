@@ -6,8 +6,8 @@ import pytest
 
 from imbue.mng.cli.complete import _filter_aliases
 from imbue.mng.cli.complete import _get_completions
-from imbue.mng.cli.complete import _read_agent_names
 from imbue.mng.cli.complete import _read_cache
+from imbue.mng.cli.complete import _read_discovery_names
 from imbue.mng.cli.complete import _read_git_branches
 from imbue.mng.cli.complete import _read_host_names
 from imbue.mng.utils.testing import run_git_command
@@ -116,22 +116,24 @@ def test_read_cache_returns_empty_dict_for_malformed_json(completion_cache_dir: 
 
 
 # =============================================================================
-# _read_agent_names tests
+# _read_discovery_names tests
 # =============================================================================
 
 
-def test_read_agent_names_returns_names(completion_cache_dir: Path) -> None:
-    _write_discovery_events(completion_cache_dir, ["beta", "alpha"])
+def test_read_discovery_names_returns_agent_and_host_names(completion_cache_dir: Path) -> None:
+    _write_discovery_events(completion_cache_dir, ["beta", "alpha"], host_names=["saturn", "mars"])
 
-    result = _read_agent_names()
+    agent_names, host_names = _read_discovery_names()
 
-    assert result == ["alpha", "beta"]
+    assert agent_names == ["alpha", "beta"]
+    assert host_names == ["mars", "saturn"]
 
 
-def test_read_agent_names_returns_empty_when_missing(completion_cache_dir: Path) -> None:
-    result = _read_agent_names()
+def test_read_discovery_names_returns_empty_when_missing(completion_cache_dir: Path) -> None:
+    agent_names, host_names = _read_discovery_names()
 
-    assert result == []
+    assert agent_names == []
+    assert host_names == []
 
 
 # =============================================================================
