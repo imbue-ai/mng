@@ -87,7 +87,7 @@ class GitHubData(FrozenModel):
 class RefreshHook(FrozenModel):
     """A hook command that runs during kanpan board refresh."""
 
-    name: str = Field(description="Display name shown during refresh")
+    name: str = Field(description="Human-readable name")
     command: str = Field(description="Shell command to run per agent. Env vars provide agent context.")
     enabled: bool = Field(default=True)
 
