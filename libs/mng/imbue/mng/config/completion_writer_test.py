@@ -45,7 +45,7 @@ def test_write_cli_completions_cache_handles_oserror(monkeypatch: pytest.MonkeyP
 
     try:
         # Should not raise despite filesystem error
-        write_cli_completions_cache(group)
+        write_cli_completions_cache(cli_group=group)
     finally:
         read_only_dir.chmod(0o755)
     # Verify the cache file was NOT created (write failed silently).
@@ -63,7 +63,7 @@ def test_write_cli_completions_cache_writes_valid_json(completion_cache_dir: Pat
         },
     )
 
-    write_cli_completions_cache(group)
+    write_cli_completions_cache(cli_group=group)
     cache_path = completion_cache_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     assert cache_path.exists()
     data = json.loads(cache_path.read_text())
@@ -81,7 +81,7 @@ def test_write_cli_completions_cache_includes_git_branch_options(completion_cach
         },
     )
 
-    write_cli_completions_cache(group)
+    write_cli_completions_cache(cli_group=group)
     cache_path = completion_cache_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     data = json.loads(cache_path.read_text())
     assert "git_branch_options" in data
@@ -108,7 +108,7 @@ def test_write_cli_completions_cache_includes_host_name_options(completion_cache
         },
     )
 
-    write_cli_completions_cache(group)
+    write_cli_completions_cache(cli_group=group)
     data = _read_cache(completion_cache_dir)
 
     assert "create.--host" in data["host_name_options"]
@@ -125,7 +125,7 @@ def test_write_cli_completions_cache_includes_host_name_arguments(completion_cac
         },
     )
 
-    write_cli_completions_cache(group)
+    write_cli_completions_cache(cli_group=group)
     data = _read_cache(completion_cache_dir)
 
     assert "events" in data["host_name_arguments"]
@@ -147,7 +147,7 @@ def test_write_cli_completions_cache_includes_plugin_name_options(completion_cac
         },
     )
 
-    write_cli_completions_cache(group)
+    write_cli_completions_cache(cli_group=group)
     data = _read_cache(completion_cache_dir)
 
     assert "create.--plugin" in data["plugin_name_options"]
@@ -165,7 +165,7 @@ def test_write_cli_completions_cache_includes_plugin_name_arguments(completion_c
     )
     group = click.Group(name="test", commands={"plugin": plugin_group})
 
-    write_cli_completions_cache(group)
+    write_cli_completions_cache(cli_group=group)
     data = _read_cache(completion_cache_dir)
 
     assert "plugin.enable" in data["plugin_name_arguments"]
@@ -185,7 +185,7 @@ def test_write_cli_completions_cache_includes_config_key_arguments(completion_ca
     )
     group = click.Group(name="test", commands={"config": config_group})
 
-    write_cli_completions_cache(group)
+    write_cli_completions_cache(cli_group=group)
     data = _read_cache(completion_cache_dir)
 
     assert "config.get" in data["config_key_arguments"]
@@ -222,7 +222,7 @@ def test_write_cli_completions_cache_dynamic_completions(completion_cache_dir: P
         "config_keys": ["prefix", "logging.level"],
     }
 
-    write_cli_completions_cache(group, dynamic_completions=dynamic)
+    write_cli_completions_cache(cli_group=group, dynamic_completions=dynamic)
     data = _read_cache(completion_cache_dir)
 
     assert data["option_choices"]["create.--agent-type"] == ["claude", "codex"]
@@ -233,14 +233,14 @@ def test_write_cli_completions_cache_dynamic_completions(completion_cache_dir: P
     assert data["config_keys"] == ["prefix", "logging.level"]
 
 
-def test_write_cli_completions_cache_no_dynamic_completions(completion_cache_dir: Path) -> None:
-    """When dynamic_completions is None, plugin_names and config_keys should be empty."""
+def test_write_cli_completions_cache_no_mng_ctx(completion_cache_dir: Path) -> None:
+    """When mng_ctx is None, plugin_names and config_keys should be empty."""
     group = click.Group(
         name="test",
         commands={"list": click.Command("list")},
     )
 
-    write_cli_completions_cache(group)
+    write_cli_completions_cache(cli_group=group)
     data = _read_cache(completion_cache_dir)
 
     assert data["plugin_names"] == []

@@ -7,6 +7,8 @@ from typing import Final
 import click
 from loguru import logger
 
+from imbue.mng.agents.agent_registry import list_registered_agent_types
+from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.host_dir import read_default_host_dir
 from imbue.mng.utils.click_utils import detect_alias_to_canonical
 from imbue.mng.utils.file_utils import atomic_write
@@ -204,9 +206,36 @@ def flatten_dict_keys(data: dict[str, Any], prefix: str = "") -> list[str]:
     return sorted(result)
 
 
+def _build_dynamic_completions(mng_ctx: MngContext) -> dict[str, list[str]]:
+    """Build dynamic completion data from the runtime context.
+
+    Extracts agent type names, template names, provider names, plugin names,
+    and config keys from the live MngContext for injection into the cache.
+    """
+    config = mng_ctx.config
+
+    registered = list_registered_agent_types()
+    custom = [str(k) for k in config.agent_types.keys()]
+    agent_type_names = sorted(set(registered + custom))
+
+    template_names = sorted(str(k) for k in config.create_templates.keys())
+    provider_names = sorted(set(["local"] + [str(k) for k in config.providers.keys()]))
+    plugin_names = sorted({name for name, _ in mng_ctx.pm.list_name_plugin() if name and not name.startswith("_")})
+    config_keys = flatten_dict_keys(config.model_dump(mode="json"))
+
+    return {
+        "agent_type_names": agent_type_names,
+        "template_names": template_names,
+        "provider_names": provider_names,
+        "plugin_names": plugin_names,
+        "config_keys": config_keys,
+    }
+
+
 def write_cli_completions_cache(
-    cli_group: click.Group,
     *,
+    cli_group: click.Group,
+    mng_ctx: MngContext | None = None,
     dynamic_completions: dict[str, list[str]] | None = None,
 ) -> None:
     """Write all CLI commands, options, and choices to the completions cache (best-effort).
@@ -219,13 +248,10 @@ def write_cli_completions_cache(
     Aliases are auto-detected: any command registered under a name different
     from its canonical cmd.name is treated as an alias.
 
-    dynamic_completions is an optional dict providing runtime-derived completion
-    values. Supported keys:
-    - "agent_type_names": list of agent type names (for create --agent-type)
-    - "template_names": list of create template names (for create --template)
-    - "provider_names": list of provider instance names (for create --in, list --provider)
-    - "plugin_names": list of plugin names (for --plugin/--disable-plugin, plugin enable/disable)
-    - "config_keys": list of flattened config key paths (for config get/set/unset)
+    When mng_ctx is provided, runtime-derived completion values (agent types,
+    templates, providers, plugin names, config keys) are extracted and injected
+    into the cache. Alternatively, dynamic_completions can be passed directly
+    (used by tests).
 
     Catches OSError from cache writes so filesystem failures do not break
     CLI commands. Other exceptions are allowed to propagate.
@@ -297,11 +323,12 @@ def write_cli_completions_cache(
         config_key_args = _filter_keys_by_registered_commands(_CONFIG_KEY_SUBCOMMANDS, canonical_names)
 
         # Inject dynamic choice values from runtime context (config, registries)
-        if dynamic_completions:
+        dynamic = dynamic_completions or (_build_dynamic_completions(mng_ctx) if mng_ctx is not None else None)
+        if dynamic:
             for opt_key, data_key in _DYNAMIC_CHOICE_OPTIONS.items():
                 cmd_name = opt_key.split(".")[0]
-                if cmd_name in canonical_names and data_key in dynamic_completions:
-                    option_choices[opt_key] = dynamic_completions[data_key]
+                if cmd_name in canonical_names and data_key in dynamic:
+                    option_choices[opt_key] = dynamic[data_key]
 
         cache_data: dict[str, object] = {
             "commands": all_command_names,
@@ -315,10 +342,10 @@ def write_cli_completions_cache(
             "host_name_options": sorted(host_name_opts),
             "host_name_arguments": sorted(host_name_args),
             "plugin_name_options": sorted(set(plugin_name_opts)),
-            "plugin_names": dynamic_completions.get("plugin_names", []) if dynamic_completions else [],
+            "plugin_names": dynamic.get("plugin_names", []) if dynamic else [],
             "plugin_name_arguments": sorted(plugin_name_args),
             "config_key_arguments": sorted(config_key_args),
-            "config_keys": dynamic_completions.get("config_keys", []) if dynamic_completions else [],
+            "config_keys": dynamic.get("config_keys", []) if dynamic else [],
         }
 
         cache_path = get_completion_cache_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
