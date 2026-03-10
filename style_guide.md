@@ -1702,7 +1702,7 @@ This means that base level test fixtures should do things like override the HOME
 - "No exception raised" is not a sufficient assertion -- verify the actual result.
 - When testing errors, verify the specific error type/message.
 - Use `pytest.mark.parametrize` when multiple cases share identical test logic and differ only in inputs/outputs. Use separate test functions when cases have meaningfully different setup or assertions.
-- Don't write tests just to hit a coverage number.
+- Don't write weak tests that don't actually verify correctness just to hit a coverage number.
 - For collections: test empty, single element, typical, and boundary inputs. For conditionals: test each branch with assertions specific to that branch.
 
 ## Test organization
