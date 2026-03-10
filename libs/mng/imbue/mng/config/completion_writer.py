@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from typing import Any
 from typing import Final
 
 import click
@@ -69,6 +70,59 @@ _GIT_BRANCH_OPTIONS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Options whose values should complete against host names from the discovery
+# event stream. Uses the same "command.--option" notation.
+_HOST_NAME_OPTIONS: Final[frozenset[str]] = frozenset(
+    {
+        "create.--host",
+        "create.--target-host",
+    }
+)
+
+# Commands whose positional arguments should also complete against host names
+# (in addition to agent names, if they appear in _AGENT_NAME_COMMANDS).
+_HOST_NAME_COMMANDS: Final[frozenset[str]] = frozenset(
+    {
+        "events",
+    }
+)
+
+# Click option names (--long forms) that should complete against plugin names.
+_PLUGIN_NAME_OPTION_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "--plugin",
+        "--enable-plugin",
+        "--disable-plugin",
+    }
+)
+
+# Subcommands whose positional arguments should complete against plugin names.
+_PLUGIN_NAME_SUBCOMMANDS: Final[frozenset[str]] = frozenset(
+    {
+        "plugin.enable",
+        "plugin.disable",
+    }
+)
+
+# Subcommands whose positional arguments should complete against config keys.
+_CONFIG_KEY_SUBCOMMANDS: Final[frozenset[str]] = frozenset(
+    {
+        "config.get",
+        "config.set",
+        "config.unset",
+    }
+)
+
+# Options that receive dynamic choice values from runtime context (config,
+# registries). Maps "command.--option" to the key in dynamic_completions.
+_DYNAMIC_CHOICE_OPTIONS: Final[dict[str, str]] = {
+    "create.--agent-type": "agent_type_names",
+    "create.--template": "template_names",
+    "create.--in": "provider_names",
+    "create.--new-host": "provider_names",
+    "list.--provider": "provider_names",
+}
+
 
 # =============================================================================
 # Cache writers
@@ -111,7 +165,37 @@ def _extract_choices_for_command(cmd: click.Command, key_prefix: str) -> dict[st
     return choices
 
 
-def write_cli_completions_cache(cli_group: click.Group) -> None:
+def _extract_plugin_name_options_for_command(cmd: click.Command, key_prefix: str) -> list[str]:
+    """Extract option names that should complete against plugin names.
+
+    Returns keys like "create.--plugin" for options matching _PLUGIN_NAME_OPTION_NAMES.
+    """
+    result: list[str] = []
+    for param in cmd.params:
+        if isinstance(param, click.Option):
+            for opt in param.opts + param.secondary_opts:
+                if opt in _PLUGIN_NAME_OPTION_NAMES:
+                    result.append(f"{key_prefix}.{opt}")
+    return result
+
+
+def flatten_dict_keys(data: dict[str, Any], prefix: str = "") -> list[str]:
+    """Flatten a nested dict into sorted dot-separated key paths."""
+    result: list[str] = []
+    for key, value in data.items():
+        full_key = f"{prefix}{key}" if prefix else key
+        if isinstance(value, dict):
+            result.extend(flatten_dict_keys(value, f"{full_key}."))
+        else:
+            result.append(full_key)
+    return sorted(result)
+
+
+def write_cli_completions_cache(
+    cli_group: click.Group,
+    *,
+    dynamic_completions: dict[str, list[str]] | None = None,
+) -> None:
     """Write all CLI commands, options, and choices to the completions cache (best-effort).
 
     Walks the CLI command tree and writes the result to
@@ -121,6 +205,14 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
 
     Aliases are auto-detected: any command registered under a name different
     from its canonical cmd.name is treated as an alias.
+
+    dynamic_completions is an optional dict providing runtime-derived completion
+    values. Supported keys:
+    - "agent_type_names": list of agent type names (for create --agent-type)
+    - "template_names": list of create template names (for create --template)
+    - "provider_names": list of provider instance names (for create --in, list --provider)
+    - "plugin_names": list of plugin names (for --plugin/--disable-plugin, plugin enable/disable)
+    - "config_keys": list of flattened config key paths (for config get/set/unset)
 
     Catches OSError from cache writes so filesystem failures do not break
     CLI commands. Other exceptions are allowed to propagate.
@@ -133,6 +225,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
         options_by_command: dict[str, list[str]] = {}
         flag_options_by_command: dict[str, list[str]] = {}
         option_choices: dict[str, list[str]] = {}
+        plugin_name_opts: list[str] = []
 
         canonical_names: set[str] = set()
         for name, cmd in cli_group.commands.items():
@@ -157,6 +250,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
                     if sub_flags:
                         flag_options_by_command[sub_key] = sub_flags
                     option_choices.update(_extract_choices_for_command(sub_cmd, sub_key))
+                    plugin_name_opts.extend(_extract_plugin_name_options_for_command(sub_cmd, sub_key))
 
                 # Also extract options and flags for the group command itself
                 group_options = _extract_options_for_command(cmd)
@@ -166,6 +260,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
                 if group_flags:
                     flag_options_by_command[canonical_name] = group_flags
                 option_choices.update(_extract_choices_for_command(cmd, canonical_name))
+                plugin_name_opts.extend(_extract_plugin_name_options_for_command(cmd, canonical_name))
             else:
                 # Simple command (not a group)
                 cmd_options = _extract_options_for_command(cmd)
@@ -175,6 +270,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
                 if cmd_flags:
                     flag_options_by_command[canonical_name] = cmd_flags
                 option_choices.update(_extract_choices_for_command(cmd, canonical_name))
+                plugin_name_opts.extend(_extract_plugin_name_options_for_command(cmd, canonical_name))
 
         # Include both top-level commands and group subcommands that take agent names
         agent_name_args = _AGENT_NAME_COMMANDS & canonical_names
@@ -190,6 +286,37 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
             if cmd_name in canonical_names:
                 git_branch_opts.add(opt_key)
 
+        # Include host name options for commands that are actually registered
+        host_name_opts: set[str] = set()
+        for opt_key in _HOST_NAME_OPTIONS:
+            cmd_name = opt_key.split(".")[0]
+            if cmd_name in canonical_names:
+                host_name_opts.add(opt_key)
+
+        # Include commands whose positional args complete against host names
+        host_name_args = _HOST_NAME_COMMANDS & canonical_names
+
+        # Include subcommands whose positional args complete against plugin names
+        plugin_name_args: set[str] = set()
+        for sub_key in _PLUGIN_NAME_SUBCOMMANDS:
+            group_name = sub_key.split(".")[0]
+            if group_name in canonical_names:
+                plugin_name_args.add(sub_key)
+
+        # Include subcommands whose positional args complete against config keys
+        config_key_args: set[str] = set()
+        for sub_key in _CONFIG_KEY_SUBCOMMANDS:
+            group_name = sub_key.split(".")[0]
+            if group_name in canonical_names:
+                config_key_args.add(sub_key)
+
+        # Inject dynamic choice values from runtime context (config, registries)
+        if dynamic_completions:
+            for opt_key, data_key in _DYNAMIC_CHOICE_OPTIONS.items():
+                cmd_name = opt_key.split(".")[0]
+                if cmd_name in canonical_names and data_key in dynamic_completions:
+                    option_choices[opt_key] = dynamic_completions[data_key]
+
         cache_data: dict[str, object] = {
             "commands": all_command_names,
             "aliases": alias_to_canonical,
@@ -199,6 +326,13 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
             "option_choices": option_choices,
             "agent_name_arguments": sorted(agent_name_args),
             "git_branch_options": sorted(git_branch_opts),
+            "host_name_options": sorted(host_name_opts),
+            "host_name_arguments": sorted(host_name_args),
+            "plugin_name_options": sorted(set(plugin_name_opts)),
+            "plugin_names": dynamic_completions.get("plugin_names", []) if dynamic_completions else [],
+            "plugin_name_arguments": sorted(plugin_name_args),
+            "config_key_arguments": sorted(config_key_args),
+            "config_keys": dynamic_completions.get("config_keys", []) if dynamic_completions else [],
         }
 
         cache_path = get_completion_cache_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME

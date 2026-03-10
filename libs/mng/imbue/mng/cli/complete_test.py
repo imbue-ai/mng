@@ -9,6 +9,7 @@ from imbue.mng.cli.complete import _get_completions
 from imbue.mng.cli.complete import _read_agent_names
 from imbue.mng.cli.complete import _read_cache
 from imbue.mng.cli.complete import _read_git_branches
+from imbue.mng.cli.complete import _read_host_names
 from imbue.mng.utils.testing import run_git_command
 from imbue.mng.utils.testing import write_discovery_snapshot_to_path
 
@@ -19,10 +20,14 @@ def _write_command_cache(cache_dir: Path, data: dict[str, object]) -> None:
     (cache_dir / ".command_completions.json").write_text(json.dumps(data))
 
 
-def _write_discovery_events(host_dir: Path, agent_names: list[str]) -> None:
+def _write_discovery_events(
+    host_dir: Path,
+    agent_names: list[str],
+    host_names: list[str] | None = None,
+) -> None:
     """Write a DISCOVERY_FULL event to the discovery events file for testing."""
     events_path = host_dir / "events" / "mng" / "discovery" / "events.jsonl"
-    write_discovery_snapshot_to_path(events_path, agent_names)
+    write_discovery_snapshot_to_path(events_path, agent_names, host_names=host_names)
 
 
 def _make_cache_data(
@@ -34,6 +39,13 @@ def _make_cache_data(
     option_choices: dict[str, list[str]] | None = None,
     agent_name_arguments: list[str] | None = None,
     git_branch_options: list[str] | None = None,
+    host_name_options: list[str] | None = None,
+    host_name_arguments: list[str] | None = None,
+    plugin_name_options: list[str] | None = None,
+    plugin_names: list[str] | None = None,
+    plugin_name_arguments: list[str] | None = None,
+    config_key_arguments: list[str] | None = None,
+    config_keys: list[str] | None = None,
 ) -> dict:
     """Build a command completions cache dict with sensible defaults."""
     return {
@@ -45,6 +57,13 @@ def _make_cache_data(
         "option_choices": option_choices or {},
         "agent_name_arguments": agent_name_arguments or [],
         "git_branch_options": git_branch_options or [],
+        "host_name_options": host_name_options or [],
+        "host_name_arguments": host_name_arguments or [],
+        "plugin_name_options": plugin_name_options or [],
+        "plugin_names": plugin_names or [],
+        "plugin_name_arguments": plugin_name_arguments or [],
+        "config_key_arguments": config_key_arguments or [],
+        "config_keys": config_keys or [],
     }
 
 
@@ -697,3 +716,266 @@ def test_get_completions_git_branch_option_not_triggered_for_other_options(
     result = _get_completions()
 
     assert result == []
+
+
+# =============================================================================
+# Host name completion tests
+# =============================================================================
+
+
+def test_read_host_names_returns_names(completion_cache_dir: Path) -> None:
+    _write_discovery_events(completion_cache_dir, [], host_names=["my-host", "other-host"])
+
+    result = _read_host_names()
+
+    assert result == ["my-host", "other-host"]
+
+
+def test_read_host_names_returns_empty_when_missing(completion_cache_dir: Path) -> None:
+    result = _read_host_names()
+
+    assert result == []
+
+
+def test_get_completions_host_name_option(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Completing values for a host name option should offer host names."""
+    data = _make_cache_data(
+        commands=["create"],
+        options_by_command={"create": ["--host", "--name"]},
+        host_name_options=["create.--host"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    _write_discovery_events(completion_cache_dir, [], host_names=["saturn", "jupiter"])
+    set_comp_env("mng create --host ", "3")
+
+    result = _get_completions()
+
+    assert "saturn" in result
+    assert "jupiter" in result
+
+
+def test_get_completions_host_name_option_with_prefix(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Host name completion should filter by prefix."""
+    data = _make_cache_data(
+        commands=["create"],
+        options_by_command={"create": ["--host", "--name"]},
+        host_name_options=["create.--host"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    _write_discovery_events(completion_cache_dir, [], host_names=["saturn", "jupiter"])
+    set_comp_env("mng create --host sat", "3")
+
+    result = _get_completions()
+
+    assert result == ["saturn"]
+
+
+def test_get_completions_host_name_positional(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Commands in host_name_arguments should offer host names as positional args."""
+    data = _make_cache_data(
+        commands=["events"],
+        agent_name_arguments=["events"],
+        host_name_arguments=["events"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    _write_discovery_events(completion_cache_dir, ["my-agent"], host_names=["saturn"])
+    set_comp_env("mng events ", "2")
+
+    result = _get_completions()
+
+    assert "my-agent" in result
+    assert "saturn" in result
+
+
+# =============================================================================
+# Plugin name completion tests
+# =============================================================================
+
+
+def test_get_completions_plugin_name_option(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Completing values for --plugin should offer plugin names."""
+    data = _make_cache_data(
+        commands=["create"],
+        options_by_command={"create": ["--name", "--plugin"]},
+        plugin_name_options=["create.--plugin"],
+        plugin_names=["claude", "docker", "modal"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng create --plugin ", "3")
+
+    result = _get_completions()
+
+    assert result == ["claude", "docker", "modal"]
+
+
+def test_get_completions_plugin_name_option_with_prefix(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Plugin name completion should filter by prefix."""
+    data = _make_cache_data(
+        commands=["create"],
+        options_by_command={"create": ["--name", "--plugin"]},
+        plugin_name_options=["create.--plugin"],
+        plugin_names=["claude", "docker", "modal"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng create --plugin do", "3")
+
+    result = _get_completions()
+
+    assert result == ["docker"]
+
+
+def test_get_completions_plugin_name_positional(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Plugin enable/disable subcommands should complete plugin names positionally."""
+    data = _make_cache_data(
+        commands=["plugin"],
+        subcommand_by_command={"plugin": ["enable", "disable", "list"]},
+        plugin_name_arguments=["plugin.enable", "plugin.disable"],
+        plugin_names=["claude", "docker", "modal"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng plugin enable ", "3")
+
+    result = _get_completions()
+
+    assert result == ["claude", "docker", "modal"]
+
+
+def test_get_completions_plugin_name_positional_with_prefix(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Plugin name positional completion should filter by prefix."""
+    data = _make_cache_data(
+        commands=["plugin"],
+        subcommand_by_command={"plugin": ["enable", "disable"]},
+        plugin_name_arguments=["plugin.enable"],
+        plugin_names=["claude", "docker", "modal"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng plugin enable cl", "3")
+
+    result = _get_completions()
+
+    assert result == ["claude"]
+
+
+# =============================================================================
+# Config key completion tests
+# =============================================================================
+
+
+def test_get_completions_config_key_positional(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Config get/set/unset should complete config keys positionally."""
+    data = _make_cache_data(
+        commands=["config"],
+        subcommand_by_command={"config": ["get", "set", "unset", "list"]},
+        config_key_arguments=["config.get", "config.set", "config.unset"],
+        config_keys=["prefix", "logging.console_level", "logging.file_level"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng config get ", "3")
+
+    result = _get_completions()
+
+    assert "prefix" in result
+    assert "logging.console_level" in result
+    assert "logging.file_level" in result
+
+
+def test_get_completions_config_key_positional_with_prefix(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Config key completion should filter by prefix."""
+    data = _make_cache_data(
+        commands=["config"],
+        subcommand_by_command={"config": ["get", "set", "unset"]},
+        config_key_arguments=["config.get"],
+        config_keys=["prefix", "logging.console_level", "logging.file_level"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng config get log", "3")
+
+    result = _get_completions()
+
+    assert result == ["logging.console_level", "logging.file_level"]
+
+
+# =============================================================================
+# Dynamic option choices tests (agent types, templates, providers)
+# =============================================================================
+
+
+def test_get_completions_agent_type_option(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Completing --agent-type should offer agent type names from option_choices."""
+    data = _make_cache_data(
+        commands=["create"],
+        options_by_command={"create": ["--agent-type", "--name"]},
+        option_choices={"create.--agent-type": ["claude", "codex", "my-custom"]},
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng create --agent-type ", "3")
+
+    result = _get_completions()
+
+    assert result == ["claude", "codex", "my-custom"]
+
+
+def test_get_completions_template_option(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Completing --template should offer template names from option_choices."""
+    data = _make_cache_data(
+        commands=["create"],
+        options_by_command={"create": ["--name", "--template"]},
+        option_choices={"create.--template": ["dev", "prod"]},
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng create --template ", "3")
+
+    result = _get_completions()
+
+    assert result == ["dev", "prod"]
+
+
+def test_get_completions_provider_option(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Completing --in should offer provider names from option_choices."""
+    data = _make_cache_data(
+        commands=["create"],
+        options_by_command={"create": ["--in", "--name"]},
+        option_choices={"create.--in": ["docker", "local", "modal"]},
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng create --in ", "3")
+
+    result = _get_completions()
+
+    assert result == ["docker", "local", "modal"]

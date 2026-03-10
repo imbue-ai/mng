@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from imbue.mng.cli.complete_names import resolve_names_from_discovery_stream
 from imbue.mng.config.host_dir import read_default_host_dir
@@ -51,6 +52,15 @@ def _read_agent_names() -> list[str]:
     try:
         agent_names, _ = resolve_names_from_discovery_stream()
         return agent_names
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def _read_host_names() -> list[str]:
+    """Read host names from the discovery event stream."""
+    try:
+        _, host_names = resolve_names_from_discovery_stream()
+        return host_names
     except (OSError, json.JSONDecodeError):
         return []
 
@@ -110,8 +120,9 @@ def _get_completions() -> list[str]:
     options_by_command: dict[str, list[str]] = cache.get("options_by_command", {})
     flag_options_by_command: dict[str, list[str]] = cache.get("flag_options_by_command", {})
     option_choices: dict[str, list[str]] = cache.get("option_choices", {})
-    agent_name_arguments: list[str] = cache.get("agent_name_arguments", [])
     git_branch_options: list[str] = cache.get("git_branch_options", [])
+    host_name_options: list[str] = cache.get("host_name_options", [])
+    plugin_name_options: list[str] = cache.get("plugin_name_options", [])
 
     # Resolve the command and subcommand from the words already typed
     resolved_command: str | None = None
@@ -162,20 +173,26 @@ def _get_completions() -> list[str]:
             if incomplete.startswith("--"):
                 candidates = options_by_command.get(option_key, [])
             else:
-                candidates = _get_positional_candidates(option_key, agent_name_arguments)
+                candidates = _get_positional_candidates(option_key, cache)
         elif incomplete.startswith("--"):
             # Previous word is value-taking, but user started typing an option
             candidates = options_by_command.get(option_key, [])
         elif choice_key in git_branch_options:
             # Option whose value should complete against git branch names
             candidates = _read_git_branches()
+        elif choice_key in host_name_options:
+            # Option whose value should complete against host names
+            candidates = _read_host_names()
+        elif choice_key in plugin_name_options:
+            # Option whose value should complete against plugin names
+            candidates = cache.get("plugin_names", [])
         else:
             # Previous word is value-taking, current word is its value -- no completions
             candidates = []
     elif incomplete.startswith("--"):
         candidates = options_by_command.get(option_key, [])
     else:
-        candidates = _get_positional_candidates(option_key, agent_name_arguments)
+        candidates = _get_positional_candidates(option_key, cache)
 
     return [c for c in candidates if c.startswith(incomplete)]
 
@@ -194,18 +211,27 @@ def _filter_aliases(
     return [c for c in matching if c not in aliases or aliases[c] not in matching_set]
 
 
-def _get_positional_candidates(
-    command_key: str,
-    agent_name_arguments: list[str],
-) -> list[str]:
-    """Return positional argument candidates (agent names) if applicable.
+def _get_positional_candidates(command_key: str, cache: dict[str, Any]) -> list[str]:
+    """Return positional argument candidates from all applicable completion sources.
 
     command_key is the dotted command key (e.g. "destroy", "snapshot.create", or "").
+    Checks agent names, host names, plugin names, and config keys as appropriate.
     """
-    if command_key and command_key in agent_name_arguments:
-        return _read_agent_names()
-    else:
+    if not command_key:
         return []
+
+    candidates: list[str] = []
+
+    if command_key in cache.get("agent_name_arguments", []):
+        candidates.extend(_read_agent_names())
+    if command_key in cache.get("host_name_arguments", []):
+        candidates.extend(_read_host_names())
+    if command_key in cache.get("plugin_name_arguments", []):
+        candidates.extend(cache.get("plugin_names", []))
+    if command_key in cache.get("config_key_arguments", []):
+        candidates.extend(cache.get("config_keys", []))
+
+    return candidates
 
 
 def _generate_zsh_script() -> str:

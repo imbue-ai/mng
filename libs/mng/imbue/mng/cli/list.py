@@ -22,6 +22,7 @@ from tabulate import tabulate
 
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
+from imbue.mng.agents.agent_registry import list_registered_agent_types
 from imbue.mng.api.discovery_events import find_latest_full_snapshot_offset
 from imbue.mng.api.discovery_events import get_discovery_events_path
 from imbue.mng.api.list import ErrorInfo
@@ -36,6 +37,7 @@ from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import render_format_template
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.config.completion_writer import flatten_dict_keys
 from imbue.mng.config.completion_writer import write_cli_completions_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
@@ -132,6 +134,40 @@ class ListCliOptions(CommonCliOptions):
     watch: int | None
     on_error: str
     stream: bool
+
+
+def _build_dynamic_completions(mng_ctx: MngContext) -> dict[str, list[str]]:
+    """Build dynamic completion data from the runtime context.
+
+    Extracts agent type names, template names, provider names, plugin names,
+    and config keys for use by the tab completion cache.
+    """
+    config = mng_ctx.config
+
+    # Agent types: built-in (registered by plugins) + custom (from config)
+    registered = list_registered_agent_types()
+    custom = [str(k) for k in config.agent_types.keys()]
+    agent_type_names = sorted(set(registered + custom))
+
+    # Template names from config
+    template_names = sorted(str(k) for k in config.create_templates.keys())
+
+    # Provider names from config (always include "local")
+    provider_names = sorted(set(["local"] + [str(k) for k in config.providers.keys()]))
+
+    # Plugin names from the plugin manager
+    plugin_names = sorted({name for name, _ in mng_ctx.pm.list_name_plugin() if name and not name.startswith("_")})
+
+    # Flattened config keys for config get/set/unset completion
+    config_keys = flatten_dict_keys(config.model_dump(mode="json"))
+
+    return {
+        "agent_type_names": agent_type_names,
+        "template_names": template_names,
+        "provider_names": provider_names,
+        "plugin_names": plugin_names,
+        "config_keys": config_keys,
+    }
 
 
 @click.command(name="list")
@@ -236,7 +272,8 @@ def list_command(ctx: click.Context, **kwargs) -> None:
         ctx.exit(1)
 
     if ctx.parent is not None and isinstance(ctx.parent.command, click.Group):
-        write_cli_completions_cache(ctx.parent.command)
+        dynamic = ctx.meta.get("dynamic_completions")
+        write_cli_completions_cache(ctx.parent.command, dynamic_completions=dynamic)
 
 
 def _list_impl(ctx: click.Context, **kwargs) -> None:
@@ -247,6 +284,11 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         command_class=ListCliOptions,
         is_format_template_supported=True,
     )
+
+    # Compute dynamic completion data for the cache writer. This runs inside
+    # _list_impl where mng_ctx is available, and is picked up by list_command
+    # after this function returns.
+    ctx.meta["dynamic_completions"] = _build_dynamic_completions(mng_ctx)
 
     # Format template is now resolved by the common option parsing infrastructure
     # (via --format with a template string, e.g. --format '{name}\t{state}')

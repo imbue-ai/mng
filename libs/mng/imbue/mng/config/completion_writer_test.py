@@ -7,6 +7,7 @@ import click
 import pytest
 
 from imbue.mng.config.completion_writer import COMMAND_COMPLETIONS_CACHE_FILENAME
+from imbue.mng.config.completion_writer import flatten_dict_keys
 from imbue.mng.config.completion_writer import get_completion_cache_dir
 from imbue.mng.config.completion_writer import write_cli_completions_cache
 
@@ -85,3 +86,182 @@ def test_write_cli_completions_cache_includes_git_branch_options(completion_cach
     data = json.loads(cache_path.read_text())
     assert "git_branch_options" in data
     assert "create.--base-branch" in data["git_branch_options"]
+
+
+def _read_cache(cache_dir: Path) -> dict:
+    """Read and return the completion cache data."""
+    return json.loads((cache_dir / COMMAND_COMPLETIONS_CACHE_FILENAME).read_text())
+
+
+def test_write_cli_completions_cache_includes_host_name_options(completion_cache_dir: Path) -> None:
+    """Cache should include host_name_options for create --host and --target-host."""
+    group = click.Group(
+        name="test",
+        commands={
+            "create": click.Command(
+                "create",
+                params=[
+                    click.Option(["--host"]),
+                    click.Option(["--target-host"]),
+                ],
+            ),
+        },
+    )
+
+    write_cli_completions_cache(group)
+    data = _read_cache(completion_cache_dir)
+
+    assert "create.--host" in data["host_name_options"]
+    assert "create.--target-host" in data["host_name_options"]
+
+
+def test_write_cli_completions_cache_includes_host_name_arguments(completion_cache_dir: Path) -> None:
+    """Cache should include host_name_arguments for the events command."""
+    group = click.Group(
+        name="test",
+        commands={
+            "events": click.Command("events"),
+            "list": click.Command("list"),
+        },
+    )
+
+    write_cli_completions_cache(group)
+    data = _read_cache(completion_cache_dir)
+
+    assert "events" in data["host_name_arguments"]
+    assert "list" not in data["host_name_arguments"]
+
+
+def test_write_cli_completions_cache_includes_plugin_name_options(completion_cache_dir: Path) -> None:
+    """Cache should detect --plugin/--enable-plugin/--disable-plugin as plugin name options."""
+    group = click.Group(
+        name="test",
+        commands={
+            "create": click.Command(
+                "create",
+                params=[
+                    click.Option(["--plugin"]),
+                    click.Option(["--name"]),
+                ],
+            ),
+        },
+    )
+
+    write_cli_completions_cache(group)
+    data = _read_cache(completion_cache_dir)
+
+    assert "create.--plugin" in data["plugin_name_options"]
+
+
+def test_write_cli_completions_cache_includes_plugin_name_arguments(completion_cache_dir: Path) -> None:
+    """Cache should include plugin_name_arguments for plugin enable/disable subcommands."""
+    plugin_group = click.Group(
+        name="plugin",
+        commands={
+            "enable": click.Command("enable"),
+            "disable": click.Command("disable"),
+            "list": click.Command("list"),
+        },
+    )
+    group = click.Group(name="test", commands={"plugin": plugin_group})
+
+    write_cli_completions_cache(group)
+    data = _read_cache(completion_cache_dir)
+
+    assert "plugin.enable" in data["plugin_name_arguments"]
+    assert "plugin.disable" in data["plugin_name_arguments"]
+
+
+def test_write_cli_completions_cache_includes_config_key_arguments(completion_cache_dir: Path) -> None:
+    """Cache should include config_key_arguments for config get/set/unset subcommands."""
+    config_group = click.Group(
+        name="config",
+        commands={
+            "get": click.Command("get"),
+            "set": click.Command("set"),
+            "unset": click.Command("unset"),
+            "list": click.Command("list"),
+        },
+    )
+    group = click.Group(name="test", commands={"config": config_group})
+
+    write_cli_completions_cache(group)
+    data = _read_cache(completion_cache_dir)
+
+    assert "config.get" in data["config_key_arguments"]
+    assert "config.set" in data["config_key_arguments"]
+    assert "config.unset" in data["config_key_arguments"]
+
+
+def test_write_cli_completions_cache_dynamic_completions(completion_cache_dir: Path) -> None:
+    """Dynamic completions should be injected into option_choices and stored in cache."""
+    group = click.Group(
+        name="test",
+        commands={
+            "create": click.Command(
+                "create",
+                params=[
+                    click.Option(["--agent-type"]),
+                    click.Option(["--template"]),
+                    click.Option(["--in"]),
+                ],
+            ),
+            "list": click.Command(
+                "list",
+                params=[
+                    click.Option(["--provider"]),
+                ],
+            ),
+        },
+    )
+    dynamic = {
+        "agent_type_names": ["claude", "codex"],
+        "template_names": ["dev", "prod"],
+        "provider_names": ["docker", "local", "modal"],
+        "plugin_names": ["myplugin"],
+        "config_keys": ["prefix", "logging.level"],
+    }
+
+    write_cli_completions_cache(group, dynamic_completions=dynamic)
+    data = _read_cache(completion_cache_dir)
+
+    assert data["option_choices"]["create.--agent-type"] == ["claude", "codex"]
+    assert data["option_choices"]["create.--template"] == ["dev", "prod"]
+    assert data["option_choices"]["create.--in"] == ["docker", "local", "modal"]
+    assert data["option_choices"]["list.--provider"] == ["docker", "local", "modal"]
+    assert data["plugin_names"] == ["myplugin"]
+    assert data["config_keys"] == ["prefix", "logging.level"]
+
+
+def test_write_cli_completions_cache_no_dynamic_completions(completion_cache_dir: Path) -> None:
+    """When dynamic_completions is None, plugin_names and config_keys should be empty."""
+    group = click.Group(
+        name="test",
+        commands={"list": click.Command("list")},
+    )
+
+    write_cli_completions_cache(group)
+    data = _read_cache(completion_cache_dir)
+
+    assert data["plugin_names"] == []
+    assert data["config_keys"] == []
+
+
+# =============================================================================
+# flatten_dict_keys tests
+# =============================================================================
+
+
+def testflatten_dict_keys_flat() -> None:
+    data = {"a": 1, "b": 2, "c": 3}
+    assert flatten_dict_keys(data) == ["a", "b", "c"]
+
+
+def testflatten_dict_keys_nested() -> None:
+    data = {"logging": {"console_level": "INFO", "file_level": "DEBUG"}, "prefix": "mng"}
+    result = flatten_dict_keys(data)
+    assert result == ["logging.console_level", "logging.file_level", "prefix"]
+
+
+def testflatten_dict_keys_empty() -> None:
+    assert flatten_dict_keys({}) == []
