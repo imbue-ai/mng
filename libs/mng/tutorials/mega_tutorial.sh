@@ -99,11 +99,11 @@ mng create my-task --branch "main:mng/*"
 mng create my-task --branch ":feature/my-task"
 
 # you can create a direct file copy instead of a worktree:
-mng create my-task --transfer=copy
+mng create my-task --transfer=rsync
 # that is used by default if you're not in a git repo
 
-# you can disable new branch creation entirely by omitting the :NEW part (requires --in-place or --transfer=copy due to how worktrees work, and --in-place implies no new branch):
-mng create my-task --transfer=copy --branch main
+# you can disable new branch creation entirely by omitting the :NEW part (requires --in-place or --transfer=rsync due to how worktrees work, and --in-place implies no new branch):
+mng create my-task --transfer=rsync --branch main
 
 # you can use git-push mode, which uses "git push --mirror" to transfer only git objects (faster for large repos with many non-tracked files):
 mng create my-task --transfer=git-push

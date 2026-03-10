@@ -491,7 +491,7 @@ class AgentGitOptions(FrozenModel):
         description="Whether to sync git data from the source repository",
     )
     transfer_mode: TransferMode = Field(
-        default=TransferMode.COPY,
+        default=TransferMode.RSYNC,
         description="How to transfer source code to the work_dir: copy (rsync), git-push (git push --mirror), or git-worktree",
     )
     base_branch: str | None = Field(

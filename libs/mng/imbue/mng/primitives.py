@@ -132,7 +132,7 @@ class CleanupAction(UpperCaseStrEnum):
 class TransferMode(UpperCaseStrEnum):
     """Mode for transferring source code to the agent work directory."""
 
-    COPY = auto()
+    RSYNC = auto()
     GIT_PUSH = auto()
     GIT_WORKTREE = auto()
 

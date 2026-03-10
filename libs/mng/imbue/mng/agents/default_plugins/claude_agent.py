@@ -680,7 +680,7 @@ class ClaudeAgent(BaseAgent):
                 raise PluginMngError(
                     "Worktree mode is not supported on remote hosts.\n"
                     "Claude trust extension requires local filesystem access. "
-                    "Use --transfer=copy or --transfer=git-push instead."
+                    "Use --transfer=rsync or --transfer=git-push instead."
                 )
             if not mng_ctx.is_interactive and not mng_ctx.is_auto_approve:
                 git_common_dir = find_git_common_dir(self.work_dir, mng_ctx.concurrency_group)

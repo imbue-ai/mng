@@ -316,7 +316,7 @@ class CreateCliOptions(CommonCliOptions):
     "--transfer",
     type=click.Choice(_make_transfer_mode_choices(), case_sensitive=False),
     default=None,
-    help="How to transfer source code: copy (rsync), git-push (git push --mirror), git-worktree (shared worktree) [default: git-worktree for local git repos, git-push for remote git repos, copy for non-git]",
+    help="How to transfer source code: rsync (direct file copy), git-push (git push --mirror), git-worktree (shared worktree) [default: git-worktree for local git repos, git-push for remote git repos, rsync for non-git]",
 )
 @optgroup.group("Agent Git Configuration")
 @optgroup.option(
@@ -1008,18 +1008,18 @@ def _parse_agent_opts(
         # No explicit flag, apply defaults based on context:
         # - GIT_WORKTREE for local git repos (fast, shares objects)
         # - GIT_PUSH for remote git repos (transfers only git objects via git push --mirror)
-        # - COPY for non-git sources (rsync everything)
+        # - RSYNC for non-git sources (rsync everything)
         is_creating_remote_host = opts.new_host is not None and opts.new_host.lower() != LOCAL_PROVIDER_NAME
         is_git_repo = source_location.host.is_local and _is_git_repo(source_location.path, mng_ctx.concurrency_group)
         if is_creating_remote_host:
-            transfer_mode = TransferMode.GIT_PUSH if is_git_repo else TransferMode.COPY
+            transfer_mode = TransferMode.GIT_PUSH if is_git_repo else TransferMode.RSYNC
         elif source_location.host.is_local:
             if is_git_repo:
                 transfer_mode = TransferMode.GIT_WORKTREE
             else:
-                transfer_mode = TransferMode.COPY
+                transfer_mode = TransferMode.RSYNC
         else:
-            transfer_mode = TransferMode.COPY
+            transfer_mode = TransferMode.RSYNC
 
     # Parse --branch flag: [BASE_BRANCH][:NEW_BRANCH]
     base_branch, new_branch_name, has_explicit_base = _parse_branch_flag(opts.branch, parsed_agent_name)

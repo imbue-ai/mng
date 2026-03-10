@@ -931,13 +931,13 @@ class Host(BaseHost, OnlineHostInterface):
         options: CreateAgentOptions,
     ) -> CreateWorkDirResult:
         """Create the work_dir directory for a new agent."""
-        transfer_mode = options.git.transfer_mode if options.git else TransferMode.COPY
+        transfer_mode = options.git.transfer_mode if options.git else TransferMode.RSYNC
         with log_span("Creating agent work directory", transfer_mode=str(transfer_mode)):
             if transfer_mode == TransferMode.GIT_WORKTREE:
                 return self._create_work_dir_as_git_worktree(host, path, options)
             elif transfer_mode == TransferMode.GIT_PUSH:
                 return self._create_work_dir_as_git_push(host, path, options)
-            elif transfer_mode == TransferMode.COPY:
+            elif transfer_mode == TransferMode.RSYNC:
                 return self._create_work_dir_as_file_copy(host, path, options)
             else:
                 assert_never(transfer_mode)
@@ -1067,8 +1067,9 @@ class Host(BaseHost, OnlineHostInterface):
         should_exclude_git = has_git_options and not is_git_synced
 
         # rsync everything from source to target, including any user-provided rsync_args.
+        # In rsync transfer mode, rsync is the primary mechanism, so custom args are always included.
         extra_rsync_args = "--delete"
-        if options.data_options.is_rsync_enabled and options.data_options.rsync_args:
+        if options.data_options.rsync_args:
             extra_rsync_args = f"--delete {options.data_options.rsync_args}"
 
         with log_span("Copying files via rsync"):

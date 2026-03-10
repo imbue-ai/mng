@@ -868,7 +868,7 @@ def test_provision_does_not_extend_trust_for_non_worktree(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(transfer_mode=TransferMode.COPY),
+        git=AgentGitOptions(transfer_mode=TransferMode.RSYNC),
     )
 
     agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
