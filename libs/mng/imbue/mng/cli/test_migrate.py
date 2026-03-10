@@ -36,8 +36,6 @@ def test_migrate_clones_and_destroys_source(
                 "--agent-cmd",
                 "sleep 482917",
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
             ],
             obj=plugin_manager,
             catch_exceptions=False,

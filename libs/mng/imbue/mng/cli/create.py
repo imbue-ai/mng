@@ -7,7 +7,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Final
 from typing import assert_never
-from typing import cast
 
 import click
 from click_option_group import optgroup
@@ -37,7 +36,6 @@ from imbue.mng.api.find import resolve_source_location
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
-from imbue.mng.cli.common_opts import error_if_param_explicit
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
@@ -48,9 +46,7 @@ from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import AgentNotFoundError
-from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
-from imbue.mng.hosts.host import Host
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import HostLifecycleOptions
@@ -62,7 +58,6 @@ from imbue.mng.interfaces.host import AgentLifecycleOptions
 from imbue.mng.interfaces.host import AgentPermissionsOptions
 from imbue.mng.interfaces.host import AgentProvisioningOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
-from imbue.mng.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mng.interfaces.host import FileModificationSpec
 from imbue.mng.interfaces.host import HostEnvironmentOptions
 from imbue.mng.interfaces.host import NamedCommand
@@ -96,9 +91,7 @@ from imbue.mng.utils.git_utils import find_git_worktree_root
 from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.logging import LoggingConfig
 from imbue.mng.utils.logging import LoggingSuppressor
-from imbue.mng.utils.logging import remove_console_handlers
 from imbue.mng.utils.name_generator import generate_agent_name
-from imbue.mng.utils.polling import wait_for
 
 _DEFAULT_NEW_BRANCH_PATTERN: Final[str] = "mng/*"
 
@@ -167,17 +160,12 @@ class CreateCliOptions(CommonCliOptions):
     reuse: bool
     connect: bool
     connect_command: str | None
-    await_ready: bool | None
-    await_agent_stopped: bool | None
-    copy_work_dir: bool | None
     ensure_clean: bool
-    snapshot_source: bool | None
     name: str | None
     agent_id: str | None
     name_style: str
     agent_command: str | None
     add_command: tuple[str, ...]
-    user: str | None
     source: str | None
     source_agent: str | None
     source_host: str | None
@@ -209,8 +197,6 @@ class CreateCliOptions(CommonCliOptions):
     host_env: tuple[str, ...]
     host_env_file: tuple[str, ...]
     pass_host_env: tuple[str, ...]
-    known_hosts: tuple[str, ...]
-    authorized_keys: tuple[str, ...]
     snapshot: str | None
     build_arg: tuple[str, ...]
     build_args: str | None
@@ -221,8 +207,6 @@ class CreateCliOptions(CommonCliOptions):
     message: str | None
     message_file: str | None
     edit_message: bool
-    resume_message: str | None
-    resume_message_file: str | None
     retry: int
     retry_delay: str
     attach_command: str | None
@@ -237,8 +221,6 @@ class CreateCliOptions(CommonCliOptions):
     upload_file: tuple[str, ...]
     append_to_file: tuple[str, ...]
     prepend_to_file: tuple[str, ...]
-    create_directory: tuple[str, ...]
-    ready_timeout: float
     yes: bool
 
 
@@ -279,10 +261,6 @@ class CreateCliOptions(CommonCliOptions):
     multiple=True,
     help='Run extra command in additional window. Use name="command" to set window name. Note: ALL_UPPERCASE names (e.g., FOO="bar") are treated as env var assignments, not window names',
 )
-@optgroup.option(
-    "--user",
-    help="Override which user to run the agent as [default: current user for local, provider-defined or root for remote]",
-)
 @optgroup.group("Host Options")
 @optgroup.option("--in", "--new-host", "new_host", help="Create a new host using provider (docker, modal, ...)")
 @optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
@@ -309,31 +287,7 @@ class CreateCliOptions(CommonCliOptions):
 )
 @optgroup.option("--connect/--no-connect", default=True, help="Connect to the agent after creation [default: connect]")
 @optgroup.option(
-    "--await-ready/--no-await-ready",
-    "await_ready",
-    default=None,
-    help="Wait until agent is ready before returning [default: no-await-ready if --no-connect]",
-)
-@optgroup.option(
-    "--await-agent-stopped/--no-await-agent-stopped",
-    "await_agent_stopped",
-    default=None,
-    help="Wait until agent has completely finished running before exiting. Useful for testing and scripting. First waits for agent to become ready, then waits for it to stop. [default: no-await-agent-stopped]",
-)
-@optgroup.option(
     "--ensure-clean/--no-ensure-clean", default=True, show_default=True, help="Abort if working tree is dirty"
-)
-@optgroup.option(
-    "--snapshot-source/--no-snapshot-source",
-    "snapshot_source",
-    default=None,
-    help="Snapshot source agent first [default: yes if --source-agent and not local]",
-)
-@optgroup.option(
-    "--copy-work-dir/--no-copy-work-dir",
-    "copy_work_dir",
-    default=None,
-    help="Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect]",
 )
 @optgroup.option(
     "--auto-start/--no-auto-start",
@@ -433,27 +387,12 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option(
     "--prepend-to-file", "prepend_to_file", multiple=True, help="Prepend REMOTE:TEXT to file [repeatable]"
 )
-@optgroup.option(
-    "--create-directory", "create_directory", multiple=True, help="Create directory on remote [repeatable]"
-)
 @optgroup.group("New Host Environment Variables")
 @optgroup.option("--host-env", multiple=True, help="Set environment variable KEY=VALUE for host [repeatable]")
 @optgroup.option(
     "--host-env-file", type=click.Path(exists=True), multiple=True, help="Load env file for host [repeatable]"
 )
 @optgroup.option("--pass-host-env", multiple=True, help="Forward variable from shell for host [repeatable]")
-@optgroup.option(
-    "--known-host",
-    "known_hosts",
-    multiple=True,
-    help="SSH known_hosts entry to add to the host (for outbound SSH) [repeatable]",
-)
-@optgroup.option(
-    "--authorized-key",
-    "authorized_keys",
-    multiple=True,
-    help="SSH authorized_keys entry to add to the host (for inbound SSH) [repeatable]",
-)
 @optgroup.group("New Host Build")
 @optgroup.option("--snapshot", help="Use existing snapshot instead of building")
 @optgroup.option(
@@ -499,17 +438,6 @@ class CreateCliOptions(CommonCliOptions):
     is_flag=True,
     help="Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content.",
 )
-@optgroup.option("--resume-message", help="Message to send when the agent is started (resumed) after being stopped")
-@optgroup.option(
-    "--resume-message-file", type=click.Path(exists=True), help="File containing resume message to send on start"
-)
-@optgroup.option(
-    "--ready-timeout",
-    type=float,
-    default=DEFAULT_AGENT_READY_TIMEOUT_SECONDS,
-    show_default=True,
-    help="Timeout in seconds to wait for agent readiness before sending initial message",
-)
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries (e.g., 5s, 1m)")
 @optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
@@ -543,41 +471,13 @@ def create(ctx: click.Context, **kwargs) -> None:
             to_update(mng_ctx.field_ref().is_auto_approve, True),
         )
 
-    # Resolve defaults that depend on other args. error_if_param_explicit raises if the
-    # user explicitly passed a conflicting value.
-    overrides = []
-
-    # --await-agent-stopped implies --no-connect
-    if opts.await_agent_stopped and opts.connect:
-        error_if_param_explicit(
-            ctx,
-            "connect",
-            "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait.",
-        )
-        overrides.append(to_update(opts.field_ref().connect, False))
-
-    # --await-agent-stopped implies --await-ready
-    if opts.await_agent_stopped and not opts.await_ready:
-        error_if_param_explicit(
-            ctx,
-            "await_ready",
-            "Cannot use --await-agent-stopped and --no-await-ready together.",
-        )
-        overrides.append(to_update(opts.field_ref().await_ready, True))
-
-    resolved_opts = opts.model_copy_update(*overrides) if overrides else opts
-
     # Setup (validation, editor session, source resolution, etc.)
-    setup = _setup_create(mng_ctx, output_opts, resolved_opts, logging_config)
+    setup = _setup_create(mng_ctx, output_opts, opts, logging_config)
 
     # Create agent
-    result = _create_agent(mng_ctx, output_opts, resolved_opts, setup)
-    if result is not None:
-        create_result, connection_opts = result
-        _post_create(create_result, connection_opts, resolved_opts, mng_ctx)
-        _finish_create(create_result, setup, output_opts)
-    else:
-        _finish_create(None, setup, output_opts)
+    create_result, connection_opts = _create_agent(mng_ctx, output_opts, opts, setup)
+    _post_create(create_result, connection_opts, opts, mng_ctx)
+    _finish_create(create_result, setup, output_opts)
 
 
 class _CreateSetup(FrozenModel):
@@ -588,7 +488,6 @@ class _CreateSetup(FrozenModel):
     initial_message: str | None = Field(
         description="Resolved initial message content (from --message or --message-file)"
     )
-    resume_message: str | None = Field(description="Resolved resume message content")
     editor_session: EditorSession | None = Field(default=None, description="Editor session for --edit-message")
     agent_and_host_loader: _CachedAgentHostLoader = Field(description="Lazy loader for agents grouped by host")
     source_location: HostLocation = Field(description="Resolved source location")
@@ -607,21 +506,6 @@ def _setup_create(
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
 
-    # Validate that both --resume-message and --resume-message-file are not provided
-    if opts.resume_message is not None and opts.resume_message_file is not None:
-        raise UserInputError("Cannot provide both --resume-message and --resume-message-file")
-
-    # Early validation: --edit-message cannot be used with background creation
-    # Background creation happens when --no-connect and --no-await-ready (the default when --no-connect)
-    # We check this BEFORE creating the editor session to avoid starting an editor subprocess
-    # that would immediately need to be cleaned up (which causes race conditions and flaky tests)
-    if opts.edit_message:
-        if not opts.connect and not opts.await_ready:
-            raise UserInputError(
-                "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
-                "Use --await-ready to wait for agent creation."
-            )
-
     # Read message from file if --message-file is provided (used as initial content for editor if --edit-message)
     initial_message_content: str | None
     if opts.message_file is not None:
@@ -631,16 +515,6 @@ def _setup_create(
         initial_message_content = opts.message
     else:
         initial_message_content = None
-
-    # Read resume message from file if --resume-message-file is provided
-    resume_message_content: str | None
-    if opts.resume_message_file is not None:
-        resume_message_file_path = Path(opts.resume_message_file)
-        resume_message_content = resume_message_file_path.read_text()
-    elif opts.resume_message is not None:
-        resume_message_content = opts.resume_message
-    else:
-        resume_message_content = None
 
     # If --edit-message is set, start the editor immediately
     # The editor runs in parallel with agent creation
@@ -672,7 +546,6 @@ def _setup_create(
 
     return _CreateSetup(
         initial_message=initial_message,
-        resume_message=resume_message_content,
         editor_session=editor_session,
         agent_and_host_loader=agent_and_host_loader,
         source_location=source_location,
@@ -686,7 +559,7 @@ def _create_agent(
     output_opts: OutputOptions,
     opts: CreateCliOptions,
     setup: _CreateSetup,
-) -> tuple[CreateAgentResult, ConnectionOptions] | None:
+) -> tuple[CreateAgentResult, ConnectionOptions]:
     """Parse opts, resolve host, create agent."""
     # Parse target host (existing or new)
     target_host = _parse_target_host(
@@ -700,7 +573,6 @@ def _create_agent(
     agent_opts, has_explicit_base = _parse_agent_opts(
         opts=opts,
         initial_message=setup.initial_message,
-        resume_message=setup.resume_message,
         source_location=setup.source_location,
         mng_ctx=mng_ctx,
     )
@@ -772,56 +644,13 @@ def _create_agent(
             ),
         )
 
-    # figure out the source (this may snapshot the source agent if needed)
-    snapshot = _snapshot_if_required(
-        mng_ctx=mng_ctx,
-        snapshot_source=opts.snapshot_source,
-        source_location=setup.source_location,
-    )
-
-    # create work_dir immediately (if necessary)
-    # note that this only matters if we're NOT using a snapshot, otherwise it's already "copied"
-    # and obviously only matters if we're not creating a new host
-    is_work_dir_created: bool
-    early_created_branch_name: str | None = None
-    if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
-        work_dir_result = resolved_target_host.create_agent_work_dir(
-            setup.source_location.host, setup.source_location.path, agent_opts
-        )
-        agent_opts = agent_opts.model_copy_update(
-            to_update(agent_opts.field_ref().target_path, work_dir_result.path),
-        )
-        early_created_branch_name = work_dir_result.created_branch_name
-        is_work_dir_created = True
-    elif snapshot is not None:
-        is_work_dir_created = True
-    else:
-        is_work_dir_created = False
-
-    # If --no-connect and --no-await-ready, run api_create in background
-    # Note: --edit-message incompatibility is validated early (before editor creation) to avoid
-    # starting an editor subprocess that would need to be cleaned up
-    if not opts.connect and not opts.await_ready:
-        _create_agent_in_background(
-            setup.source_location,
-            resolved_target_host,
-            agent_opts,
-            mng_ctx,
-            is_work_dir_created,
-            output_opts,
-            created_branch_name=early_created_branch_name,
-        )
-        return None
-
-    # Call the API create function (synchronously)
+    # Call the API create function
     with _editor_cleanup_scope(setup.editor_session):
         create_result = api_create(
             source_location=setup.source_location,
             target_host=resolved_target_host,
             agent_options=agent_opts,
             mng_ctx=mng_ctx,
-            create_work_dir=not is_work_dir_created,
-            created_branch_name=early_created_branch_name,
         )
 
         # If --edit-message was used, wait for editor and send the message
@@ -840,9 +669,7 @@ def _post_create(
     opts: CreateCliOptions,
     mng_ctx: MngContext,
 ) -> None:
-    """Post-creation: await stopped, connect."""
-    if opts.await_agent_stopped:
-        _await_agent_stopped(create_result.agent)
+    """Post-creation: connect."""
     if opts.connect:
         resolved_connect_command = resolve_connect_command(opts.connect_command, mng_ctx)
         if resolved_connect_command is not None:
@@ -858,7 +685,7 @@ def _post_create(
 
 
 def _finish_create(
-    result: CreateAgentResult | None,
+    result: CreateAgentResult,
     setup: _CreateSetup,
     output_opts: OutputOptions,
 ) -> None:
@@ -868,9 +695,6 @@ def _finish_create(
         setup.editor_session.cleanup()
     if LoggingSuppressor.is_suppressed():
         LoggingSuppressor.disable_and_replay(clear_screen=True)
-
-    if result is None:
-        return
 
     _output_result(result, output_opts)
 
@@ -930,58 +754,6 @@ def _handle_editor_message(
         logger.info("Sending edited message...")
         agent.send_message(edited_message)
         logger.debug("Message sent successfully")
-
-
-def _create_agent_in_background(
-    source_location: HostLocation,
-    target_host: OnlineHostInterface | NewHostOptions,
-    agent_options: CreateAgentOptions,
-    mng_ctx: MngContext,
-    is_work_dir_created: bool,
-    output_opts: OutputOptions,
-    created_branch_name: str | None = None,
-) -> None:
-    """Create an agent in a background process that continues after parent exits.
-
-    This function forks the current process. The parent exits immediately while
-    the child process continues to run api_create() in the background.
-    """
-    pid = os.fork()
-
-    if pid > 0:
-        # Parent process: output message and exit immediately
-        logger.info("Agent creation started in background (PID: {})", pid)
-        logger.info("Agent name: {}", agent_options.name)
-        return
-
-    # Child process: detach from parent and continue
-    try:
-        # Create a new session to detach from parent's terminal
-        os.setsid()
-
-        # Remove console handlers from loguru to prevent "I/O operation on closed file"
-        # errors when the parent's terminal closes. File logging continues to work.
-        remove_console_handlers()
-
-        # Call the API create function
-        create_result = api_create(
-            source_location=source_location,
-            target_host=target_host,
-            agent_options=agent_options,
-            mng_ctx=mng_ctx,
-            create_work_dir=not is_work_dir_created,
-            created_branch_name=created_branch_name,
-        )
-
-        # Output result
-        _output_result(create_result, output_opts)
-
-        # Exit the child process
-        os._exit(0)
-    except MngError as e:
-        # Log the error and exit with non-zero status
-        logger.error("Failed to create agent in background: {}", e)
-        os._exit(1)
 
 
 def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, mng_ctx: MngContext) -> str:
@@ -1191,33 +963,6 @@ def _find_source_location(
     return source_location
 
 
-def _snapshot_if_required(
-    mng_ctx: MngContext,
-    snapshot_source: bool | None,
-    source_location: HostLocation,
-) -> str | None:
-    # Determine if we need to snapshot the source agent
-    snapshot_name: str | None = None
-    should_snapshot = snapshot_source
-    # Default to snapshotting if:
-    # 1. source is a remote agent
-    # 2. whose provider can snapshot
-    # 3. and the user didn't explicitly disable
-    is_remote_agent = not source_location.host.is_local
-    # Cast to Host to access provider_instance (implementation detail)
-    host = cast(Host, source_location.host)
-    is_provider_able_to_snapshot = host.provider_instance.supports_snapshots
-    is_snapshot_behavior_specified_by_user = should_snapshot is not None
-    if is_remote_agent and is_provider_able_to_snapshot and not is_snapshot_behavior_specified_by_user:
-        should_snapshot = True
-
-    # create the snapshot, if necessary
-    if should_snapshot and not source_location.host.is_local:
-        snapshot_name = _snapshot_source_agent(source_location, mng_ctx)
-
-    return snapshot_name
-
-
 def _get_current_git_branch(source_location: HostLocation, mng_ctx: MngContext) -> str | None:
     if not source_location.host.is_local:
         raise NotImplementedError(
@@ -1259,7 +1004,6 @@ def _split_cli_args(args: tuple[str, ...]) -> list[str]:
 def _parse_agent_opts(
     opts: CreateCliOptions,
     initial_message: str | None,
-    resume_message: str | None,
     source_location: HostLocation,
     mng_ctx: MngContext,
 ) -> tuple[CreateAgentOptions, bool]:
@@ -1372,16 +1116,10 @@ def _parse_agent_opts(
         upload_files=tuple(UploadFileSpec.from_string(f) for f in opts.upload_file),
         append_to_files=tuple(FileModificationSpec.from_string(f) for f in opts.append_to_file),
         prepend_to_files=tuple(FileModificationSpec.from_string(f) for f in opts.prepend_to_file),
-        create_directories=tuple(Path(d) for d in opts.create_directory),
     )
 
     # Parse target_path if provided
     parsed_target_path = Path(opts.target_path) if opts.target_path else None
-
-    # Determine if we should copy work_dir before building (default: copy if --no-connect)
-    should_copy = opts.copy_work_dir
-    if should_copy is None:
-        should_copy = not opts.connect
 
     # Determine agent type: --agent-type takes priority, then positional argument
     # However, click may incorrectly assign values after -- to positional_agent_type
@@ -1425,12 +1163,8 @@ def _parse_agent_opts(
         command=CommandString(opts.agent_command) if opts.agent_command else None,
         additional_commands=tuple(NamedCommand.from_string(c) for c in opts.add_command),
         agent_args=resolved_agent_args,
-        user=opts.user,
         target_path=parsed_target_path,
-        is_copy_immediate=should_copy,
         initial_message=initial_message,
-        resume_message=resume_message,
-        ready_timeout_seconds=opts.ready_timeout,
         data_options=data_options,
         git=git,
         environment=environment,
@@ -1511,7 +1245,6 @@ def _parse_target_host(
         # Parse build options
         build_options = NewHostBuildOptions(
             snapshot=SnapshotName(opts.snapshot) if opts.snapshot else None,
-            context_path=Path(opts.project_context_path) if opts.project_context_path else None,
             build_args=tuple(combined_build_args),
             start_args=tuple(combined_start_args),
         )
@@ -1526,8 +1259,6 @@ def _parse_target_host(
             environment=HostEnvironmentOptions(
                 env_vars=host_env_vars,
                 env_files=host_env_files,
-                known_hosts=opts.known_hosts,
-                authorized_keys=opts.authorized_keys,
             ),
             lifecycle=lifecycle,
         )
@@ -1618,41 +1349,12 @@ def _ensure_clean_work_dir(location: HostLocation) -> None:
         )
 
 
-def _snapshot_source_agent(location: HostLocation, mng_ctx: MngContext) -> str:
-    """Snapshot the source agent before cloning."""
-    raise NotImplementedError("_snapshot_source_agent not yet implemented")
-
-
 def _assemble_result(
     agent_id: AgentId,
     host_id: HostId,
 ) -> tuple[AgentId, HostId]:
     """Assemble the result for output."""
     return (agent_id, host_id)
-
-
-def _await_agent_stopped(
-    agent: AgentInterface,
-    poll_interval_seconds: float = 0.1,
-    timeout_seconds: float = 300.0,
-) -> None:
-    """Wait for an agent to completely finish running.
-
-    Polls the agent's is_running() status until it returns False.
-    This is useful for scripting and testing when you need to wait
-    for the agent to exit before proceeding.
-    """
-    logger.info("Waiting for agent to stop...")
-    try:
-        wait_for(
-            condition=lambda: not agent.is_running(),
-            timeout=timeout_seconds,
-            poll_interval=poll_interval_seconds,
-            error_message=f"Timeout waiting for agent {agent.name} to stop after {timeout_seconds} seconds",
-        )
-        logger.debug("Stopped agent {}", agent.name)
-    except TimeoutError as e:
-        raise click.ClickException(str(e)) from e
 
 
 def _find_agent_in_host(host: OnlineHostInterface, agent_id: AgentId) -> AgentInterface:
@@ -1691,7 +1393,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]
-    [--[no-]auto-start] [--] [<AGENT_ARGS>...]""",
+    [--[no-]connect] [--[no-]auto-start] [--] [<AGENT_ARGS>...]""",
     aliases=("c",),
     arguments_description="""- `NAME`: Name for the agent (auto-generated if not provided)
 - `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`

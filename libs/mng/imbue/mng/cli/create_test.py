@@ -545,7 +545,6 @@ def test_parse_agent_opts_includes_labels(
     result, _ = _parse_agent_opts(
         opts=opts,
         initial_message=None,
-        resume_message=None,
         source_location=source_location,
         mng_ctx=temp_mng_ctx,
     )
@@ -570,7 +569,6 @@ def test_parse_agent_opts_label_invalid_format_raises(
         _parse_agent_opts(
             opts=opts,
             initial_message=None,
-            resume_message=None,
             source_location=source_location,
             mng_ctx=temp_mng_ctx,
         )
@@ -589,7 +587,6 @@ def test_parse_agent_opts_empty_labels_by_default(
     result, _ = _parse_agent_opts(
         opts=default_create_cli_opts,
         initial_message=None,
-        resume_message=None,
         source_location=source_location,
         mng_ctx=temp_mng_ctx,
     )
@@ -614,7 +611,6 @@ def test_parse_agent_opts_with_agent_id(
     result, _ = _parse_agent_opts(
         opts=opts,
         initial_message=None,
-        resume_message=None,
         source_location=source_location,
         mng_ctx=temp_mng_ctx,
     )
@@ -635,7 +631,6 @@ def test_parse_agent_opts_agent_id_none_by_default(
     result, _ = _parse_agent_opts(
         opts=default_create_cli_opts,
         initial_message=None,
-        resume_message=None,
         source_location=source_location,
         mng_ctx=temp_mng_ctx,
     )

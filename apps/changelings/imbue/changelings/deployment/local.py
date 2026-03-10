@@ -291,7 +291,6 @@ def _create_mng_agent(
             "--agent-id",
             str(agent_id),
             "--no-connect",
-            "--await-ready",
             "--agent-type",
             agent_type,
             "--env",
