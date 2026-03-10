@@ -252,16 +252,16 @@ def test_write_cli_completions_cache_no_dynamic_completions(completion_cache_dir
 # =============================================================================
 
 
-def testflatten_dict_keys_flat() -> None:
+def test_flatten_dict_keys_flat() -> None:
     data = {"a": 1, "b": 2, "c": 3}
     assert flatten_dict_keys(data) == ["a", "b", "c"]
 
 
-def testflatten_dict_keys_nested() -> None:
+def test_flatten_dict_keys_nested() -> None:
     data = {"logging": {"console_level": "INFO", "file_level": "DEBUG"}, "prefix": "mng"}
     result = flatten_dict_keys(data)
     assert result == ["logging.console_level", "logging.file_level", "prefix"]
 
 
-def testflatten_dict_keys_empty() -> None:
+def test_flatten_dict_keys_empty() -> None:
     assert flatten_dict_keys({}) == []
