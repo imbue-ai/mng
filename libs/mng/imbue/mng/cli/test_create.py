@@ -10,6 +10,7 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.imbue_common.model_update import to_update
+from imbue.mng.cli.create import AgentAddress
 from imbue.mng.cli.create import CreateCliOptions
 from imbue.mng.cli.create import _create_agent
 from imbue.mng.cli.create import _setup_create
@@ -160,7 +161,7 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
     output_opts = OutputOptions()
 
     with tmux_session_cleanup(session_name):
-        setup = _setup_create(temp_mng_ctx, output_opts, opts, LoggingConfig())
+        setup = _setup_create(temp_mng_ctx, output_opts, opts, LoggingConfig(), AgentAddress())
         result = _create_agent(temp_mng_ctx, output_opts, opts, setup)
 
         assert result is not None
