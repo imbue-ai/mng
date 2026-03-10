@@ -1,13 +1,14 @@
 import os
 import shutil
-import subprocess
 import tempfile
+import typing
 from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 
 from imbue.skitwright.data_types import CommandResult
+from imbue.skitwright.runner import run_command
 from imbue.skitwright.session import Session
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -65,10 +66,11 @@ def e2e(
     kill_env = os.environ.copy()
     kill_env.pop("TMUX", None)
     kill_env["TMUX_TMPDIR"] = tmux_tmpdir_str
-    subprocess.run(
-        ["tmux", "-S", str(socket_path), "kill-server"],
-        capture_output=True,
+    run_command(
+        f"tmux -S {socket_path} kill-server",
         env=kill_env,
+        cwd=temp_git_repo,
+        timeout=10.0,
     )
     shutil.rmtree(tmux_tmpdir, ignore_errors=True)
 
@@ -90,16 +92,11 @@ def mng(e2e: Session) -> "MngRunner":
     return MngRunner(e2e)
 
 
-class MngRunner:
+class MngRunner(typing.NamedTuple):
     """Convenience wrapper that prefixes commands with 'uv run --project <root> mng'."""
 
-    def __init__(self, session: Session) -> None:
-        self._session = session
+    session: Session
 
     def run(self, args: str, timeout: float = 30.0) -> CommandResult:
         """Run 'uv run mng <args>' and return the result."""
-        return self._session.run(_mng(args), timeout=timeout)
-
-    @property
-    def session(self) -> Session:
-        return self._session
+        return self.session.run(_mng(args), timeout=timeout)

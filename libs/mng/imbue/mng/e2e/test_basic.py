@@ -6,15 +6,15 @@ triggering the tmux attach code path.
 """
 
 import json
-from uuid import uuid4
 
 import pytest
 
+from imbue.mng.e2e.conftest import MngRunner
+from imbue.mng.utils.testing import get_short_random_string
 from imbue.skitwright.expect import expect
 
-from .conftest import MngRunner
 
-
+@pytest.mark.release
 def test_help_succeeds(mng: MngRunner) -> None:
     result = mng.run("--help")
     expect(result).to_succeed()
@@ -23,6 +23,7 @@ def test_help_succeeds(mng: MngRunner) -> None:
     expect(result.stdout).to_contain("list")
 
 
+@pytest.mark.release
 def test_create_help_succeeds(mng: MngRunner) -> None:
     result = mng.run("create --help")
     expect(result).to_succeed()
@@ -30,12 +31,14 @@ def test_create_help_succeeds(mng: MngRunner) -> None:
     expect(result.stdout).to_contain("--agent-cmd")
 
 
+@pytest.mark.release
 def test_list_with_no_agents(mng: MngRunner) -> None:
     result = mng.run("list")
     expect(result).to_succeed()
     expect(result.stdout).to_contain("No agents found")
 
 
+@pytest.mark.release
 def test_list_json_with_no_agents(mng: MngRunner) -> None:
     result = mng.run("list --format json")
     expect(result).to_succeed()
@@ -43,9 +46,10 @@ def test_list_json_with_no_agents(mng: MngRunner) -> None:
     assert parsed["agents"] == []
 
 
+@pytest.mark.release
 @pytest.mark.tmux
 def test_create_and_list_agent(mng: MngRunner) -> None:
-    agent_name = f"e2e-create-{uuid4().hex[:8]}"
+    agent_name = f"e2e-create-{get_short_random_string()}"
     create_result = mng.run(
         f"create {agent_name} --no-connect --await-ready --agent-cmd 'sleep 847291' --no-ensure-clean",
     )
@@ -56,9 +60,10 @@ def test_create_and_list_agent(mng: MngRunner) -> None:
     expect(list_result.stdout).to_match(rf"{agent_name}\s+(RUNNING|WAITING)")
 
 
+@pytest.mark.release
 @pytest.mark.tmux
 def test_create_with_json_output(mng: MngRunner) -> None:
-    agent_name = f"e2e-json-{uuid4().hex[:8]}"
+    agent_name = f"e2e-json-{get_short_random_string()}"
     result = mng.run(
         f"create {agent_name} --no-connect --await-ready --agent-cmd 'sleep 934172' --no-ensure-clean --format json",
     )
@@ -71,9 +76,10 @@ def test_create_with_json_output(mng: MngRunner) -> None:
     assert "agent_id" in parsed
 
 
+@pytest.mark.release
 @pytest.mark.tmux
 def test_create_headless(mng: MngRunner) -> None:
-    agent_name = f"e2e-headless-{uuid4().hex[:8]}"
+    agent_name = f"e2e-headless-{get_short_random_string()}"
     result = mng.run(
         f"create {agent_name} --no-connect --await-ready --headless --agent-cmd 'sleep 621847' --no-ensure-clean",
     )
@@ -84,9 +90,10 @@ def test_create_headless(mng: MngRunner) -> None:
     expect(list_result.stdout).to_contain(agent_name)
 
 
+@pytest.mark.release
 @pytest.mark.tmux
 def test_create_and_destroy_agent(mng: MngRunner) -> None:
-    agent_name = f"e2e-destroy-{uuid4().hex[:8]}"
+    agent_name = f"e2e-destroy-{get_short_random_string()}"
     create_result = mng.run(
         f"create {agent_name} --no-connect --await-ready --agent-cmd 'sleep 537182' --no-ensure-clean",
     )
@@ -100,10 +107,11 @@ def test_create_and_destroy_agent(mng: MngRunner) -> None:
     expect(list_result.stdout).not_to_contain(agent_name)
 
 
+@pytest.mark.release
 @pytest.mark.tmux
 def test_create_and_rename_agent(mng: MngRunner) -> None:
-    old_name = f"e2e-rename-old-{uuid4().hex[:8]}"
-    new_name = f"e2e-rename-new-{uuid4().hex[:8]}"
+    old_name = f"e2e-rename-old-{get_short_random_string()}"
+    new_name = f"e2e-rename-new-{get_short_random_string()}"
 
     create_result = mng.run(
         f"create {old_name} --no-connect --await-ready --agent-cmd 'sleep 283746' --no-ensure-clean",
@@ -119,9 +127,10 @@ def test_create_and_rename_agent(mng: MngRunner) -> None:
     expect(list_result.stdout).not_to_contain(old_name)
 
 
+@pytest.mark.release
 @pytest.mark.tmux
 def test_create_with_label_shows_in_list(mng: MngRunner) -> None:
-    agent_name = f"e2e-label-{uuid4().hex[:8]}"
+    agent_name = f"e2e-label-{get_short_random_string()}"
     create_result = mng.run(
         f"create {agent_name} --no-connect --await-ready"
         f" --agent-cmd 'sleep 174629'"
