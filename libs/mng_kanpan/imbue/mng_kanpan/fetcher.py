@@ -1,3 +1,5 @@
+import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -7,6 +9,7 @@ from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessError
+from imbue.concurrency_group.local_process import RunningProcess
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.discover import discover_all_hosts_and_agents
@@ -22,6 +25,7 @@ from imbue.mng_kanpan.data_types import BoardSnapshot
 from imbue.mng_kanpan.data_types import GitHubData
 from imbue.mng_kanpan.data_types import PrInfo
 from imbue.mng_kanpan.data_types import PrState
+from imbue.mng_kanpan.data_types import RefreshHook
 from imbue.mng_kanpan.github import fetch_all_prs
 
 PLUGIN_NAME = "kanpan"
@@ -175,6 +179,84 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
         prs_loaded=remote.prs_loaded,
         fetch_time_seconds=elapsed,
     )
+
+
+def fetch_board_snapshot_with_hooks(
+    mng_ctx: MngContext,
+    on_before_refresh: list[RefreshHook],
+    on_after_refresh: list[RefreshHook],
+    prev_snapshot: BoardSnapshot | None,
+) -> BoardSnapshot:
+    """Full fetch with before/after refresh hooks.
+
+    Before-hooks run against the previous snapshot's entries (skipped on first refresh).
+    After-hooks run against the new snapshot's entries.
+    Hook errors are appended to the snapshot's errors but do not block the refresh.
+    """
+    cg = mng_ctx.concurrency_group
+    hook_errors: list[str] = []
+
+    if prev_snapshot is not None and on_before_refresh:
+        hook_errors.extend(run_refresh_hooks(cg, on_before_refresh, prev_snapshot.entries))
+
+    snapshot = fetch_board_snapshot(mng_ctx)
+
+    if on_after_refresh:
+        hook_errors.extend(run_refresh_hooks(cg, on_after_refresh, snapshot.entries))
+
+    if hook_errors:
+        snapshot = BoardSnapshot(
+            entries=snapshot.entries,
+            errors=(*snapshot.errors, *hook_errors),
+            prs_loaded=snapshot.prs_loaded,
+            fetch_time_seconds=snapshot.fetch_time_seconds,
+        )
+    return snapshot
+
+
+def run_refresh_hooks(
+    cg: ConcurrencyGroup,
+    hooks: list[RefreshHook],
+    entries: tuple[AgentBoardEntry, ...],
+) -> list[str]:
+    """Run refresh hook commands for each agent in parallel. Returns list of error messages."""
+    errors: list[str] = []
+    for hook in hooks:
+        processes: list[tuple[AgentBoardEntry, RunningProcess]] = []
+        with cg.make_concurrency_group(name=f"hook-{hook.name}") as child_cg:
+            for entry in entries:
+                env = _build_hook_env(entry)
+                proc = child_cg.run_process_in_background(
+                    ["sh", "-c", hook.command],
+                    timeout=30.0,
+                    is_checked_by_group=False,
+                    env=env,
+                )
+                processes.append((entry, proc))
+        for entry, proc in processes:
+            rc = proc.returncode
+            if rc is not None and rc != 0:
+                stderr = proc.read_stderr().strip()
+                msg = f"Hook '{hook.name}' failed for {entry.name} (exit {rc})"
+                if stderr:
+                    msg = f"{msg}: {stderr}"
+                errors.append(msg)
+    return errors
+
+
+def _build_hook_env(entry: AgentBoardEntry) -> dict[str, str]:
+    """Build environment variables for a hook command from an agent board entry."""
+    return {
+        **os.environ,
+        "MNG_AGENT_NAME": str(entry.name),
+        "MNG_AGENT_BRANCH": entry.branch or "",
+        "MNG_AGENT_STATE": str(entry.state),
+        "MNG_AGENT_PROVIDER": str(entry.provider_name),
+        "MNG_AGENT_PR_NUMBER": str(entry.pr.number) if entry.pr else "",
+        "MNG_AGENT_PR_URL": entry.pr.url if entry.pr else "",
+        "MNG_AGENT_PR_STATE": str(entry.pr.state) if entry.pr else "",
+        "MNG_AGENT_LABELS_JSON": json.dumps(entry.labels),
+    }
 
 
 def toggle_agent_mute(mng_ctx: MngContext, agent_name: AgentName) -> bool:

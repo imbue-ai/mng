@@ -38,8 +38,10 @@ from imbue.mng_kanpan.data_types import CheckStatus
 from imbue.mng_kanpan.data_types import CustomCommand
 from imbue.mng_kanpan.data_types import KanpanPluginConfig
 from imbue.mng_kanpan.data_types import PrState
+from imbue.mng_kanpan.data_types import RefreshHook
 from imbue.mng_kanpan.fetcher import fetch_agent_snapshot
 from imbue.mng_kanpan.fetcher import fetch_board_snapshot
+from imbue.mng_kanpan.fetcher import fetch_board_snapshot_with_hooks
 from imbue.mng_kanpan.fetcher import toggle_agent_mute
 
 DEFAULT_REFRESH_INTERVAL_SECONDS: float = 600.0
@@ -203,6 +205,9 @@ class _KanpanState(MutableModel):
     retry_cooldown_seconds: float = 60.0
     # Palette attr names for mark indicators (e.g. "mark_d", "mark_p")
     mark_attr_names: tuple[str, ...] = ()
+    # Refresh hooks loaded from plugin config
+    on_before_refresh: list[RefreshHook] = []
+    on_after_refresh: list[RefreshHook] = []
 
 
 class _KanpanInputHandler(MutableModel):
@@ -743,7 +748,16 @@ def _start_refresh(loop: MainLoop, state: _KanpanState) -> None:
     state.footer_left_attr.set_attr_map({None: "footer"})
     state.spinner_index = 0
     state.refresh_is_local_only = False
-    state.refresh_future = state.executor.submit(fetch_board_snapshot, state.mng_ctx)
+    if state.on_before_refresh or state.on_after_refresh:
+        state.refresh_future = state.executor.submit(
+            fetch_board_snapshot_with_hooks,
+            state.mng_ctx,
+            state.on_before_refresh,
+            state.on_after_refresh,
+            state.snapshot,
+        )
+    else:
+        state.refresh_future = state.executor.submit(fetch_board_snapshot, state.mng_ctx)
     _schedule_spinner_tick(loop, state)
 
 
@@ -1164,6 +1178,25 @@ def _on_auto_refresh_alarm(loop: MainLoop, state: _KanpanState) -> None:
         _start_refresh(loop, state)
 
 
+def _load_refresh_hooks(hooks_raw: dict[str, Any]) -> list[RefreshHook]:
+    """Parse and filter enabled refresh hooks from a raw config dict.
+
+    Config loader uses model_construct() which bypasses validation,
+    so nested dicts may not be parsed into RefreshHook objects.
+    """
+    hooks: list[RefreshHook] = []
+    for value in hooks_raw.values():
+        if isinstance(value, RefreshHook):
+            hook = value
+        elif isinstance(value, dict):
+            hook = RefreshHook(**value)
+        else:
+            continue
+        if hook.enabled:
+            hooks.append(hook)
+    return hooks
+
+
 def _load_user_commands(mng_ctx: MngContext) -> dict[str, CustomCommand]:
     """Load user-defined commands from plugin config."""
     config = mng_ctx.get_plugin_config("kanpan", KanpanPluginConfig)
@@ -1243,6 +1276,9 @@ def run_kanpan(mng_ctx: MngContext) -> None:  # pragma: no cover
 
     mark_palette_entries, mark_attr_names = _build_mark_palette(commands)
 
+    on_before_refresh = _load_refresh_hooks(plugin_config.on_before_refresh)
+    on_after_refresh = _load_refresh_hooks(plugin_config.on_after_refresh)
+
     state = _KanpanState(
         mng_ctx=mng_ctx,
         frame=frame,
@@ -1250,6 +1286,8 @@ def run_kanpan(mng_ctx: MngContext) -> None:  # pragma: no cover
         footer_left_attr=footer_left_attr,
         footer_right=footer_right,
         commands=commands,
+        on_before_refresh=on_before_refresh,
+        on_after_refresh=on_after_refresh,
         refresh_interval_seconds=plugin_config.refresh_interval_seconds,
         retry_cooldown_seconds=plugin_config.retry_cooldown_seconds,
         mark_attr_names=mark_attr_names,
