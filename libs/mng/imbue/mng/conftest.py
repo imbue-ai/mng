@@ -52,7 +52,6 @@ from imbue.mng.utils.testing import worker_modal_app_names
 from imbue.mng.utils.testing import worker_modal_environment_names
 from imbue.mng.utils.testing import worker_modal_volume_names
 from imbue.mng.utils.testing import worker_test_ids
-from imbue.resource_guards.testing import isolate_guard_state
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -99,12 +98,6 @@ _remove_deprecated_urwid_module_aliases()
 # =============================================================================
 # Non-autouse fixtures
 # =============================================================================
-
-
-@pytest.fixture()
-def isolated_guard_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate resource guard module state for guard tests."""
-    isolate_guard_state(monkeypatch)
 
 
 @pytest.fixture
