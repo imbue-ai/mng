@@ -121,7 +121,7 @@ def should_include(msg_type, args):
     return False
 
 
-def format_line(line_num, msg_type, text, use_json, obj):
+def format_line(line_num, msg_type, text, use_json):
     """Format a single output line."""
     if use_json:
         return json.dumps({"line": line_num, "type": msg_type, "text": text})
@@ -182,7 +182,7 @@ def main():
             if not text.strip():
                 continue
 
-            output = format_line(line_num, msg_type, text, args.json, obj)
+            output = format_line(line_num, msg_type, text, args.json)
 
             if args.size:
                 total_size += len(output.encode("utf-8")) + 1  # +1 for newline
