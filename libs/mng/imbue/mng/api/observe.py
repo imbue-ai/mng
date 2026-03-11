@@ -42,6 +42,7 @@ from imbue.mng.primitives import HostName
 # === Constants ===
 
 OBSERVE_EVENT_SOURCE: Final[EventSource] = EventSource("mng/agents")
+AGENT_STATES_EVENT_SOURCE: Final[EventSource] = EventSource("mng/agent_states")
 OBSERVE_LOCK_FILENAME: Final[str] = "observe_lock"
 FULL_STATE_INTERVAL_SECONDS: Final[float] = 300.0
 ACTIVITY_EVENT_FILENAME: Final[str] = "mng/activity/events.jsonl"
@@ -56,6 +57,7 @@ class ObserveEventType(UpperCaseStrEnum):
 
     AGENT_STATE = auto()
     AGENTS_FULL_STATE = auto()
+    AGENT_STATE_CHANGE = auto()
 
 
 class AgentStateEvent(EventEnvelope):
@@ -68,6 +70,19 @@ class FullAgentStateEvent(EventEnvelope):
     """Full state snapshot of all known agents."""
 
     agents: tuple[dict, ...] = Field(description="Serialized AgentDetails for all known agents")
+
+
+class AgentStateChangeEvent(EventEnvelope):
+    """Emitted when an agent's lifecycle state field changes.
+
+    Written to the agent_states event stream, separate from the main agents stream.
+    """
+
+    agent_id: str = Field(description="ID of the agent whose state changed")
+    agent_name: str = Field(description="Name of the agent whose state changed")
+    old_state: str | None = Field(description="Previous lifecycle state value, or None if first observation")
+    new_state: str = Field(description="New lifecycle state value")
+    agent: dict = Field(description="Full serialized AgentDetails at time of state change")
 
 
 # === Path Helpers ===
@@ -84,6 +99,19 @@ def get_observe_events_dir(config: MngConfig) -> Path:
 def get_observe_events_path(config: MngConfig) -> Path:
     """Return the path to the agent observation events JSONL file."""
     return get_observe_events_dir(config) / "events.jsonl"
+
+
+@pure
+def get_agent_states_events_dir(config: MngConfig) -> Path:
+    """Return the directory for agent state change event files."""
+    host_dir = Path(config.default_host_dir).expanduser()
+    return host_dir / "events" / "mng" / "agent_states"
+
+
+@pure
+def get_agent_states_events_path(config: MngConfig) -> Path:
+    """Return the path to the agent state change events JSONL file."""
+    return get_agent_states_events_dir(config) / "events.jsonl"
 
 
 @pure
@@ -127,11 +155,30 @@ def make_full_agent_state_event(agents: Sequence[AgentDetails]) -> FullAgentStat
     )
 
 
+def make_agent_state_change_event(
+    agent: AgentDetails,
+    old_state: str | None,
+) -> AgentStateChangeEvent:
+    """Build an event recording a change in an agent's lifecycle state field."""
+    timestamp, event_id = _make_envelope_fields()
+    return AgentStateChangeEvent(
+        timestamp=timestamp,
+        type=EventType(ObserveEventType.AGENT_STATE_CHANGE),
+        event_id=event_id,
+        source=AGENT_STATES_EVENT_SOURCE,
+        agent_id=str(agent.id),
+        agent_name=str(agent.name),
+        old_state=old_state,
+        new_state=agent.state.value,
+        agent=agent.model_dump(mode="json"),
+    )
+
+
 # === File I/O ===
 
 
 def append_observe_event(config: MngConfig, event: EventEnvelope) -> None:
-    """Append a single observation event to the JSONL file.
+    """Append a single observation event to the agents JSONL file.
 
     Creates parent directories if they do not exist. Uses a single write() call
     for safe concurrent appending under PIPE_BUF.
@@ -143,41 +190,67 @@ def append_observe_event(config: MngConfig, event: EventEnvelope) -> None:
         f.write(line)
 
 
-# === Comparable State ===
+def append_agent_state_change_event(config: MngConfig, event: AgentStateChangeEvent) -> None:
+    """Append a state change event to the agent_states JSONL file.
 
-
-@pure
-def extract_comparable_agent_state(agent: AgentDetails) -> dict:
-    """Extract the fields that determine whether an agent's state has meaningfully changed.
-
-    Excludes continuously-changing fields like idle_seconds, runtime_seconds, and
-    activity timestamps so that events are only emitted for real state transitions.
+    Creates parent directories if they do not exist. Uses a single write() call
+    for safe concurrent appending under PIPE_BUF.
     """
-    return {
-        "id": str(agent.id),
-        "name": str(agent.name),
-        "type": agent.type,
-        "state": agent.state.value,
-        "url": agent.url,
-        "labels": agent.labels,
-        "host_id": str(agent.host.id),
-        "host_state": agent.host.state.value if agent.host.state else None,
-        "work_dir": str(agent.work_dir),
-        "start_on_boot": agent.start_on_boot,
-        "command": str(agent.command),
-        "initial_branch": agent.initial_branch,
-    }
+    events_path = get_agent_states_events_path(config)
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(event.model_dump(mode="json"), separators=(",", ":")) + "\n"
+    with open(events_path, "a") as f:
+        f.write(line)
 
 
-@pure
-def agent_state_has_changed(
-    agent: AgentDetails,
-    last_comparable_json_by_agent_id: dict[str, str],
-) -> bool:
-    """Return True if the agent's comparable state differs from the last emitted state."""
-    comparable = extract_comparable_agent_state(agent)
-    comparable_json = json.dumps(comparable, sort_keys=True)
-    return comparable_json != last_comparable_json_by_agent_id.get(str(agent.id))
+# === History Loading ===
+
+
+def load_base_state_from_history(
+    config: MngConfig,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Load base state from the most recent full state event in history.
+
+    Scans the observe events file for the latest AGENTS_FULL_STATE event and
+    reconstructs agent tracking state from it.
+
+    Returns (last_agent_json_by_id, last_agent_state_by_id) where:
+    - last_agent_json_by_id maps agent ID -> full JSON string of agent details
+    - last_agent_state_by_id maps agent ID -> lifecycle state value string
+    """
+    events_path = get_observe_events_path(config)
+    if not events_path.exists():
+        return {}, {}
+
+    latest_agents_data: tuple[dict, ...] | None = None
+    with open(events_path) as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                data = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            if data.get("type") == ObserveEventType.AGENTS_FULL_STATE:
+                latest_agents_data = tuple(data.get("agents", ()))
+
+    if latest_agents_data is None:
+        return {}, {}
+
+    last_agent_json_by_id: dict[str, str] = {}
+    last_agent_state_by_id: dict[str, str] = {}
+
+    for agent_dict in latest_agents_data:
+        agent_id = agent_dict.get("id")
+        if agent_id is not None:
+            agent_id_str = str(agent_id)
+            last_agent_json_by_id[agent_id_str] = json.dumps(agent_dict, sort_keys=True)
+            state = agent_dict.get("state")
+            if state is not None:
+                last_agent_state_by_id[agent_id_str] = str(state)
+
+    return last_agent_json_by_id, last_agent_state_by_id
 
 
 # === Locking ===
@@ -234,7 +307,10 @@ class AgentObserver(MutableModel):
 
     Uses 'mng list --stream' to track hosts and 'mng events' to stream
     activity events from each online host. When activity is detected,
-    fetches agent state and emits change events to a local JSONL file.
+    fetches agent state and emits change events to local JSONL files:
+
+    - events/mng/agents/events.jsonl: full agent details on any change
+    - events/mng/agent_states/events.jsonl: only when the lifecycle state field changes
     """
 
     mng_ctx: MngContext = Field(frozen=True)
@@ -243,7 +319,8 @@ class AgentObserver(MutableModel):
     _cg: ConcurrencyGroup = PrivateAttr(default_factory=lambda: ConcurrencyGroup(name="agent-observer"))
     _known_hosts: dict[str, _KnownHost] = PrivateAttr(default_factory=dict)
     _events_processes: dict[str, RunningProcess] = PrivateAttr(default_factory=dict)
-    _last_comparable_json_by_agent_id: dict[str, str] = PrivateAttr(default_factory=dict)
+    _last_agent_json_by_id: dict[str, str] = PrivateAttr(default_factory=dict)
+    _last_agent_state_by_id: dict[str, str] = PrivateAttr(default_factory=dict)
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
     _stop_event: threading.Event = PrivateAttr(default_factory=threading.Event)
     _activity_queue: queue.Queue[str] = PrivateAttr(default_factory=queue.Queue)
@@ -251,6 +328,13 @@ class AgentObserver(MutableModel):
     def run(self) -> None:
         """Run the observer. Blocks until stopped or interrupted."""
         with self._cg:
+            # Load base state from event history so we can detect changes since last run
+            with log_span("Loading base state from history"):
+                agent_json, agent_state = load_base_state_from_history(self.mng_ctx.config)
+                self._last_agent_json_by_id = agent_json
+                self._last_agent_state_by_id = agent_state
+                logger.debug("Loaded base state for {} agent(s) from history", len(agent_json))
+
             # Phase 1: initial full state snapshot
             with log_span("Performing initial full state snapshot"):
                 self._do_full_state_snapshot()
@@ -420,11 +504,14 @@ class AgentObserver(MutableModel):
             )
 
         for agent in result.agents:
-            if agent_state_has_changed(agent, self._last_comparable_json_by_agent_id):
+            agent_json = json.dumps(agent.model_dump(mode="json"), sort_keys=True)
+            with self._lock:
+                has_changed = agent_json != self._last_agent_json_by_id.get(str(agent.id))
+            if has_changed:
                 self._emit_agent_state(agent)
 
     def _do_full_state_snapshot(self) -> None:
-        """Perform a full listing and emit a full state event."""
+        """Perform a full listing, emit a full state event, and check for state changes."""
         result = list_agents(
             mng_ctx=self.mng_ctx,
             is_streaming=False,
@@ -435,6 +522,19 @@ class AgentObserver(MutableModel):
             for error in result.errors:
                 logger.warning("Error during full state snapshot: {} - {}", error.exception_type, error.message)
 
+        # Check for state field changes and update tracking under the lock
+        state_changes: list[tuple[AgentDetails, str | None]] = []
+        with self._lock:
+            for agent in result.agents:
+                agent_id_str = str(agent.id)
+                new_state = agent.state.value
+                old_state = self._last_agent_state_by_id.get(agent_id_str)
+                if old_state != new_state:
+                    state_changes.append((agent, old_state))
+                    self._last_agent_state_by_id[agent_id_str] = new_state
+                agent_json = json.dumps(agent.model_dump(mode="json"), sort_keys=True)
+                self._last_agent_json_by_id[agent_id_str] = agent_json
+
         # Emit the full state event (includes all agents regardless of change)
         event = make_full_agent_state_event(result.agents)
         append_observe_event(self.mng_ctx.config, event)
@@ -443,20 +543,38 @@ class AgentObserver(MutableModel):
             len(result.agents),
         )
 
-        # Update the last known state for each agent
-        with self._lock:
-            for agent in result.agents:
-                comparable = extract_comparable_agent_state(agent)
-                comparable_json = json.dumps(comparable, sort_keys=True)
-                self._last_comparable_json_by_agent_id[str(agent.id)] = comparable_json
+        # Emit state change events to the agent_states stream
+        for agent, old_state in state_changes:
+            state_change_event = make_agent_state_change_event(agent, old_state)
+            append_agent_state_change_event(self.mng_ctx.config, state_change_event)
+            logger.debug(
+                "Emitted agent state change for {} ({} -> {})",
+                agent.name,
+                old_state,
+                agent.state.value,
+            )
 
     def _emit_agent_state(self, agent: AgentDetails) -> None:
-        """Emit a single agent state event and update the last known state."""
+        """Emit a single agent state event, check for state field change, and update tracking."""
         event = make_agent_state_event(agent)
         append_observe_event(self.mng_ctx.config, event)
         logger.debug("Emitted agent state event for {} (state={})", agent.name, agent.state.value)
 
-        comparable = extract_comparable_agent_state(agent)
-        comparable_json = json.dumps(comparable, sort_keys=True)
+        agent_id_str = str(agent.id)
+        agent_json = json.dumps(agent.model_dump(mode="json"), sort_keys=True)
+        new_state = agent.state.value
+
         with self._lock:
-            self._last_comparable_json_by_agent_id[str(agent.id)] = comparable_json
+            old_state = self._last_agent_state_by_id.get(agent_id_str)
+            self._last_agent_json_by_id[agent_id_str] = agent_json
+            self._last_agent_state_by_id[agent_id_str] = new_state
+
+        if old_state != new_state:
+            state_change_event = make_agent_state_change_event(agent, old_state)
+            append_agent_state_change_event(self.mng_ctx.config, state_change_event)
+            logger.debug(
+                "Emitted agent state change for {} ({} -> {})",
+                agent.name,
+                old_state,
+                new_state,
+            )

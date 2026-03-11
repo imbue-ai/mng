@@ -47,13 +47,17 @@ CommandHelpMetadata(
     synopsis="mng observe",
     arguments_description="",
     description="""Continuously monitors agent state changes across all hosts and writes
-events to a local JSONL file at events/mng/agents/events.jsonl.
+events to local JSONL files:
+
+- events/mng/agents/events.jsonl: full agent details on any change
+- events/mng/agent_states/events.jsonl: only when the lifecycle state field changes
 
 The observer:
-1. Uses 'mng list --stream' to track which hosts are online
-2. Streams activity events from each online host
-3. When activity is detected, fetches agent state and emits change events
-4. Periodically (every 5 minutes) emits a full state snapshot of all agents
+1. Loads base state from event history (if available) to detect changes since last run
+2. Uses 'mng list --stream' to track which hosts are online
+3. Streams activity events from each online host
+4. When activity is detected, fetches agent state and emits change events
+5. Periodically (every 5 minutes) emits a full state snapshot of all agents
 
 Only one instance of 'mng observe' can run at a time (enforced via file lock).
 

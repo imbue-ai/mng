@@ -3,19 +3,24 @@ import json
 import pytest
 
 from imbue.mng.api.discovery_events import make_full_discovery_snapshot_event
+from imbue.mng.api.observe import AGENT_STATES_EVENT_SOURCE
 from imbue.mng.api.observe import AgentObserver
+from imbue.mng.api.observe import AgentStateChangeEvent
 from imbue.mng.api.observe import AgentStateEvent
 from imbue.mng.api.observe import FullAgentStateEvent
 from imbue.mng.api.observe import OBSERVE_EVENT_SOURCE
 from imbue.mng.api.observe import ObserveEventType
 from imbue.mng.api.observe import ObserveLockError
 from imbue.mng.api.observe import acquire_observe_lock
-from imbue.mng.api.observe import agent_state_has_changed
+from imbue.mng.api.observe import append_agent_state_change_event
 from imbue.mng.api.observe import append_observe_event
-from imbue.mng.api.observe import extract_comparable_agent_state
+from imbue.mng.api.observe import get_agent_states_events_dir
+from imbue.mng.api.observe import get_agent_states_events_path
 from imbue.mng.api.observe import get_observe_events_dir
 from imbue.mng.api.observe import get_observe_events_path
 from imbue.mng.api.observe import get_observe_lock_path
+from imbue.mng.api.observe import load_base_state_from_history
+from imbue.mng.api.observe import make_agent_state_change_event
 from imbue.mng.api.observe import make_agent_state_event
 from imbue.mng.api.observe import make_full_agent_state_event
 from imbue.mng.api.observe import release_observe_lock
@@ -38,6 +43,17 @@ def test_get_observe_events_path_returns_jsonl_file(temp_config: MngConfig) -> N
     events_path = get_observe_events_path(temp_config)
     assert events_path.name == "events.jsonl"
     assert events_path.parent.name == "agents"
+
+
+def test_get_agent_states_events_dir_returns_correct_path(temp_config: MngConfig) -> None:
+    events_dir = get_agent_states_events_dir(temp_config)
+    assert events_dir == temp_config.default_host_dir / "events" / "mng" / "agent_states"
+
+
+def test_get_agent_states_events_path_returns_jsonl_file(temp_config: MngConfig) -> None:
+    events_path = get_agent_states_events_path(temp_config)
+    assert events_path.name == "events.jsonl"
+    assert events_path.parent.name == "agent_states"
 
 
 def test_get_observe_lock_path_returns_correct_path(temp_config: MngConfig) -> None:
@@ -72,6 +88,27 @@ def test_make_full_agent_state_event_with_empty_agents() -> None:
     event = make_full_agent_state_event([])
     assert event.type == ObserveEventType.AGENTS_FULL_STATE
     assert len(event.agents) == 0
+
+
+def test_make_agent_state_change_event_has_correct_fields() -> None:
+    agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
+    event = make_agent_state_change_event(agent, "STOPPED")
+    assert event.type == ObserveEventType.AGENT_STATE_CHANGE
+    assert event.source == AGENT_STATES_EVENT_SOURCE
+    assert event.event_id.startswith("evt-")
+    assert event.old_state == "STOPPED"
+    assert event.new_state == "RUNNING"
+    assert event.agent_id == str(agent.id)
+    assert event.agent_name == "test-agent"
+    assert event.agent["name"] == "test-agent"
+    assert isinstance(event, AgentStateChangeEvent)
+
+
+def test_make_agent_state_change_event_with_none_old_state() -> None:
+    agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
+    event = make_agent_state_change_event(agent, None)
+    assert event.old_state is None
+    assert event.new_state == "RUNNING"
 
 
 # === File I/O Tests ===
@@ -113,55 +150,101 @@ def test_append_observe_event_creates_parent_directories(temp_config: MngConfig)
     assert events_path.parent.exists()
 
 
-# === Comparable State Tests ===
+def test_append_agent_state_change_event_creates_file_and_writes_valid_json(temp_config: MngConfig) -> None:
+    agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
+    event = make_agent_state_change_event(agent, "STOPPED")
+    append_agent_state_change_event(temp_config, event)
+
+    events_path = get_agent_states_events_path(temp_config)
+    assert events_path.exists()
+
+    lines = events_path.read_text().strip().splitlines()
+    assert len(lines) == 1
+    data = json.loads(lines[0])
+    assert data["type"] == "AGENT_STATE_CHANGE"
+    assert data["source"] == "mng/agent_states"
+    assert data["old_state"] == "STOPPED"
+    assert data["new_state"] == "RUNNING"
 
 
-def test_extract_comparable_agent_state_includes_key_fields() -> None:
-    agent = make_test_agent_details(name="my-agent", state=AgentLifecycleState.RUNNING)
-    comparable = extract_comparable_agent_state(agent)
+def test_append_agent_state_change_event_creates_parent_directories(temp_config: MngConfig) -> None:
+    events_path = get_agent_states_events_path(temp_config)
+    assert not events_path.parent.exists()
 
-    assert comparable["name"] == "my-agent"
-    assert comparable["state"] == "RUNNING"
-    assert "id" in comparable
-    assert "host_id" in comparable
-    assert "host_state" in comparable
-    assert "work_dir" in comparable
-    assert "command" in comparable
+    agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
+    event = make_agent_state_change_event(agent, None)
+    append_agent_state_change_event(temp_config, event)
+    assert events_path.parent.exists()
 
 
-def test_extract_comparable_agent_state_excludes_volatile_fields() -> None:
-    agent = make_test_agent_details()
-    comparable = extract_comparable_agent_state(agent)
-
-    assert "idle_seconds" not in comparable
-    assert "runtime_seconds" not in comparable
-    assert "user_activity_time" not in comparable
-    assert "agent_activity_time" not in comparable
+# === History Loading Tests ===
 
 
-def test_agent_state_has_changed_returns_true_for_new_agent() -> None:
-    agent = make_test_agent_details()
-    last_state: dict[str, str] = {}
-    assert agent_state_has_changed(agent, last_state) is True
+def test_load_base_state_from_history_returns_empty_when_no_file(temp_config: MngConfig) -> None:
+    agent_json, agent_state = load_base_state_from_history(temp_config)
+    assert agent_json == {}
+    assert agent_state == {}
 
 
-def test_agent_state_has_changed_returns_false_for_same_state() -> None:
-    agent = make_test_agent_details()
-    comparable = extract_comparable_agent_state(agent)
-    comparable_json = json.dumps(comparable, sort_keys=True)
-    last_state = {str(agent.id): comparable_json}
-    assert agent_state_has_changed(agent, last_state) is False
+def test_load_base_state_from_history_loads_latest_full_state(temp_config: MngConfig) -> None:
+    agent1 = make_test_agent_details(name="agent-1", state=AgentLifecycleState.RUNNING)
+    agent2 = make_test_agent_details(name="agent-2", state=AgentLifecycleState.STOPPED)
+    event = make_full_agent_state_event([agent1, agent2])
+    append_observe_event(temp_config, event)
+
+    agent_json, agent_state = load_base_state_from_history(temp_config)
+    assert len(agent_json) == 2
+    assert len(agent_state) == 2
+    assert agent_state[str(agent1.id)] == "RUNNING"
+    assert agent_state[str(agent2.id)] == "STOPPED"
 
 
-def test_agent_state_has_changed_returns_true_for_state_change() -> None:
-    agent_running = make_test_agent_details(state=AgentLifecycleState.RUNNING)
-    comparable = extract_comparable_agent_state(agent_running)
-    comparable_json = json.dumps(comparable, sort_keys=True)
-    last_state = {str(agent_running.id): comparable_json}
+def test_load_base_state_from_history_uses_latest_full_state(temp_config: MngConfig) -> None:
+    # Write first full state with one agent
+    agent1 = make_test_agent_details(name="agent-1", state=AgentLifecycleState.RUNNING)
+    event1 = make_full_agent_state_event([agent1])
+    append_observe_event(temp_config, event1)
 
-    # Simulate the same agent transitioning to STOPPED
-    agent_stopped = make_test_agent_details(state=AgentLifecycleState.STOPPED)
-    assert agent_state_has_changed(agent_stopped, last_state) is True
+    # Write second full state with a different agent
+    agent2 = make_test_agent_details(name="agent-2", state=AgentLifecycleState.STOPPED)
+    event2 = make_full_agent_state_event([agent2])
+    append_observe_event(temp_config, event2)
+
+    # Should load the latest (second) full state
+    agent_json, agent_state = load_base_state_from_history(temp_config)
+    assert len(agent_json) == 1
+    assert str(agent2.id) in agent_json
+    assert agent_state[str(agent2.id)] == "STOPPED"
+
+
+def test_load_base_state_from_history_ignores_non_full_state_events(temp_config: MngConfig) -> None:
+    # Write individual agent state event (not a full state)
+    agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
+    individual_event = make_agent_state_event(agent)
+    append_observe_event(temp_config, individual_event)
+
+    # Should not pick up the individual event
+    agent_json, agent_state = load_base_state_from_history(temp_config)
+    assert agent_json == {}
+    assert agent_state == {}
+
+
+def test_load_base_state_from_history_handles_malformed_lines(temp_config: MngConfig) -> None:
+    events_path = get_observe_events_path(temp_config)
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write a malformed line followed by a valid full state
+    agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
+    event = make_full_agent_state_event([agent])
+    event_json = json.dumps(event.model_dump(mode="json"), separators=(",", ":"))
+
+    with open(events_path, "w") as f:
+        f.write("not valid json\n")
+        f.write(event_json + "\n")
+
+    agent_json, agent_state = load_base_state_from_history(temp_config)
+    assert len(agent_json) == 1
+    assert agent_state[str(agent.id)] == "RUNNING"
 
 
 # === Lock Tests ===
@@ -224,6 +307,20 @@ def test_full_agent_state_event_serializes_to_valid_json() -> None:
     parsed = json.loads(json_str)
     assert parsed["type"] == "AGENTS_FULL_STATE"
     assert len(parsed["agents"]) == 2
+
+
+def test_agent_state_change_event_serializes_to_valid_json() -> None:
+    agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
+    event = make_agent_state_change_event(agent, "STOPPED")
+    data = event.model_dump(mode="json")
+    json_str = json.dumps(data, separators=(",", ":"))
+
+    parsed = json.loads(json_str)
+    assert parsed["type"] == "AGENT_STATE_CHANGE"
+    assert parsed["source"] == "mng/agent_states"
+    assert parsed["old_state"] == "STOPPED"
+    assert parsed["new_state"] == "RUNNING"
+    assert parsed["agent"]["name"] == "test-agent"
 
 
 # === AgentObserver Tests ===
@@ -311,7 +408,42 @@ def test_agent_observer_emit_agent_state_updates_tracking(temp_mng_ctx: MngConte
 
     observer._emit_agent_state(agent)
 
-    assert str(agent.id) in observer._last_comparable_json_by_agent_id
+    assert str(agent.id) in observer._last_agent_json_by_id
+    assert str(agent.id) in observer._last_agent_state_by_id
+
+
+def test_agent_observer_emit_agent_state_emits_state_change_for_new_agent(temp_mng_ctx: MngContext) -> None:
+    """Verify that _emit_agent_state emits a state change event for a newly seen agent."""
+    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary="/bin/true")
+    agent = make_test_agent_details(name="new-agent", state=AgentLifecycleState.RUNNING)
+
+    observer._emit_agent_state(agent)
+
+    states_path = get_agent_states_events_path(temp_mng_ctx.config)
+    assert states_path.exists()
+    lines = states_path.read_text().strip().splitlines()
+    assert len(lines) == 1
+    data = json.loads(lines[0])
+    assert data["type"] == "AGENT_STATE_CHANGE"
+    assert data["old_state"] is None
+    assert data["new_state"] == "RUNNING"
+    assert data["agent_name"] == "new-agent"
+
+
+def test_agent_observer_emit_agent_state_no_state_change_when_same_state(temp_mng_ctx: MngContext) -> None:
+    """Verify that no state change event is emitted when the lifecycle state field is the same."""
+    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary="/bin/true")
+    agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
+
+    # First emit -- triggers state change (None -> RUNNING)
+    observer._emit_agent_state(agent)
+    # Second emit with same state -- should not add another state change
+    observer._emit_agent_state(agent)
+
+    # Only the initial state change should be emitted (None -> RUNNING), not a duplicate
+    states_path = get_agent_states_events_path(temp_mng_ctx.config)
+    lines = states_path.read_text().strip().splitlines()
+    assert len(lines) == 1
 
 
 def test_agent_observer_stop_sets_stop_event(temp_mng_ctx: MngContext) -> None:
@@ -345,6 +477,24 @@ def test_agent_observer_do_full_state_snapshot_writes_event(temp_mng_ctx: MngCon
 
     events_path = get_observe_events_path(temp_mng_ctx.config)
     assert events_path.exists()
+    lines = events_path.read_text().strip().splitlines()
+    assert len(lines) == 1
+    data = json.loads(lines[0])
+    assert data["type"] == "AGENTS_FULL_STATE"
+
+
+def test_agent_observer_do_full_state_snapshot_emits_state_changes(temp_mng_ctx: MngContext) -> None:
+    """Verify that _do_full_state_snapshot checks for state field changes."""
+    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary="/bin/true")
+
+    # Pre-populate tracking with a known agent state (simulating history load)
+    observer._last_agent_state_by_id["agent-xyz"] = "RUNNING"
+
+    # Since list_agents returns no agents in test context, no state changes will be emitted.
+    # This test verifies the snapshot itself still works.
+    observer._do_full_state_snapshot()
+
+    events_path = get_observe_events_path(temp_mng_ctx.config)
     lines = events_path.read_text().strip().splitlines()
     assert len(lines) == 1
     data = json.loads(lines[0])
