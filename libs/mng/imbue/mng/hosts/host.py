@@ -1330,6 +1330,23 @@ class Host(BaseHost, OnlineHostInterface):
             finally:
                 files_from_path.unlink(missing_ok=True)
 
+    def copy_directory(
+        self,
+        source_host: OnlineHostInterface,
+        source_path: Path,
+        target_path: Path,
+        extra_args: str | None = None,
+        exclude_git: bool = False,
+    ) -> None:
+        """Copy a directory from source_host:source_path to self:target_path using rsync."""
+        self._rsync_files(
+            source_host,
+            source_path,
+            target_path,
+            extra_args=extra_args,
+            exclude_git=exclude_git,
+        )
+
     def _rsync_files(
         self,
         source_host: OnlineHostInterface,
