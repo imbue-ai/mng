@@ -1,4 +1,3 @@
-import sys
 import time
 from typing import Any
 
@@ -6,7 +5,6 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import ConfigDict
-from urwid.display.raw import Screen
 from urwid.event_loop.abstract_loop import ExitMainLoop
 from urwid.event_loop.main_loop import MainLoop
 from urwid.widget.attr_map import AttrMap
@@ -22,19 +20,18 @@ from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.connect import connect_to_agent
 from imbue.mng.api.data_types import ConnectionOptions
+from imbue.mng.api.discover import discover_all_hosts_and_agents
 from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mng.api.list import list_agents
-from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
+from imbue.mng.cli.urwid_utils import create_urwid_screen_preserving_terminal
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.agent import AgentInterface
-from imbue.mng.interfaces.data_types import AgentInfo
+from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentLifecycleState
@@ -60,10 +57,10 @@ class ConnectCliOptions(CommonCliOptions):
 
 @pure
 def filter_agents(
-    agents: list[AgentInfo],
+    agents: list[AgentDetails],
     hide_stopped: bool,
     search_query: str,
-) -> list[AgentInfo]:
+) -> list[AgentDetails]:
     """Filter agents by stopped state and search query."""
     result = agents
 
@@ -115,7 +112,7 @@ def handle_search_key(
         return current_query, False
 
 
-def _create_selectable_agent_item(agent: AgentInfo, name_width: int, state_width: int) -> AttrMap:
+def _create_selectable_agent_item(agent: AgentDetails, name_width: int, state_width: int) -> AttrMap:
     """Create a selectable list item representing an agent as a table row.
 
     Uses SelectableIcon instead of Text so that ListBox can navigate between items.
@@ -139,11 +136,11 @@ class AgentSelectorState(MutableModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    agents: list[AgentInfo]
-    filtered_agents: list[AgentInfo] = []
+    agents: list[AgentDetails]
+    filtered_agents: list[AgentDetails] = []
     list_walker: Any
     status_text: Any
-    result: AgentInfo | None = None
+    result: AgentDetails | None = None
     hide_stopped: bool = False
     search_query: str = ""
     last_ctrl_c_time: float = 0.0
@@ -230,7 +227,7 @@ class SelectorInputHandler(MutableModel):
         return True if handled else None
 
 
-def _run_agent_selector(agents: list[AgentInfo]) -> AgentInfo | None:
+def _run_agent_selector(agents: list[AgentDetails]) -> AgentDetails | None:
     """Run the agent selector UI and return the selected agent, or None if cancelled."""
     # Calculate column widths based on content
     name_width = max((len(str(a.name)) for a in agents), default=10)
@@ -304,22 +301,19 @@ def _run_agent_selector(agents: list[AgentInfo]) -> AgentInfo | None:
 
     input_handler = SelectorInputHandler(state=state)
 
-    # Create screen and disable Ctrl-c SIGINT mapping so we can handle it as a key
-    screen = Screen()
-    screen.tty_signal_keys(intr="undefined")
-
-    loop = MainLoop(
-        frame,
-        palette=palette,
-        unhandled_input=input_handler,
-        screen=screen,
-    )
-    loop.run()
+    with create_urwid_screen_preserving_terminal() as screen:
+        loop = MainLoop(
+            frame,
+            palette=palette,
+            unhandled_input=input_handler,
+            screen=screen,
+        )
+        loop.run()
 
     return state.result
 
 
-def select_agent_interactively(agents: list[AgentInfo]) -> AgentInfo | None:
+def select_agent_interactively(agents: list[AgentDetails]) -> AgentDetails | None:
     """Show an interactive UI to select an agent. Returns None if cancelled."""
     if not agents:
         return None
@@ -340,7 +334,7 @@ def _build_connection_options(opts: ConnectCliOptions) -> ConnectionOptions:
 
 
 @click.command()
-@click.argument("agent", default=None, required=False, shell_complete=complete_agent_name)
+@click.argument("agent", default=None, required=False)
 @optgroup.group("General")
 @optgroup.option("--agent", "agent", help="The agent to connect to (by name or ID)")
 @optgroup.option(
@@ -380,18 +374,6 @@ def _build_connection_options(opts: ConnectCliOptions) -> ConnectionOptions:
 @add_common_options
 @click.pass_context
 def connect(ctx: click.Context, **kwargs: Any) -> None:
-    """Connect to an existing agent via the terminal.
-
-    Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
-    the agent's machine and attaching to the tmux session. Use `mng open` to
-    open an agent's URLs in a web browser instead.
-
-    If no agent is specified, shows an interactive selector to choose from
-    available agents.
-
-    \b
-    Alias: conn
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="connect",
@@ -430,7 +412,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
         raise NotImplementedError("--no-reconnect is not implemented yet")
 
     logger.info("Finding agent...")
-    agents_by_host, providers = load_all_agents_grouped_by_host(mng_ctx)
+    agents_by_host, providers = discover_all_hosts_and_agents(mng_ctx)
 
     agent: AgentInterface
     host: OnlineHostInterface
@@ -443,7 +425,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
             "connect",
             is_start_desired=opts.start,
         )
-    elif not sys.stdin.isatty():
+    elif not mng_ctx.is_interactive:
         # Default to most recently created agent when running non-interactively
         list_result = list_agents(mng_ctx, is_streaming=False)
         if not list_result.agents:
@@ -486,15 +468,12 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
 
 # Register help metadata for git-style help formatting
-_CONNECT_HELP_METADATA = CommandHelpMetadata(
-    name="mng-connect",
+CommandHelpMetadata(
+    key="connect",
     one_line_description="Connect to an existing agent via the terminal",
     synopsis="mng [connect|conn] [OPTIONS] [AGENT]",
-    description="""Connect to an existing agent via the terminal.
-
-Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
-the agent's machine and attaching to the tmux session. Use `mng open` to
-open an agent's URLs in a web browser instead.
+    description="""Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
+the agent's machine and attaching to the tmux session.
 
 If no agent is specified, shows an interactive selector to choose from
 available agents. The selector allows typeahead search to filter agents
@@ -513,12 +492,7 @@ The agent can be specified as a positional argument or via --agent:
         ("create", "Create and connect to a new agent"),
         ("list", "List available agents"),
     ),
-)
-
-register_help_metadata("connect", _CONNECT_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _CONNECT_HELP_METADATA.aliases:
-    register_help_metadata(alias, _CONNECT_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the connect command
 add_pager_help_option(connect)

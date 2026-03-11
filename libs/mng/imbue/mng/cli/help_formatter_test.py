@@ -7,9 +7,9 @@ from click.testing import CliRunner
 from click_option_group import optgroup
 
 from imbue.mng.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
-from imbue.mng.cli.create import create
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import _run_pager_with_subprocess
+from imbue.mng.cli.help_formatter import _wrap_text
 from imbue.mng.cli.help_formatter import _write_to_stdout
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import format_git_style_help
@@ -17,11 +17,11 @@ from imbue.mng.cli.help_formatter import get_help_metadata
 from imbue.mng.cli.help_formatter import get_pager_command
 from imbue.mng.cli.help_formatter import help_option_callback
 from imbue.mng.cli.help_formatter import is_interactive_terminal
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.help_formatter import run_pager
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.main import BUILTIN_COMMANDS
+from imbue.mng.main import cli
 
 
 def test_is_interactive_terminal_returns_bool() -> None:
@@ -57,18 +57,19 @@ def test_get_pager_command_uses_less_when_config_has_no_pager(mng_test_prefix: s
 def test_register_and_get_help_metadata() -> None:
     """Test registering and retrieving help metadata."""
     metadata = CommandHelpMetadata(
-        name="test-cmd",
+        key="test-cmd",
         one_line_description="A test command",
         synopsis="mng test [options]",
         description="This is a test command for testing.",
         examples=(("Run a basic test", "mng test"),),
     )
 
-    register_help_metadata("test", metadata)
-    retrieved = get_help_metadata("test")
+    metadata.register()
+    retrieved = get_help_metadata("test-cmd")
 
     assert retrieved is not None
-    assert retrieved.name == "test-cmd"
+    assert retrieved.key == "test-cmd"
+    assert retrieved.name == "mng test-cmd"
     assert retrieved.one_line_description == "A test command"
 
 
@@ -89,7 +90,7 @@ def test_format_git_style_help_with_metadata() -> None:
         pass
 
     metadata = CommandHelpMetadata(
-        name="mng-test",
+        key="test",
         one_line_description="A test command for testing",
         synopsis="mng test [options]",
         description="This is a detailed description of what the test command does.",
@@ -106,7 +107,7 @@ def test_format_git_style_help_with_metadata() -> None:
 
         # Check that the help contains expected sections
         assert "NAME" in help_text
-        assert "mng-test - A test command for testing" in help_text
+        assert "mng test - A test command for testing" in help_text
         assert "SYNOPSIS" in help_text
         assert "mng test [options]" in help_text
         assert "DESCRIPTION" in help_text
@@ -165,7 +166,7 @@ def test_format_git_style_help_handles_empty_examples() -> None:
         pass
 
     metadata = CommandHelpMetadata(
-        name="mng-noex",
+        key="noex",
         one_line_description="No examples here",
         synopsis="mng noex",
         description="A command that has no usage examples.",
@@ -190,14 +191,18 @@ def test_create_command_has_help_metadata_registered() -> None:
     metadata = get_help_metadata("create")
 
     assert metadata is not None
-    assert metadata.name == "mng-create"
+    assert metadata.key == "create"
+    assert metadata.name == "mng create"
     assert "Create and run an agent" in metadata.one_line_description
 
 
 def test_create_command_help_output_structure() -> None:
-    """Test that create command help has expected sections."""
+    """Test that create command help has expected sections.
+
+    Must invoke through cli for correct help key resolution.
+    """
     runner = CliRunner()
-    result = runner.invoke(create, ["--help"])
+    result = runner.invoke(cli, ["create", "--help"])
 
     # Check exit code
     assert result.exit_code == 0
@@ -212,9 +217,12 @@ def test_create_command_help_output_structure() -> None:
 
 
 def test_create_command_help_contains_common_options() -> None:
-    """Test that create command help contains the common options."""
+    """Test that create command help contains the common options.
+
+    Must invoke through cli for correct help key resolution.
+    """
     runner = CliRunner()
-    result = runner.invoke(create, ["--help"])
+    result = runner.invoke(cli, ["create", "--help"])
 
     help_output = result.output
 
@@ -223,13 +231,16 @@ def test_create_command_help_contains_common_options() -> None:
     assert "--in" in help_output or "--new-host" in help_output
     assert "--host" in help_output
     assert "--name" in help_output
-    assert "--agent-type" in help_output
+    assert "--type" in help_output
 
 
 def test_create_command_help_contains_examples() -> None:
-    """Test that create command help contains usage examples."""
+    """Test that create command help contains usage examples.
+
+    Must invoke through cli for correct help key resolution.
+    """
     runner = CliRunner()
-    result = runner.invoke(create, ["--help"])
+    result = runner.invoke(cli, ["create", "--help"])
 
     help_output = result.output
 
@@ -367,9 +378,12 @@ def test_mng_config_pager_merge_keeps_base_when_override_none(mng_test_prefix: s
 
 
 def test_common_options_group_appears_last_in_help() -> None:
-    """Test that the Common options group appears after all other named option groups."""
+    """Test that the Common options group appears after all other named option groups.
+
+    Must invoke through cli for correct help key resolution.
+    """
     runner = CliRunner()
-    result = runner.invoke(create, ["--help"])
+    result = runner.invoke(cli, ["create", "--help"])
 
     assert result.exit_code == 0
     help_output = result.output
@@ -399,7 +413,7 @@ def test_ungrouped_options_display_as_ungrouped_not_common() -> None:
         pass
 
     metadata = CommandHelpMetadata(
-        name="mng-test",
+        key="test",
         one_line_description="Test ungrouped options display",
         synopsis="mng test [options]",
         description="Test that ungrouped options show as Ungrouped.",
@@ -443,7 +457,7 @@ def test_option_group_ordering_logic() -> None:
         pass
 
     metadata = CommandHelpMetadata(
-        name="mng-test",
+        key="test",
         one_line_description="Test option group ordering",
         synopsis="mng test [options]",
         description="Test that groups are ordered correctly.",
@@ -476,9 +490,12 @@ def test_option_group_ordering_logic() -> None:
 
 
 def test_create_command_common_group_contains_expected_options() -> None:
-    """Test that the create command's Common group contains the expected common options."""
+    """Test that the create command's Common group contains the expected common options.
+
+    Must invoke through cli for correct help key resolution.
+    """
     runner = CliRunner()
-    result = runner.invoke(create, ["--help"])
+    result = runner.invoke(cli, ["create", "--help"])
 
     assert result.exit_code == 0
     help_output = result.output
@@ -529,3 +546,110 @@ def test_commands_with_aliases_have_aliases_in_synopsis() -> None:
             f"Command '{cmd.name}' has aliases {metadata.aliases} but synopsis "
             f"doesn't contain '{expected_pattern}'. Synopsis: {metadata.synopsis}"
         )
+
+
+def test_all_subcommands_have_git_style_help() -> None:
+    """Every subcommand of a group command must produce git-style help.
+
+    This test invokes through the root cli group, which is required for help
+    key resolution to work (_build_help_key builds keys from the context chain).
+    Tests that invoke subgroups directly will get wrong help output.
+    """
+    runner = CliRunner()
+    for cmd in BUILTIN_COMMANDS:
+        if not isinstance(cmd, click.Group) or not cmd.commands:
+            continue
+        for subcmd_name in cmd.commands:
+            assert cmd.name is not None
+            result = runner.invoke(cli, [cmd.name, subcmd_name, "--help"])
+            assert result.exit_code == 0, (
+                f"mng {cmd.name} {subcmd_name} --help failed with exit code {result.exit_code}:\n{result.output}"
+            )
+            assert "NAME" in result.output, (
+                f"mng {cmd.name} {subcmd_name} --help does not show git-style help. "
+                f"Add CommandHelpMetadata(...).register() + add_pager_help_option. "
+                f"Help tests must invoke through the root cli group (not the subgroup directly) "
+                f"for key resolution to work."
+            )
+
+
+# =============================================================================
+# CommandHelpMetadata.full_description
+# =============================================================================
+
+
+def test_get_pager_command_with_config_pager() -> None:
+    """get_pager_command should return config.pager when set."""
+    config = MngConfig(pager="bat", prefix="mng-", is_error_reporting_enabled=False)
+    assert get_pager_command(config) == "bat"
+
+
+def test_get_pager_command_with_none_config() -> None:
+    """get_pager_command should fall back to PAGER env or 'less' when config is None."""
+    result = get_pager_command(None)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_get_pager_command_with_no_pager_in_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_pager_command should fall back to PAGER env when config.pager is None."""
+    monkeypatch.setenv("PAGER", "more")
+    config = MngConfig(prefix="mng-", is_error_reporting_enabled=False)
+    assert get_pager_command(config) == "more"
+
+
+def test_full_description_without_extended_description() -> None:
+    """full_description should return one-line description with period when no extended description."""
+    meta = CommandHelpMetadata(
+        key="test-cmd",
+        one_line_description="Do something useful",
+        synopsis="mng test-cmd [options]",
+        description="",
+    )
+    assert meta.full_description == "Do something useful."
+
+
+def test_full_description_with_extended_description() -> None:
+    """full_description should combine one-line and extended description."""
+    meta = CommandHelpMetadata(
+        key="test-cmd",
+        one_line_description="Do something useful",
+        synopsis="mng test-cmd [options]",
+        description="This command does many things.\nIt is very powerful.",
+    )
+    result = meta.full_description
+    assert result.startswith("Do something useful.")
+    assert "This command does many things." in result
+
+
+def test_full_description_does_not_double_period() -> None:
+    """full_description should not add a double period if one already exists."""
+    meta = CommandHelpMetadata(
+        key="test-cmd",
+        one_line_description="Already has period.",
+        synopsis="mng test-cmd [options]",
+        description="",
+    )
+    assert meta.full_description == "Already has period."
+    assert ".." not in meta.full_description
+
+
+# =============================================================================
+# _wrap_text
+# =============================================================================
+
+
+def test_wrap_text_simple() -> None:
+    """_wrap_text should wrap text with proper indentation."""
+    result = _wrap_text("hello world", width=80, indent="  ", subsequent_indent=None)
+    assert result == "  hello world"
+
+
+def test_wrap_text_wraps_long_lines() -> None:
+    """_wrap_text should wrap lines that exceed width."""
+    long_text = "word " * 20
+    result = _wrap_text(long_text.strip(), width=30, indent="  ", subsequent_indent="    ")
+    lines = result.split("\n")
+    assert len(lines) > 1
+    assert lines[0].startswith("  ")
+    assert lines[1].startswith("    ")

@@ -12,10 +12,8 @@ from imbue.mng.cli.agent_utils import stop_agent_after_sync
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_info
 from imbue.mng.cli.output_helpers import output_sync_files_result
 from imbue.mng.cli.output_helpers import output_sync_git_result
@@ -48,7 +46,7 @@ class PushCliOptions(CommonCliOptions):
 
 
 @click.command()
-@click.argument("target_pos", default=None, required=False, metavar="TARGET", shell_complete=complete_agent_name)
+@click.argument("target_pos", default=None, required=False, metavar="TARGET")
 @click.argument("source_pos", default=None, required=False, metavar="SOURCE")
 @optgroup.group("Target Selection")
 @optgroup.option("--target", "target", help="Target specification: AGENT, AGENT:PATH, or PATH")
@@ -114,26 +112,6 @@ class PushCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def push(ctx: click.Context, **kwargs) -> None:
-    """Push files or git commits from local machine to an agent. [experimental]
-
-    Syncs files or git state from a local directory to an agent's working directory.
-    Default behavior uses rsync for efficient incremental file transfer.
-    Use --sync-mode=git to push git branches instead of syncing files.
-
-    If no target is specified, shows an interactive selector to choose an agent.
-
-    IMPORTANT: The source (host) workspace is never modified. Only the target
-    (agent workspace) may be modified.
-
-    \b
-    Examples:
-      mng push my-agent
-      mng push my-agent ./local-dir
-      mng push my-agent:subdir ./local-src
-      mng push my-agent --source ./local-dir
-      mng push my-agent --sync-mode=git
-      mng push my-agent --sync-mode=git --mirror
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="push",
@@ -193,10 +171,6 @@ def push(ctx: click.Context, **kwargs) -> None:
         logger.info("No agent selected")
         return
     agent, host = result
-
-    # Only local agents are supported right now
-    if not host.is_local:
-        raise NotImplementedError("Pushing to remote agents is not implemented yet")
 
     emit_info(f"Pushing to agent: {agent.name}", output_opts.output_format)
 
@@ -259,13 +233,11 @@ def push(ctx: click.Context, **kwargs) -> None:
 
 
 # Register help metadata for git-style help formatting
-_PUSH_HELP_METADATA = CommandHelpMetadata(
-    name="mng-push",
+CommandHelpMetadata(
+    key="push",
     one_line_description="Push files or git commits from local machine to an agent [experimental]",
     synopsis="mng push [TARGET] [SOURCE] [--target-agent <AGENT>] [--dry-run] [--stop]",
-    description="""Push files or git commits from local machine to an agent.
-
-Syncs files or git state from a local directory to an agent's working directory.
+    description="""Syncs files or git state from a local directory to an agent's working directory.
 Default behavior uses rsync for efficient incremental file transfer.
 Use --sync-mode=git to push git branches instead of syncing files.
 
@@ -287,8 +259,6 @@ IMPORTANT: The source (host) workspace is never modified. Only the target
         ("pull", "Pull files or git commits from an agent"),
         ("pair", "Continuously sync files between agent and local"),
     ),
-)
-
-register_help_metadata("push", _PUSH_HELP_METADATA)
+).register()
 
 add_pager_help_option(push)

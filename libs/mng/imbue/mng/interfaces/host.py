@@ -22,19 +22,23 @@ from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import ActivityConfig
 from imbue.mng.interfaces.data_types import CertifiedHostData
 from imbue.mng.interfaces.data_types import CommandResult
+from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.data_types import HostResources
 from imbue.mng.interfaces.data_types import PyinfraConnector
 from imbue.mng.interfaces.data_types import SnapshotInfo
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
+from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
+from imbue.mng.primitives import HostNameStyle
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import Permission
+from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.primitives import SnapshotName
 from imbue.mng.primitives import WorkDirCopyMode
 
 # Default timeout for waiting for agent readiness before sending messages.
@@ -132,8 +136,8 @@ class HostInterface(MutableModel, ABC):
     # =========================================================================
 
     @abstractmethod
-    def get_agent_references(self) -> list[AgentReference]:
-        """Return a list of all agent references for this host."""
+    def discover_agents(self) -> list[DiscoveredAgent]:
+        """Return lightweight data for all agents on this host."""
         ...
 
     # =========================================================================
@@ -277,6 +281,11 @@ class OnlineHostInterface(HostInterface, ABC):
         """Update the certified plugin data for the given plugin name."""
         ...
 
+    @abstractmethod
+    def to_offline_host(self) -> HostInterface:
+        """Return an offline representation of this host for use when the host is unreachable."""
+        ...
+
     # =========================================================================
     # Agent-Derived Information
     # =========================================================================
@@ -315,6 +324,11 @@ class OnlineHostInterface(HostInterface, ABC):
     # =========================================================================
 
     @abstractmethod
+    def get_host_env_path(self) -> Path:
+        """Get the path to the host env file."""
+        ...
+
+    @abstractmethod
     def get_env_vars(self) -> dict[str, str]:
         """Return all environment variables configured for this host."""
         ...
@@ -334,12 +348,17 @@ class OnlineHostInterface(HostInterface, ABC):
         """Set a single environment variable to the given value."""
         ...
 
+    @abstractmethod
+    def build_source_env_prefix(self, agent: AgentInterface) -> str:
+        """Build a shell prefix that sources host and agent env files if they exist."""
+        ...
+
     # =========================================================================
     # Provider-Derived Information
     # =========================================================================
 
     @abstractmethod
-    def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
+    def get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
         """Get SSH connection info for this host if it's remote.
 
         Returns (user, hostname, port, private_key_path) if remote, None if local.
@@ -400,7 +419,7 @@ class OnlineHostInterface(HostInterface, ABC):
         host: OnlineHostInterface,
         path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         """Create and populate the work directory for a new agent."""
         ...
 
@@ -409,6 +428,7 @@ class OnlineHostInterface(HostInterface, ABC):
         self,
         work_dir_path: Path,
         options: CreateAgentOptions,
+        created_branch_name: str | None = None,
     ) -> AgentInterface:
         """Create the state directory and metadata for a new agent."""
         ...
@@ -453,6 +473,16 @@ class OnlineHostInterface(HostInterface, ABC):
         ...
 
 
+class CreateWorkDirResult(FrozenModel):
+    """Result of creating an agent work directory."""
+
+    path: Path = Field(description="Path to the created work directory")
+    created_branch_name: str | None = Field(
+        default=None,
+        description="Name of the git branch created for this work directory, if any",
+    )
+
+
 class AgentGitOptions(FrozenModel):
     """Git-related options for the agent work_dir."""
 
@@ -468,17 +498,9 @@ class AgentGitOptions(FrozenModel):
         default=None,
         description="Starting branch for the agent (default: current branch)",
     )
-    is_new_branch: bool = Field(
-        default=False,
-        description="Whether to create a new branch",
-    )
     new_branch_name: str | None = Field(
         default=None,
-        description="Name for the new branch (implies is_new_branch)",
-    )
-    new_branch_prefix: str = Field(
-        default="mng/",
-        description="Prefix for auto-generated branch names",
+        description="Fully resolved name for the new branch, or None to use base_branch directly",
     )
     depth: int | None = Field(
         default=None,
@@ -516,7 +538,7 @@ class AgentLifecycleOptions(FrozenModel):
     """Lifecycle options for the agent.
 
     Note: Host-level idle detection options (idle_timeout_seconds, idle_mode,
-    activity_sources) are configured via HostLifecycleOptions in api/data_types.py,
+    activity_sources) are configured via HostLifecycleOptions in interfaces/data_types.py,
     not here. This class only contains agent-level lifecycle options.
     """
 
@@ -676,6 +698,10 @@ class CreateAgentOptions(FrozenModel):
     Combines identity, environment, git, and lifecycle options.
     """
 
+    agent_id: AgentId | None = Field(
+        default=None,
+        description="Explicit agent ID (auto-generated if not specified)",
+    )
     agent_type: AgentTypeName | None = Field(
         default=None,
         description="Type of agent to run (claude, codex, etc.)",
@@ -703,10 +729,6 @@ class CreateAgentOptions(FrozenModel):
     target_path: Path | None = Field(
         default=None,
         description="Target path for the agent work_dir",
-    )
-    is_copy_immediate: bool = Field(
-        default=False,
-        description="Whether to copy the source data immediately (before building the host) or after",
     )
     initial_message: str | None = Field(
         default=None,
@@ -747,4 +769,79 @@ class CreateAgentOptions(FrozenModel):
     provisioning: AgentProvisioningOptions = Field(
         default_factory=AgentProvisioningOptions,
         description="Simple provisioning options",
+    )
+
+
+# =========================================================================
+# Host Option Types (parallel to Agent option types above)
+# =========================================================================
+
+
+class NewHostBuildOptions(FrozenModel):
+    """Options for building a new host image."""
+
+    snapshot: SnapshotName | None = Field(
+        default=None,
+        description="Use existing snapshot instead of building",
+    )
+    build_args: tuple[str, ...] = Field(
+        default=(),
+        description="Arguments for the build command",
+    )
+    start_args: tuple[str, ...] = Field(
+        default=(),
+        description="Arguments for the start command",
+    )
+
+
+class HostEnvironmentOptions(FrozenModel):
+    """Environment variable configuration for a host."""
+
+    env_vars: tuple[EnvVar, ...] = Field(
+        default=(),
+        description="Environment variables to set (KEY=VALUE)",
+    )
+    env_files: tuple[Path, ...] = Field(
+        default=(),
+        description="Files to load environment variables from",
+    )
+    known_hosts: tuple[str, ...] = Field(
+        default=(),
+        description="SSH known_hosts entries to add to the host (for outbound SSH connections)",
+    )
+    authorized_keys: tuple[str, ...] = Field(
+        default=(),
+        description="SSH authorized_keys entries to add to the host (for inbound SSH connections)",
+    )
+
+
+class NewHostOptions(FrozenModel):
+    """Options for creating a new host."""
+
+    provider: ProviderInstanceName = Field(
+        description="Provider to use for creating the host (docker, modal, local, ...)",
+    )
+    name: HostName | None = Field(
+        default=None,
+        description="Name for the new host (None means use provider default or auto-generate)",
+    )
+    name_style: HostNameStyle = Field(
+        default=HostNameStyle.ASTRONOMY,
+        description="Style for auto-generated host name (used when name is None and provider has no default)",
+    )
+    tags: dict[str, str] = Field(
+        default_factory=dict,
+        description="Metadata tags for the host",
+    )
+    build: NewHostBuildOptions = Field(
+        default_factory=NewHostBuildOptions,
+        description="Build options for the host image",
+    )
+    environment: HostEnvironmentOptions = Field(
+        default_factory=HostEnvironmentOptions,
+        description="Environment variable configuration",
+    )
+    lifecycle: HostLifecycleOptions = Field(
+        default_factory=HostLifecycleOptions,
+        description="Lifecycle and idle detection options",
     )

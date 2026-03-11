@@ -3,6 +3,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mng.cli.create import create
@@ -15,6 +16,7 @@ from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostName
 from imbue.mng.providers.local.instance import LocalProviderInstance
+from imbue.mng.utils.polling import wait_for
 from imbue.mng.utils.testing import tmux_session_cleanup
 from imbue.mng.utils.testing import tmux_session_exists
 
@@ -37,6 +39,7 @@ def _create_stopped_agent(
     return host
 
 
+@pytest.mark.tmux
 def test_rename_stopped_agent_updates_data_json(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -68,6 +71,7 @@ def test_rename_stopped_agent_updates_data_json(
     assert agent_name not in agent_names
 
 
+@pytest.mark.tmux
 def test_rename_running_agent_renames_tmux_session(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -86,20 +90,22 @@ def test_rename_running_agent_renames_tmux_session(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 493817",
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
             ],
             obj=plugin_manager,
             catch_exceptions=False,
         )
         assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
-        assert tmux_session_exists(old_session_name)
+        wait_for(
+            lambda: tmux_session_exists(old_session_name),
+            timeout=15.0,
+            error_message=f"Expected tmux session {old_session_name} to exist",
+        )
 
         rename_result = cli_runner.invoke(
             rename,
@@ -203,6 +209,7 @@ def test_rename_to_same_name_is_no_op(
     assert "already named" in result.output
 
 
+@pytest.mark.tmux
 def test_rename_with_agent_id(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -237,6 +244,7 @@ def test_rename_with_agent_id(
     assert new_name in agent_names
 
 
+@pytest.mark.tmux
 def test_rename_json_output(
     cli_runner: CliRunner,
     temp_work_dir: Path,

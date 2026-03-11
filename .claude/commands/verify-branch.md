@@ -247,6 +247,22 @@ Note: we don't impose any minimal or maximal length on a class or file. Classes 
 
 ---
 
+### test_quality
+
+Any tests added in the diff should be of high quality individually, and should collectively create a high-quality test suite. This means:
+- Avoid pointless and trivial tests
+- Avoid creating lots of highly repetitive tests (parameterize the test or check all cases in a single test instead of making a separate test for each case, when appropriate)
+- Ensure that common test code is factored out into fixtures
+- Ensure that existing fixtures are used (when applicable)
+- Ensure that tests are robust (ex: wait for conditions to be met rather than using hard-coded sleep statements, use appropriate timeouts, avoid flakiness)
+- Ensure that the overall test suite for the changes is comprehensive and covers the new functionality well, but without creating more tests than necessary 
+- Ensure that functionality is tested with unit tests whenever possible, only creating a small number of slower integration tests when necessary
+- Ensure that multiple integration tests for similar functionality are serving unique purposes and are not overly repetitive or duplicative
+- Ensure that the tests are as fast and simple as possible
+- Ensure that individual tests are clearly named and easy to understand
+
+---
+
 ### resource_leakage
 
 Focus on system resources that require explicit cleanup: file handles, network connections, database connections, memory allocations, and similar OS-level resources.
@@ -383,9 +399,6 @@ Code patterns that are very likely to cause runtime errors during execution.
 
 **Catch clauses that are too broad and could hide runtime errors:**
 - Almost all try/except blocks (for specific types of errors) should only span a single line, and should generally catch a single class of errors.
-
-**Look for platform-specific incompatibilities:**
-- Code that will fail when run on OSX or linux (it's ok to fail on Windows)
 
 Only flag issues where there is clear evidence the code will fail or cause serious problems. Avoid speculating about potential issues in well-established language patterns or standard library usage.
 

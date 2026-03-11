@@ -24,6 +24,7 @@ from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import CreateTemplateName
 from imbue.mng.config.data_types import MngConfig
@@ -34,6 +35,7 @@ from imbue.mng.errors import ParseSpecError
 from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import LogLevel
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.utils.logging import LoggingConfig
 from imbue.mng.utils.logging import setup_logging
 
 # The set of built-in format names (case-insensitive). Any --format value not
@@ -58,9 +60,8 @@ class CommonCliOptions(FrozenModel):
     For that information, see the @add_common_options decorator and its click.option() decorators.
     """
 
+    headless: bool = False
     output_format: str
-    json_flag: bool = False
-    jsonl_flag: bool = False
     quiet: bool
     verbose: int
     log_file: str | None
@@ -77,14 +78,13 @@ def add_common_options(command: TDecorated) -> TDecorated:
 
     Adds the following options in the "Common" option group:
     - --format: Output format (human/json/jsonl, or a template string)
-    - --json: Alias for --format json
-    - --jsonl: Alias for --format jsonl
     - -q, --quiet: Suppress console output
     - -v, --verbose: Increase verbosity
     - --log-file: Override log file path
     - --log-commands: Log executed commands
     - --log-command-output: Log command output
     - --log-env-vars: Log environment variables
+    - --headless: Disable all interactive behavior
     - --context: Project context directory
     - --plugin: Enable plugins
     - --disable-plugin: Disable plugins
@@ -102,6 +102,12 @@ def add_common_options(command: TDecorated) -> TDecorated:
         help="Project context directory (for build context and loading project-specific config) [default: local .git root]",
     )(command)
     command = optgroup.option(
+        "--headless",
+        is_flag=True,
+        default=False,
+        help="Disable all interactive behavior (prompts, TUI, editor). Also settable via MNG_HEADLESS env var or 'headless' config key.",
+    )(command)
+    command = optgroup.option(
         "--log-env-vars/--no-log-env-vars", default=None, help="Log environment variables (security risk)"
     )(command)
     command = optgroup.option(
@@ -114,26 +120,12 @@ def add_common_options(command: TDecorated) -> TDecorated:
         "--log-file",
         type=click.Path(),
         default=None,
-        help="Path to log file (overrides default ~/.mng/logs/<timestamp>-<pid>.json)",
+        help="Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json)",
     )(command)
     command = optgroup.option(
         "-v", "--verbose", count=True, help="Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE"
     )(command)
     command = optgroup.option("-q", "--quiet", is_flag=True, help="Suppress all console output")(command)
-    command = optgroup.option(
-        "--jsonl",
-        "jsonl_flag",
-        is_flag=True,
-        default=False,
-        help="Alias for --format jsonl",
-    )(command)
-    command = optgroup.option(
-        "--json",
-        "json_flag",
-        is_flag=True,
-        default=False,
-        help="Alias for --format json",
-    )(command)
     command = optgroup.option(
         "--format",
         "output_format",
@@ -235,9 +227,19 @@ def setup_command_context(
 
     Set is_format_template_supported=True for commands that handle
     output_opts.format_template.
+
+    The resolved LoggingConfig (with CLI overrides applied) is stored on the
+    click context at ctx.meta["logging_config"] for callers that need logging
+    levels (e.g., LoggingSuppressor).
+
+    Plugin-registered CLI option values are stored in ctx.meta["plugin_cli_params"]
+    as a dict, accessible by plugins via their hooks.
     """
+    # Separate plugin-registered params from known command class fields
+    known_params, plugin_params = _split_known_and_plugin_params(ctx.params, command_class)
+
     # First parse options from CLI args to extract common parameters
-    initial_opts = command_class(**ctx.params)
+    initial_opts = command_class(**known_params)
 
     # Create a top-level ConcurrencyGroup for process management
     cg = ConcurrencyGroup(name=f"mng-{command_name}")
@@ -245,22 +247,32 @@ def setup_command_context(
     original_sigint_handler = _install_sigint_shutdown_handler(cg)
     ctx.call_on_close(lambda: _close_concurrency_group(cg, original_sigint_handler))
 
-    # Load config
+    # Load config (is_interactive will be resolved below)
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
-    # Determine if we're running interactively (stdout is a TTY)
-    try:
-        is_interactive = sys.stdout.isatty()
-    except (ValueError, AttributeError):
-        # Handle cases where stdout is uninitialized (e.g., xdist workers)
-        is_interactive = False
     mng_ctx = load_config(
         pm,
         cg,
-        context_dir,
-        initial_opts.plugin,
-        initial_opts.disable_plugin,
-        is_interactive=is_interactive,
+        context_dir=context_dir,
+        enabled_plugins=initial_opts.plugin,
+        disabled_plugins=initial_opts.disable_plugin,
+        is_interactive=False,
+    )
+
+    # Resolve is_interactive from all sources.
+    # Precedence: --headless CLI flag > config/env headless > TTY auto-detect
+    if initial_opts.headless or mng_ctx.config.headless:
+        is_interactive = False
+    else:
+        try:
+            is_interactive = sys.stdout.isatty()
+        except (ValueError, AttributeError):
+            # Handle cases where stdout is uninitialized (e.g., xdist workers)
+            is_interactive = False
+
+    # Update MngContext with the resolved is_interactive
+    mng_ctx = mng_ctx.model_copy_update(
+        to_update(mng_ctx.field_ref().is_interactive, is_interactive),
     )
 
     # Apply config defaults to parameters that came from defaults (not user-specified)
@@ -273,17 +285,18 @@ def setup_command_context(
     # Allow plugins to override command options before creating the options object
     _apply_plugin_option_overrides(pm, command_name, command_class, updated_params)
 
+    # Re-separate after config defaults and plugin overrides may have changed things
+    known_updated_params, updated_plugin_params = _split_known_and_plugin_params(updated_params, command_class)
+
+    # Store plugin CLI params so plugins can access their values via hooks
+    ctx.meta["plugin_cli_params"] = updated_plugin_params
+
     # Re-create options with config defaults applied
-    opts = command_class(**updated_params)
+    opts = command_class(**known_updated_params)
 
-    # Resolve --json / --jsonl flags into output_format before parsing output options.
-    effective_format = _resolve_format_flags(ctx, opts)
-
-    # Parse output options after all defaults and overrides have been applied,
-    # so that config defaults and plugin overrides for logging-related params
-    # (verbose, quiet, log_file, etc.) are taken into consideration.
-    output_opts = parse_output_options(
-        output_format=effective_format,
+    # Parse output options and resolve logging config with CLI overrides applied.
+    output_opts, resolved_logging_config = parse_output_options(
+        output_format=opts.output_format,
         quiet=opts.quiet,
         verbose=opts.verbose,
         log_file=opts.log_file,
@@ -300,17 +313,22 @@ def setup_command_context(
             "Use --format human, --format json, or --format jsonl."
         )
 
-    # Set up logging (needs mng_ctx)
-    setup_logging(output_opts, mng_ctx)
+    # Store resolved logging config on the click context for callers that need it
+    ctx.meta["logging_config"] = resolved_logging_config
+
+    # Set up logging
+    setup_logging(resolved_logging_config, default_host_dir=mng_ctx.config.default_host_dir, command=command_name)
 
     # Enter a log span for the command lifetime
     span = log_span("Started {} command", command_name)
     ctx.with_resource(span)
 
-    # Register error reporting state on the group context so AliasAwareGroup.invoke()
-    # can check it when catching unexpected exceptions
-    if ctx.parent is not None and mng_ctx.config.is_error_reporting_enabled and is_interactive:
-        ctx.parent.meta["is_error_reporting_enabled"] = True
+    # Register interactive state and error reporting state on the group context
+    # so AliasAwareGroup.invoke() can check them when catching exceptions
+    if ctx.parent is not None:
+        ctx.parent.meta["is_interactive"] = is_interactive
+        if mng_ctx.config.is_error_reporting_enabled and is_interactive:
+            ctx.parent.meta["is_error_reporting_enabled"] = True
 
     # Run pre-command scripts if configured for this command
     _run_pre_command_scripts(mng_ctx.config, command_name, cg)
@@ -326,26 +344,6 @@ def setup_command_context(
     return mng_ctx, output_opts, opts
 
 
-def _resolve_format_flags(ctx: click.Context, opts: CommonCliOptions) -> str:
-    """Resolve --json / --jsonl convenience flags into a single format string.
-
-    Validates mutual exclusivity: --json and --jsonl cannot be used together,
-    and neither can be combined with an explicit --format value.
-    """
-    if opts.json_flag and opts.jsonl_flag:
-        raise click.UsageError("--json and --jsonl are mutually exclusive")
-
-    if opts.json_flag or opts.jsonl_flag:
-        format_source = ctx.get_parameter_source("output_format")
-        is_format_explicit = format_source is not None and format_source != ParameterSource.DEFAULT
-        if is_format_explicit:
-            flag_name = "--json" if opts.json_flag else "--jsonl"
-            raise click.UsageError(f"{flag_name} is mutually exclusive with --format")
-        return "json" if opts.json_flag else "jsonl"
-
-    return opts.output_format
-
-
 def parse_output_options(
     output_format: str,
     quiet: bool,
@@ -355,8 +353,11 @@ def parse_output_options(
     log_command_output: bool | None,
     log_env_vars: bool | None,
     config: MngConfig,
-) -> OutputOptions:
+) -> tuple[OutputOptions, LoggingConfig]:
     """Parse output-related CLI options. CLI flags can override config values.
+
+    Returns a tuple of (OutputOptions, resolved LoggingConfig). The resolved
+    LoggingConfig contains the TOML defaults with CLI overrides applied.
 
     If output_format is a built-in format name (human, json, jsonl), it is parsed
     as an OutputFormat enum. Otherwise it is treated as a format template string:
@@ -401,15 +402,25 @@ def parse_output_options(
 
     is_log_env_vars = log_env_vars if log_env_vars is not None else config.logging.is_logging_env_vars
 
-    return OutputOptions(
-        output_format=parsed_output_format,
-        format_template=format_template,
+    # Build the resolved logging config with CLI overrides applied to TOML defaults
+    resolved_logging_config = LoggingConfig(
+        file_level=config.logging.file_level,
+        log_dir=config.logging.log_dir,
+        max_log_size_mb=config.logging.max_log_size_mb,
         console_level=console_level,
         log_file_path=log_file_path,
-        is_log_commands=is_log_commands,
-        is_log_command_output=is_log_command_output,
-        is_log_env_vars=is_log_env_vars,
+        is_logging_commands=is_log_commands,
+        is_logging_command_output=is_log_command_output,
+        is_logging_env_vars=is_log_env_vars,
     )
+
+    output_opts = OutputOptions(
+        output_format=parsed_output_format,
+        format_template=format_template,
+        is_quiet=quiet,
+    )
+
+    return output_opts, resolved_logging_config
 
 
 @pure
@@ -535,6 +546,35 @@ def apply_create_template(
                 updated_params[param_name] = template_value
 
     return updated_params
+
+
+def is_param_explicit(ctx: click.Context, param_name: str) -> bool:
+    """Check whether a CLI parameter was explicitly set on the command line."""
+    return ctx.get_parameter_source(param_name) == ParameterSource.COMMANDLINE
+
+
+def error_if_param_explicit(ctx: click.Context, param_name: str, error_message: str) -> None:
+    """Raise UserInputError if the user explicitly set this parameter on the command line.
+
+    Use this when another flag implies a specific value for this parameter, and the
+    user explicitly chose a conflicting value.
+    """
+    if is_param_explicit(ctx, param_name):
+        raise UserInputError(error_message)
+
+
+@pure
+def _split_known_and_plugin_params(
+    params: dict[str, Any],
+    command_class: type[CommonCliOptions],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split params into those known to the command class and extra plugin params."""
+    known_fields = command_class.model_fields
+    known_params: dict[str, Any] = {}
+    plugin_params: dict[str, Any] = {}
+    for k, v in params.items():
+        (known_params if k in known_fields else plugin_params)[k] = v
+    return known_params, plugin_params
 
 
 def _apply_plugin_option_overrides(

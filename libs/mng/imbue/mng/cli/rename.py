@@ -5,15 +5,14 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.mng.api.discover import discover_all_hosts_and_agents
+from imbue.mng.api.discovery_events import emit_discovery_events_for_host
 from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
-from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
@@ -63,7 +62,7 @@ def _output_result(
 
 
 @click.command(name="rename")
-@click.argument("current", shell_complete=complete_agent_name)
+@click.argument("current")
 @click.argument("new_name", metavar="NEW-NAME")
 @optgroup.group("Behavior")
 @optgroup.option(
@@ -79,24 +78,6 @@ def _output_result(
 @add_common_options
 @click.pass_context
 def rename(ctx: click.Context, **kwargs: Any) -> None:
-    """Rename an agent or host. [experimental]
-
-    Renames the agent's data.json and tmux session (if running).
-    Git branch names are not renamed.
-
-    If a previous rename was interrupted, re-running the command
-    will attempt to finish it.
-
-    \b
-    Alias: mv
-
-    \b
-    Examples:
-
-      mng rename my-agent new-name
-
-      mng rename my-agent new-name --dry-run
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="rename",
@@ -115,7 +96,7 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
         raise UserInputError(f"Invalid new name: {e}") from None
 
     # Resolve the agent (without requiring the agent process to be running)
-    agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx)
+    agents_by_host, _ = discover_all_hosts_and_agents(mng_ctx)
     agent, host = find_and_maybe_start_agent_by_name_or_id(
         opts.current,
         agents_by_host,
@@ -145,6 +126,9 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
     # Perform the rename
     updated_agent = host.rename_agent(agent, new_agent_name)
 
+    # Emit discovery events for renamed agent and host
+    emit_discovery_events_for_host(mng_ctx.config, host)
+
     # Warn that the git branch was not renamed (only in human output mode)
     if output_opts.output_format == OutputFormat.HUMAN:
         logger.warning("Note: the git branch name was not changed. You may want to rename it manually.")
@@ -159,14 +143,12 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
 
 
 # Register help metadata for git-style help formatting
-_RENAME_HELP_METADATA = CommandHelpMetadata(
-    name="mng-rename",
+CommandHelpMetadata(
+    key="rename",
     one_line_description="Rename an agent or host [experimental]",
     synopsis="mng [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]",
     arguments_description="- `CURRENT`: Current name or ID of the agent to rename\n- `NEW-NAME`: New name for the agent",
-    description="""Rename an agent or host.
-
-Updates the agent's name in its data.json and renames the tmux session
+    description="""Updates the agent's name in its data.json and renames the tmux session
 if the agent is currently running. Git branch names are not renamed.
 
 If a previous rename was interrupted (e.g., the tmux session was renamed
@@ -183,12 +165,7 @@ to complete it.""",
         ("create", "Create a new agent"),
         ("destroy", "Destroy an agent"),
     ),
-)
-
-register_help_metadata("rename", _RENAME_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _RENAME_HELP_METADATA.aliases:
-    register_help_metadata(alias, _RENAME_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the rename command
 add_pager_help_option(rename)

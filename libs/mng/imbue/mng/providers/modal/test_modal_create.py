@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from imbue.mng import resources
-from imbue.mng.conftest import ModalSubprocessTestEnv
+from imbue.mng.utils.testing import ModalSubprocessTestEnv
 from imbue.mng.utils.testing import get_short_random_string
 
 
@@ -33,6 +33,7 @@ def temp_source_dir(tmp_path: Path) -> Path:
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(300)
 def test_mng_create_echo_command_on_modal(
     temp_source_dir: Path,
@@ -52,7 +53,7 @@ def test_mng_create_echo_command_on_modal(
     expected_output = f"hello-from-modal-{get_short_random_string()}"
 
     # Run mng create with echo command on modal
-    # Using --no-connect and --await-ready to run synchronously without attaching
+    # Using --no-connect to create without attaching
     # Using --no-ensure-clean since temp dir won't be a git repo
     result = subprocess.run(
         [
@@ -64,8 +65,9 @@ def test_mng_create_echo_command_on_modal(
             "echo",
             "--in",
             "modal",
+            "--host-name",
+            agent_name,
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source",
             str(temp_source_dir),
@@ -105,9 +107,10 @@ def test_mng_create_with_worktree_flag_on_modal_raises_error(
             "echo",
             "--in",
             "modal",
+            "--host-name",
+            agent_name,
             "--worktree",
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source",
             str(temp_source_dir),
@@ -128,6 +131,7 @@ def test_mng_create_with_worktree_flag_on_modal_raises_error(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(300)
 def test_mng_create_with_build_args_on_modal(
     temp_source_dir: Path,
@@ -150,8 +154,9 @@ def test_mng_create_with_build_args_on_modal(
             "echo",
             "--in",
             "modal",
+            "--host-name",
+            agent_name,
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source",
             str(temp_source_dir),
@@ -177,6 +182,7 @@ def test_mng_create_with_build_args_on_modal(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(300)
 def test_mng_create_with_dockerfile_on_modal(
     temp_source_dir: Path,
@@ -185,7 +191,7 @@ def test_mng_create_with_dockerfile_on_modal(
     """Test creating an agent on Modal using a custom Dockerfile.
 
     This verifies that:
-    1. The --dockerfile build arg is correctly parsed by the modal provider
+    1. The --file build arg is correctly parsed by the modal provider
     2. Modal builds an image from the Dockerfile
     3. The sandbox runs with the custom image
     """
@@ -220,13 +226,14 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
             "echo",
             "--in",
             "modal",
+            "--host-name",
+            agent_name,
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source",
             str(temp_source_dir),
             "-b",
-            f"--dockerfile={dockerfile_path}",
+            f"--file={dockerfile_path}",
             "--",
             expected_output,
         ],
@@ -278,13 +285,14 @@ RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
             "echo",
             "--in",
             "modal",
+            "--host-name",
+            agent_name,
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source",
             str(temp_source_dir),
             "-b",
-            f"--dockerfile={dockerfile_path}",
+            f"--file={dockerfile_path}",
             "--",
             "should-not-reach-here",
         ],
@@ -313,6 +321,7 @@ RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(300)
 def test_mng_create_transfers_git_repo_with_untracked_files(
     temp_git_repo: Path,
@@ -345,8 +354,9 @@ def test_mng_create_transfers_git_repo_with_untracked_files(
             "generic",
             "--in",
             "modal",
+            "--host-name",
+            agent_name,
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source",
             str(temp_git_repo),
@@ -387,12 +397,12 @@ def test_mng_create_transfers_git_repo_with_new_branch(
             "generic",
             "--in",
             "modal",
+            "--host-name",
+            agent_name,
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source",
             str(temp_git_repo),
-            "--new-branch=",
             "--",
             "git rev-parse --abbrev-ref HEAD && sleep 3600",
         ],
@@ -415,6 +425,7 @@ def _get_mng_default_dockerfile_path() -> Path:
 
 
 @pytest.mark.release
+@pytest.mark.rsync
 @pytest.mark.timeout(600)
 def test_mng_create_with_default_dockerfile_on_modal(
     tmp_path: Path,
@@ -439,7 +450,7 @@ def test_mng_create_with_default_dockerfile_on_modal(
     tar_dir = tmp_path / "tar_output"
     tar_dir.mkdir()
     temp_dir_with_tar = str(tar_dir)
-    commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mng/dev/modal_image_commit_hash").read_text().strip()
+    commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mng/image_commit_hash").read_text().strip()
 
     # go make the tar
     subprocess.run(
@@ -465,13 +476,14 @@ def test_mng_create_with_default_dockerfile_on_modal(
             "generic",
             "--in",
             "modal",
+            "--host-name",
+            agent_name,
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source",
             str(temp_source_dir),
             "-b",
-            f"--dockerfile={dockerfile_path}",
+            f"--file={dockerfile_path}",
             "-b",
             f"context-dir={temp_dir_with_tar}",
             "--target-path",

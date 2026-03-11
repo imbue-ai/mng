@@ -1,3 +1,7 @@
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- This is a copy of the top-level README.md, but with local paths replaced by GitHub links. -->
+<!-- To modify, edit README.md in the repo root and run: uv run python scripts/make_cli_docs.py -->
+
 # mng: build your team of AI engineering agents
 
 **installation:**
@@ -8,17 +12,17 @@ curl -fsSL https://raw.githubusercontent.com/imbue-ai/mng/main/scripts/install.s
 **mng is *very* simple to use:**
 
 ```bash
-mng                  # launch claude locally (defaults: command=create, agent=claude, provider=local, project=current dir)
-mng --in modal       # launch claude on Modal
-mng my-task          # launch claude with a name
-mng my-task codex    # launch codex instead of claude
-mng -- --model opus  # pass any arguments through to the underlying agent
+mng create           # launch claude locally (defaults: agent=claude, provider=local, project=current dir)
+mng create --in modal       # launch claude on Modal
+mng create my-task          # launch claude with a name
+mng create my-task codex    # launch codex instead of claude
+mng create -- --model opus  # pass any arguments through to the underlying agent
 
 # send an initial message so you don't have to wait around:
-mng --no-connect --message "Speed up one of my tests and make a PR on github"
+mng create --no-connect --message "Speed up one of my tests and make a PR on github"
 
 # or, be super explicit about all of the arguments:
-mng create --name my-task --agent-type claude --in modal
+mng create --name my-task --type claude --in modal
 
 # tons more arguments for anything you could want! Learn more via --help
 mng create --help
@@ -29,17 +33,16 @@ mng --help
 
 **mng is fast:**
 ```bash
-> time mng local-hello  --message "Just say hello" --no-connect
-Agent creation started in background (PID: 709262)
-Agent name: local-hello
+> time mng create local-hello  --message "Just say hello" --no-connect
+Done.
 
 real    0m1.472s
 user    0m1.181s
 sys     0m0.227s
 
 > time mng list
-NAME           STATE       HOST        PROVIDER    HOST STATE  LABELS                                                                                                                                                             
-local-hello    RUNNING     @local      local       RUNNING     project=mng                                                                                                                                                        
+NAME           STATE       HOST        PROVIDER    HOST STATE  LABELS
+local-hello    RUNNING     @local      local       RUNNING     project=mng
 
 real    0m1.773s
 user    0m0.955s
@@ -82,7 +85,7 @@ mng exec agent-1 "git log --oneline -5"
 
 # never lose any work: snapshot and fork the entire agent states
 mng create doomed-agent --in modal
-SNAPSHOT=$(mng snapshot doomed-agent --format "{id}")
+SNAPSHOT=$(mng snapshot create doomed-agent --format "{id}")
 mng message doomed-agent "try running 'rm -rf /' and see what happens"
 mng create new-agent --snapshot $SNAPSHOT
 ```
@@ -111,7 +114,7 @@ mng pair my-agent          # or sync changes continuously!
 > mng ask "How do I create a container on modal with custom packages installed by default?"
 
 Simply run:
-    mng create --in modal --build-arg "--dockerfile path/to/Dockerfile"
+    mng create --in modal -b "--file path/to/Dockerfile"
 ```
 
 <!--
@@ -154,21 +157,19 @@ git clone git@github.com:imbue-ai/mng.git && cd mng && uv sync --all-packages &&
 
 ## Shell Completion
 
-`mng` supports tab completion for commands and agent names in bash, zsh, and fish.
+`mng` supports tab completion for commands, options, and agent names in bash and zsh.
+Shell completion is configured automatically by the install script (`scripts/install.sh`).
 
-**Zsh** (add to `~/.zshrc`):
+To set up manually, generate the completion script and append it to your shell rc file:
+
+**Zsh** (run once):
 ```bash
-eval "$(_MNG_COMPLETE=zsh_source mng)"
+uv tool run --from mng python3 -m imbue.mng.cli.complete --script zsh >> ~/.zshrc
 ```
 
-**Bash** (add to `~/.bashrc`):
+**Bash** (run once):
 ```bash
-eval "$(_MNG_COMPLETE=bash_source mng)"
-```
-
-**Fish** (run once):
-```bash
-_MNG_COMPLETE=fish_source mng > ~/.config/fish/completions/mng.fish
+uv tool run --from mng python3 -m imbue.mng.cli.complete --script bash >> ~/.bashrc
 ```
 
 Note: `mng` must be installed on your PATH for completion to work (not invoked via `uv run`).
@@ -185,7 +186,7 @@ mng <command> [options]
 
 ### For managing agents:
 
-- **[`create`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/create.md)**: (default) Create and run an agent in a host
+- **[`create`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/create.md)**: Create and run an agent in a host
 - [`destroy`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
 - [`connect`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/connect.md): Attach to an agent
 <!-- - [`open`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser -->
@@ -210,7 +211,7 @@ mng <command> [options]
 ### For maintenance:
 
 - [`cleanup`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/cleanup.md): Clean up stopped agents and unused resources
-- [`logs`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/logs.md): View agent and host logs
+- [`events`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/events.md): View agent and host event files
 - [`gc`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/gc.md): Garbage collect unused resources
 
 ### For managing mng itself:
@@ -227,7 +228,6 @@ You can interact with `mng` via the terminal (run `mng --help` to learn more).
 `mng` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
 
 - **[agents](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/agents.md)** are simply processes that run in [tmux](https://github.com/tmux/tmux/wiki) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
-<!-- - [agents](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/agents.md) usually expose URLs so you can access them from the web [future: mng open] -->
 - [agents](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/agents.md) run on **[hosts](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal](https://modal.com) [Sandboxes](https://modal.com/docs/guide/sandboxes) (`--in modal`) or [Docker](https://www.docker.com) [containers](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/) (`--in docker`).  Use `--host <name>` to target an existing host.
 - multiple [agents](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/agents.md) can share a single [host](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/hosts.md).
 - [hosts](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/hosts.md) come from **[providers](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/providers.md)** (ex: Modal, AWS, docker, etc)
@@ -254,7 +254,7 @@ See [`architecture.md`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/
 2. Follow the "principle of least privilege": only expose the minimal set of API tokens and secrets for each agent, and restrict their access (eg to the network) as much as possible.
 3. Avoid storing sensitive data in agents' filesystems (or encrypt it if necessary).
 
-See [`./docs/security_model.md`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/security_model.md) for more details on our security model.
+See our [security model](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/security_model.md) for more details.
 
 <!--
 ## Learning more

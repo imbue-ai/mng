@@ -9,8 +9,7 @@
 mng push [TARGET] [SOURCE] [--target-agent <AGENT>] [--dry-run] [--stop]
 ```
 
-
-Push files or git commits from local machine to an agent. [experimental]
+Push files or git commits from local machine to an agent [experimental].
 
 Syncs files or git state from a local directory to an agent's working directory.
 Default behavior uses rsync for efficient incremental file transfer.
@@ -21,20 +20,11 @@ If no target is specified, shows an interactive selector to choose an agent.
 IMPORTANT: The source (host) workspace is never modified. Only the target
 (agent workspace) may be modified.
 
-Examples:
-  mng push my-agent
-  mng push my-agent ./local-dir
-  mng push my-agent:subdir ./local-src
-  mng push my-agent --source ./local-dir
-  mng push my-agent --sync-mode=git
-  mng push my-agent --sync-mode=git --mirror
-
 **Usage:**
 
 ```text
 mng push [OPTIONS] TARGET SOURCE
 ```
-
 ## Arguments
 
 - `TARGET`: The target (optional)
@@ -81,22 +71,16 @@ mng push [OPTIONS] TARGET SOURCE
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
-| `--json` | boolean | Alias for --format json | `False` |
-| `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
-| `--log-file` | path | Path to log file (overrides default ~/.mng/logs/<timestamp>-<pid>.json) | None |
+| `--log-file` | path | Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json) | None |
 | `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
 | `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
 | `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--headless` | boolean | Disable all interactive behavior (prompts, TUI, editor). Also settable via MNG_HEADLESS env var or 'headless' config key. | `False` |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## See Also

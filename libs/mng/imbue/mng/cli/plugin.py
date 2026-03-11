@@ -29,7 +29,6 @@ from imbue.mng.cli.config import save_config_file
 from imbue.mng.cli.config import set_nested_value
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -41,6 +40,12 @@ from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import PluginSpecifierError
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.primitives import PluginName
+from imbue.mng.uv_tool import build_uv_tool_install_add
+from imbue.mng.uv_tool import build_uv_tool_install_add_git
+from imbue.mng.uv_tool import build_uv_tool_install_add_path
+from imbue.mng.uv_tool import build_uv_tool_install_remove
+from imbue.mng.uv_tool import read_receipt
+from imbue.mng.uv_tool import require_uv_tool_receipt
 
 # Default fields to display
 DEFAULT_FIELDS: Final[tuple[str, ...]] = ("name", "version", "description", "enabled")
@@ -93,6 +98,9 @@ def _gather_plugin_info(mng_ctx: MngContext) -> list[PluginInfo]:
 
     Uses pm.list_name_plugin() for all registered plugins and
     pm.list_plugin_distinfo() for distribution metadata (version, description).
+
+    Also includes disabled plugins that were blocked from registration
+    (via pm.set_blocked) so they still appear in `mng plugin list`.
     """
     pm = mng_ctx.pm
 
@@ -128,6 +136,20 @@ def _gather_plugin_info(mng_ctx: MngContext) -> list[PluginInfo]:
             description=description,
             is_enabled=is_enabled,
         )
+
+    # Include disabled plugins that were blocked and never registered.
+    # These won't appear in pm.list_name_plugin() but should still be
+    # visible in the plugin list so users can see and re-enable them.
+    # Version/description are unavailable because pluggy doesn't expose
+    # metadata for blocked plugins.
+    for disabled_name in mng_ctx.config.disabled_plugins:
+        if disabled_name not in plugin_info_by_name:
+            plugin_info_by_name[disabled_name] = PluginInfo(
+                name=disabled_name,
+                version=None,
+                description=None,
+                is_enabled=False,
+            )
 
     return sorted(plugin_info_by_name.values(), key=lambda p: p.name)
 
@@ -213,32 +235,14 @@ def _parse_pypi_package_name(specifier: str) -> str | None:
     requirement.
     """
     try:
-        req = Requirement(specifier)
+        requirement = Requirement(specifier)
     except InvalidRequirement:
         return None
-    return req.name
-
-
-def _build_uv_pip_install_command_for_path(local_path: str) -> tuple[str, ...]:
-    """Build the uv pip install command for a local path (editable mode)."""
-    resolved = str(Path(local_path).expanduser().resolve())
-    return ("uv", "pip", "install", "--python", sys.executable, "-e", resolved)
-
-
-@pure
-def _build_uv_pip_install_command_for_name_or_url(specifier: str) -> tuple[str, ...]:
-    """Build the uv pip install command for a PyPI name or git URL."""
-    return ("uv", "pip", "install", "--python", sys.executable, specifier)
-
-
-@pure
-def _build_uv_pip_uninstall_command(package_name: str) -> tuple[str, ...]:
-    """Build the uv pip uninstall command for a given package name."""
-    return ("uv", "pip", "uninstall", "--python", sys.executable, package_name)
+    return requirement.name
 
 
 def _get_installed_package_names(concurrency_group: Any) -> set[str]:
-    """Get the set of currently installed package names via `uv pip list --format json`."""
+    """Get the set of currently installed package names via ``uv pip list``."""
     result = concurrency_group.run_process_to_completion(
         ("uv", "pip", "list", "--python", sys.executable, "--format", "json")
     )
@@ -340,18 +344,6 @@ def _emit_plugin_remove_result(
 @add_common_options
 @click.pass_context
 def plugin(ctx: click.Context, **kwargs: Any) -> None:
-    """Manage available and active plugins. [experimental]
-
-    Install, remove, view, enable, and disable plugins registered with mng.
-
-    Examples:
-
-      mng plugin list
-
-      mng plugin list --active
-
-      mng plugin list --fields name,enabled
-    """
     if ctx.invoked_subcommand is None:
         show_help_with_pager(ctx, ctx.command, None)
 
@@ -373,26 +365,6 @@ def plugin(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_list(ctx: click.Context, **kwargs: Any) -> None:
-    """List discovered plugins. [experimental]
-
-    Shows all plugins registered with mng, including built-in plugins
-    and any externally installed plugins.
-
-    Supports custom format templates via --format. Available fields:
-    name, version, description, enabled.
-
-    Examples:
-
-      mng plugin list
-
-      mng plugin list --active
-
-      mng plugin list --format json
-
-      mng plugin list --fields name,enabled
-
-      mng plugin list --format '{name}\\t{enabled}'
-    """
     try:
         _plugin_list_impl(ctx, **kwargs)
     except AbortError as e:
@@ -425,20 +397,6 @@ def _plugin_list_impl(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_add(ctx: click.Context, **kwargs: Any) -> None:
-    """Install a plugin package. [experimental]
-
-    Provide exactly one of NAME (positional), --path, or --git.
-
-    Examples:
-
-      mng plugin add mng-pair
-
-      mng plugin add mng-pair>=1.0
-
-      mng plugin add --path ./my-plugin
-
-      mng plugin add --git https://github.com/user/mng-plugin.git
-    """
     try:
         _plugin_add_impl(ctx)
     except AbortError as e:
@@ -452,17 +410,6 @@ def plugin_add(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_remove(ctx: click.Context, **kwargs: Any) -> None:
-    """Uninstall a plugin package. [experimental]
-
-    Provide exactly one of NAME (positional) or --path. For local paths,
-    the package name is read from pyproject.toml.
-
-    Examples:
-
-      mng plugin remove mng-pair
-
-      mng plugin remove --path ./my-plugin
-    """
     try:
         _plugin_remove_impl(ctx)
     except AbortError as e:
@@ -544,19 +491,30 @@ def _plugin_add_impl(ctx: click.Context) -> None:
         command_class=PluginCliOptions,
     )
 
+    # Validate arguments before checking uv tool receipt so users get clear
+    # argument-validation errors rather than a "not installed via uv tool" error.
     source = _parse_add_source(opts)
 
-    # Build the install command and determine the display specifier
+    receipt_path = require_uv_tool_receipt()
+    receipt = read_receipt(receipt_path)
+
+    # Build the uv tool install command and determine the display specifier
     match source:
         case _PathSource(path=path):
+            resolved_path = str(Path(path).expanduser().resolve())
             specifier = path
-            command = _build_uv_pip_install_command_for_path(path)
+            try:
+                package_name = _read_package_name_from_pyproject(path)
+            except PluginSpecifierError:
+                logger.debug("Could not read package name from pyproject.toml at '{}', using raw path", path)
+                package_name = path
+            command = build_uv_tool_install_add_path(receipt, resolved_path, package_name)
         case _GitSource(url=url):
             specifier = url
-            command = _build_uv_pip_install_command_for_name_or_url(url)
+            command = build_uv_tool_install_add_git(receipt, url)
         case _PypiSource(name=name):
             specifier = name
-            command = _build_uv_pip_install_command_for_name_or_url(name)
+            command = build_uv_tool_install_add(receipt, name)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -578,12 +536,8 @@ def _plugin_add_impl(ctx: click.Context) -> None:
     match source:
         case _PypiSource(name=name):
             resolved_package_name = _parse_pypi_package_name(name) or name
-        case _PathSource(path=path):
-            try:
-                resolved_package_name = _read_package_name_from_pyproject(path)
-            except PluginSpecifierError:
-                logger.debug("Could not read package name from pyproject.toml at '{}', using raw path", path)
-                resolved_package_name = path
+        case _PathSource():
+            resolved_package_name = package_name
         case _GitSource(url=url):
             assert packages_before is not None
             packages_after = _get_installed_package_names(mng_ctx.concurrency_group)
@@ -604,7 +558,12 @@ def _plugin_remove_impl(ctx: click.Context) -> None:
         command_class=PluginCliOptions,
     )
 
+    # Validate arguments before checking uv tool receipt so users get clear
+    # argument-validation errors rather than a "not installed via uv tool" error.
     source = _parse_remove_source(opts)
+
+    receipt_path = require_uv_tool_receipt()
+    receipt = read_receipt(receipt_path)
 
     match source:
         case _PathSource(path=path):
@@ -618,13 +577,12 @@ def _plugin_remove_impl(ctx: click.Context) -> None:
         case _ as unreachable:
             assert_never(unreachable)
 
-    # Verify the package is actually installed before trying to uninstall
-    try:
-        importlib.metadata.distribution(package_name)
-    except importlib.metadata.PackageNotFoundError:
-        raise AbortError(f"Package '{package_name}' is not installed") from None
+    # Verify the package is actually a dependency before trying to remove
+    extra_names = {r.name for r in receipt.extras}
+    if package_name not in extra_names:
+        raise AbortError(f"Package '{package_name}' is not installed as a plugin")
 
-    command = _build_uv_pip_uninstall_command(package_name)
+    command = build_uv_tool_install_remove(receipt, package_name)
 
     with log_span("Removing plugin package '{}'", package_name):
         try:
@@ -654,19 +612,6 @@ def _plugin_remove_impl(ctx: click.Context) -> None:
 @add_common_options
 @click.pass_context
 def plugin_enable(ctx: click.Context, **kwargs: Any) -> None:
-    """Enable a plugin. [experimental]
-
-    Sets plugins.<name>.enabled = true in the configuration file at the
-    specified scope.
-
-    Examples:
-
-      mng plugin enable modal
-
-      mng plugin enable modal --scope user
-
-      mng plugin enable modal --format json
-    """
     try:
         _plugin_enable_impl(ctx, **kwargs)
     except AbortError as e:
@@ -686,19 +631,6 @@ def plugin_enable(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_disable(ctx: click.Context, **kwargs: Any) -> None:
-    """Disable a plugin. [experimental]
-
-    Sets plugins.<name>.enabled = false in the configuration file at the
-    specified scope.
-
-    Examples:
-
-      mng plugin disable modal
-
-      mng plugin disable modal --scope user
-
-      mng plugin disable modal --format json
-    """
     try:
         _plugin_disable_impl(ctx, **kwargs)
     except AbortError as e:
@@ -788,13 +720,11 @@ def _emit_plugin_toggle_result(
 
 
 # Register help metadata for git-style help formatting
-_PLUGIN_HELP_METADATA = CommandHelpMetadata(
-    name="mng-plugin",
+CommandHelpMetadata(
+    key="plugin",
     one_line_description="Manage available and active plugins [experimental]",
     synopsis="mng [plugin|plug] <subcommand> [OPTIONS]",
-    description="""Manage available and active plugins.
-
-Install, remove, view, enable, and disable plugins registered with mng.
+    description="""Install, remove, view, enable, and disable plugins registered with mng.
 Plugins provide agent types, provider backends, CLI commands, and lifecycle hooks.""",
     aliases=("plug",),
     examples=(
@@ -810,10 +740,104 @@ Plugins provide agent types, provider backends, CLI commands, and lifecycle hook
         ("Disable a plugin", "mng plugin disable modal --scope user"),
     ),
     see_also=(("config", "Manage mng configuration"),),
-)
-
-register_help_metadata("plugin", _PLUGIN_HELP_METADATA)
-for alias in _PLUGIN_HELP_METADATA.aliases:
-    register_help_metadata(alias, _PLUGIN_HELP_METADATA)
+).register()
 
 add_pager_help_option(plugin)
+
+# -- Subcommand help metadata --
+
+CommandHelpMetadata(
+    key="plugin.list",
+    one_line_description="List discovered plugins [experimental]",
+    synopsis="mng plugin list [OPTIONS]",
+    description="""Shows all plugins registered with mng, including built-in plugins
+and any externally installed plugins.
+
+Supports custom format templates via --format. Available fields:
+name, version, description, enabled.""",
+    examples=(
+        ("List all plugins", "mng plugin list"),
+        ("List only active plugins", "mng plugin list --active"),
+        ("Output as JSON", "mng plugin list --format json"),
+        ("Show specific fields", "mng plugin list --fields name,enabled"),
+        ("Custom format template", "mng plugin list --format '{name}\\t{enabled}'"),
+    ),
+    see_also=(
+        ("plugin add", "Install a plugin package"),
+        ("plugin enable", "Enable a plugin"),
+    ),
+).register()
+add_pager_help_option(plugin_list)
+
+CommandHelpMetadata(
+    key="plugin.add",
+    one_line_description="Install a plugin package [experimental]",
+    synopsis="mng plugin add [NAME] [OPTIONS]",
+    description="""Provide exactly one of NAME (positional), --path, or --git. NAME is a PyPI
+package specifier (e.g., 'mng-pair' or 'mng-pair>=1.0'). --path installs
+from a local directory in editable mode. --git installs from a git URL.""",
+    examples=(
+        ("Install from PyPI", "mng plugin add mng-pair"),
+        ("Install with version constraint", "mng plugin add mng-pair>=1.0"),
+        ("Install from a local path", "mng plugin add --path ./my-plugin"),
+        ("Install from a git URL", "mng plugin add --git https://github.com/user/mng-plugin.git"),
+    ),
+    see_also=(
+        ("plugin remove", "Uninstall a plugin package"),
+        ("plugin list", "List discovered plugins"),
+    ),
+).register()
+add_pager_help_option(plugin_add)
+
+CommandHelpMetadata(
+    key="plugin.remove",
+    one_line_description="Uninstall a plugin package [experimental]",
+    synopsis="mng plugin remove [NAME] [OPTIONS]",
+    description="""Provide exactly one of NAME (positional) or --path. For local paths,
+the package name is read from pyproject.toml.""",
+    examples=(
+        ("Remove by name", "mng plugin remove mng-pair"),
+        ("Remove by local path", "mng plugin remove --path ./my-plugin"),
+    ),
+    see_also=(
+        ("plugin add", "Install a plugin package"),
+        ("plugin list", "List discovered plugins"),
+    ),
+).register()
+add_pager_help_option(plugin_remove)
+
+CommandHelpMetadata(
+    key="plugin.enable",
+    one_line_description="Enable a plugin [experimental]",
+    synopsis="mng plugin enable NAME [OPTIONS]",
+    description="""Sets plugins.<name>.enabled = true in the configuration file at the
+specified scope.""",
+    examples=(
+        ("Enable at project scope (default)", "mng plugin enable modal"),
+        ("Enable at user scope", "mng plugin enable modal --scope user"),
+        ("Output as JSON", "mng plugin enable modal --format json"),
+    ),
+    see_also=(
+        ("plugin disable", "Disable a plugin"),
+        ("plugin list", "List discovered plugins"),
+    ),
+).register()
+add_pager_help_option(plugin_enable)
+
+CommandHelpMetadata(
+    key="plugin.disable",
+    one_line_description="Disable a plugin [experimental]",
+    synopsis="mng plugin disable NAME [OPTIONS]",
+    description="""Sets plugins.<name>.enabled = false in the configuration file at the
+specified scope.""",
+    examples=(
+        ("Disable at project scope (default)", "mng plugin disable modal"),
+        ("Disable at user scope", "mng plugin disable modal --scope user"),
+        ("Output as JSON", "mng plugin disable modal --format json"),
+    ),
+    see_also=(
+        ("plugin enable", "Enable a plugin"),
+        ("plugin list", "List discovered plugins"),
+    ),
+).register()
+add_pager_help_option(plugin_disable)

@@ -129,10 +129,22 @@ install_uv() {
 
 info "Detected OS: ${OS}"
 
+# macOS ships /bin/bash 3.2 which lacks features mng scripts need.
+# `command -v bash` always succeeds, so find_missing won't detect this. We check
+# the version explicitly and force-add bash to the missing arrays if too old.
+_NEED_MODERN_BASH=false
+_PATH_BASH_VER="$(bash -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)"
+if [ "$_PATH_BASH_VER" -lt 4 ] 2>/dev/null; then
+    _NEED_MODERN_BASH=true
+fi
+
 SHOULD_INSTALL_DEPS=true
 
 # shellcheck disable=SC2207
 missing_all=($(find_missing "${ALL_DEPS[@]}"))
+if [ "$_NEED_MODERN_BASH" = true ]; then
+    missing_all+=("bash(4+)")
+fi
 
 if [ ${#missing_all[@]} -eq 0 ]; then
     info "All system dependencies already installed"
@@ -144,6 +156,9 @@ else
     printf "  [a] Install all (%s)\n" "${missing_all[*]}"
     # shellcheck disable=SC2207
     missing_core=($(find_missing "${CORE_DEPS[@]}"))
+    if [ "$_NEED_MODERN_BASH" = true ]; then
+        missing_core+=("bash(4+)")
+    fi
     if [ ${#missing_core[@]} -gt 0 ]; then
         printf "  [c] Install core only (%s)\n" "${missing_core[*]}"
     fi
@@ -158,6 +173,11 @@ else
     brew_apt_missing_all=($(find_missing "${BREW_APT_CORE_DEPS[@]}" "${BREW_APT_OPTIONAL_DEPS[@]}"))
     # shellcheck disable=SC2207
     brew_apt_missing_core=($(find_missing "${BREW_APT_CORE_DEPS[@]}"))
+    # Force-add bash if the PATH-resolved version is too old (find_missing can't detect this)
+    if [ "$_NEED_MODERN_BASH" = true ]; then
+        brew_apt_missing_all+=("bash")
+        brew_apt_missing_core+=("bash")
+    fi
 
     case "$choice" in
         a|A|y|Y|"")
@@ -186,6 +206,22 @@ else
     esac
 fi
 
+# ── Verify bash 4+ is on PATH (post-install) ─────────────────────────────────
+# Re-check after deps were installed. Warn if still too old.
+
+if [ "$_NEED_MODERN_BASH" = true ]; then
+    _POST_BASH_VER="$(bash -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)"
+    if [ "$_POST_BASH_VER" -lt 4 ] 2>/dev/null; then
+        if [ "$OS" = "macos" ]; then
+            warn "PATH-resolved bash is still version $_POST_BASH_VER after install."
+            warn "Ensure /opt/homebrew/bin (Apple Silicon) or /usr/local/bin (Intel) is before /bin in your PATH."
+        else
+            warn "PATH-resolved bash is still version $_POST_BASH_VER after install."
+            warn "Ensure the newly installed bash is before the old one in your PATH."
+        fi
+    fi
+fi
+
 # ── Verify uv is available ─────────────────────────────────────────────────────
 
 if ! command -v uv &>/dev/null; then
@@ -212,13 +248,18 @@ fi
 
 if [ "$OS" = "macos" ]; then
     SHELL_RC="$HOME/.zshrc"
-    COMPLETION_LINE='eval "$(_MNG_COMPLETE=zsh_source mng)"'
+    SHELL_TYPE="zsh"
 else
     SHELL_RC="$HOME/.bashrc"
-    COMPLETION_LINE='eval "$(_MNG_COMPLETE=bash_source mng)"'
+    SHELL_TYPE="bash"
 fi
 
-if grep -qF '_MNG_COMPLETE' "$SHELL_RC" 2>/dev/null; then
+ALREADY_CONFIGURED=false
+if grep -qF '_mng_complete' "$SHELL_RC" 2>/dev/null; then
+    ALREADY_CONFIGURED=true
+fi
+
+if [ "$ALREADY_CONFIGURED" = true ]; then
     info "Shell completion already configured in $SHELL_RC"
 else
     printf "\n"
@@ -231,8 +272,14 @@ else
 
     case "$completion_choice" in
         y|Y|"")
-            echo "$COMPLETION_LINE" >> "$SHELL_RC"
-            info "Shell completion enabled in $SHELL_RC"
+            COMPLETION_SCRIPT="$(uv tool run --from mng python3 -m imbue.mng.cli.complete --script "$SHELL_TYPE" 2>/dev/null)"
+            if [ -n "$COMPLETION_SCRIPT" ]; then
+                printf "\n%s\n" "$COMPLETION_SCRIPT" >> "$SHELL_RC"
+                info "Shell completion enabled in $SHELL_RC"
+            else
+                warn "Could not generate completion script."
+                warn "You can set it up manually later -- see: https://github.com/imbue-ai/mng#shell-completion"
+            fi
             ;;
         *)
             info "Skipping shell completion"

@@ -11,16 +11,20 @@ from click.testing import CliRunner
 
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.cli.create import CreateCliOptions
-from imbue.mng.cli.create import _handle_create
+from imbue.mng.cli.create import _create_agent
+from imbue.mng.cli.create import _setup_create
 from imbue.mng.cli.create import create
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
+from imbue.mng.utils.logging import LoggingConfig
 from imbue.mng.utils.polling import wait_for
 from imbue.mng.utils.testing import capture_tmux_pane_contents
 from imbue.mng.utils.testing import tmux_session_cleanup
 from imbue.mng.utils.testing import tmux_session_exists
+from imbue.mng.utils.testing import wait_for_agent_session
 
 
+@pytest.mark.tmux
 def test_cli_create_with_echo_command(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -38,13 +42,11 @@ def test_cli_create_with_echo_command(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "echo 'hello from cli test' && sleep 958374",
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
             ],
             obj=plugin_manager,
@@ -52,14 +54,23 @@ def test_cli_create_with_echo_command(
         )
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert "Done." in result.output
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            timeout=15.0,
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
 
         # Agents live directly under the host dir
         agents_dir = temp_host_dir / "agents"
-        assert agents_dir.exists(), "agents directory should exist under host dir"
+        wait_for(
+            lambda: agents_dir.exists(),
+            timeout=15.0,
+            error_message="agents directory should exist under host dir",
+        )
 
 
+@pytest.mark.tmux
 def test_cli_create_via_subprocess(
     temp_work_dir: Path,
     temp_host_dir: Path,
@@ -74,7 +85,7 @@ def test_cli_create_via_subprocess(
     env["MNG_HOST_DIR"] = str(temp_host_dir)
     env["MNG_PREFIX"] = mng_test_prefix
     # Prevent loading project config (.mng/settings.toml) which might have
-    # settings like add_command that would interfere with tests
+    # settings like extra_window that would interfere with tests
     env["MNG_ROOT_NAME"] = mng_test_root_name
 
     with tmux_session_cleanup(session_name):
@@ -86,15 +97,13 @@ def test_cli_create_via_subprocess(
                 "create",
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 651472",
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
-                # Note: --agent-cmd automatically implies --agent-type generic
+                # Note: --command automatically implies --type generic
                 # Disable external providers to avoid connection errors in CI
                 "--disable-plugin",
                 "modal",
@@ -108,13 +117,23 @@ def test_cli_create_via_subprocess(
         )
 
         assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            timeout=15.0,
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
 
         # Agents live directly under the host dir
         agents_dir = temp_host_dir / "agents"
-        assert agents_dir.exists(), "agents directory should exist under host dir"
+        wait_for(
+            lambda: agents_dir.exists(),
+            timeout=15.0,
+            error_message="agents directory should exist under host dir",
+        )
 
 
+@pytest.mark.tmux
 def test_connect_flag_calls_tmux_attach_for_local_agent(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
@@ -123,29 +142,29 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
 ) -> None:
     """Test that --connect flag results in connection options that would attach to the tmux session.
 
-    Calls _handle_create directly (bypassing _post_create) so we can verify the agent
-    was created and the returned options indicate a connect should happen, without
-    actually calling os.execvp to attach to tmux.
+    Calls _setup_create + _create_agent directly (bypassing _post_create) so we
+    can verify the agent was created and the returned options indicate a connect should happen,
+    without actually calling os.execvp to attach to tmux.
     """
     agent_name = f"test-connect-local-{int(time.time())}"
     session_name = f"{mng_test_prefix}{agent_name}"
 
     opts = default_create_cli_opts.model_copy_update(
         to_update(default_create_cli_opts.field_ref().name, agent_name),
-        to_update(default_create_cli_opts.field_ref().agent_command, "sleep 397265"),
+        to_update(default_create_cli_opts.field_ref().command, "sleep 397265"),
         to_update(default_create_cli_opts.field_ref().source_path, str(temp_work_dir)),
         to_update(default_create_cli_opts.field_ref().connect, True),
-        to_update(default_create_cli_opts.field_ref().copy_work_dir, False),
         to_update(default_create_cli_opts.field_ref().ensure_clean, False),
     )
 
     output_opts = OutputOptions()
 
     with tmux_session_cleanup(session_name):
-        result = _handle_create(temp_mng_ctx, output_opts, opts)
+        setup = _setup_create(temp_mng_ctx, output_opts, opts, LoggingConfig())
+        result = _create_agent(temp_mng_ctx, output_opts, opts, setup)
 
         assert result is not None
-        create_result, connection_opts, _, returned_opts, _ = result
+        create_result, connection_opts = result
 
         # Verify the agent was created and the tmux session is running
         assert create_result.agent is not None
@@ -154,10 +173,11 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
 
         # Verify the returned options indicate connect should happen
         # (_post_create would call connect_to_agent -> os.execvp with tmux attach)
-        assert returned_opts.connect is True
+        assert opts.connect is True
         assert connection_opts.is_reconnect is True
 
 
+@pytest.mark.tmux
 def test_no_connect_flag_skips_tmux_attach(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -179,25 +199,28 @@ def test_no_connect_flag_skips_tmux_attach(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 529847",
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
             ],
             obj=plugin_manager,
             catch_exceptions=False,
         )
 
-        # If --no-connect works, the CLI should complete and return 0
-        # (if it had called execvp, the test process would be replaced)
+        # --no-connect skips connecting to the agent after creation
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            timeout=15.0,
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
 
 
+@pytest.mark.tmux
 def test_message_file_flag_reads_message_from_file(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -219,18 +242,14 @@ def test_message_file_flag_reads_message_from_file(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "cat",
                 "--message-file",
                 str(message_file),
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
-                "--ready-timeout",
-                "0.01",
             ],
             obj=plugin_manager,
             catch_exceptions=False,
@@ -240,11 +259,13 @@ def test_message_file_flag_reads_message_from_file(
 
         wait_for(
             lambda: tmux_session_exists(session_name),
+            timeout=15.0,
             error_message=f"Expected tmux session {session_name} to exist",
         )
 
         wait_for(
             lambda: message_content in capture_tmux_pane_contents(session_name),
+            timeout=15.0,
             error_message=f"Expected message '{message_content}' to appear in tmux pane output",
         )
 
@@ -266,7 +287,7 @@ def test_message_and_message_file_both_provided_raises_error(
         [
             "--name",
             agent_name,
-            "--agent-cmd",
+            "--command",
             "cat",
             "--message",
             "Hello from flag",
@@ -275,7 +296,6 @@ def test_message_and_message_file_both_provided_raises_error(
             "--source",
             str(temp_work_dir),
             "--no-connect",
-            "--no-copy-work-dir",
             "--no-ensure-clean",
         ],
         obj=plugin_manager,
@@ -285,6 +305,7 @@ def test_message_and_message_file_both_provided_raises_error(
     assert "Cannot provide both --message and --message-file" in result.output
 
 
+@pytest.mark.tmux
 def test_multiline_message_creates_file_and_pipes(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -306,18 +327,14 @@ def test_multiline_message_creates_file_and_pipes(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "cat",
                 "--message-file",
                 str(message_file),
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
-                "--ready-timeout",
-                "0.01",
             ],
             obj=plugin_manager,
             catch_exceptions=False,
@@ -327,16 +344,19 @@ def test_multiline_message_creates_file_and_pipes(
 
         wait_for(
             lambda: tmux_session_exists(session_name),
+            timeout=15.0,
             error_message=f"Expected tmux session {session_name} to exist",
         )
 
         for line in ["Line 1", "Line 2", "Line 3"]:
             wait_for(
                 lambda line=line: line in capture_tmux_pane_contents(session_name),
+                timeout=15.0,
                 error_message=f"Expected line '{line}' to appear in tmux pane output",
             )
 
 
+@pytest.mark.tmux
 def test_single_line_message_uses_echo(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -354,18 +374,14 @@ def test_single_line_message_uses_echo(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "cat",
                 "--message",
                 single_line_message,
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
-                "--ready-timeout",
-                "0.01",
             ],
             obj=plugin_manager,
             catch_exceptions=False,
@@ -375,79 +391,25 @@ def test_single_line_message_uses_echo(
 
         wait_for(
             lambda: tmux_session_exists(session_name),
+            timeout=15.0,
             error_message=f"Expected tmux session {session_name} to exist",
         )
 
         wait_for(
             lambda: single_line_message in capture_tmux_pane_contents(session_name),
+            timeout=15.0,
             error_message=f"Expected message '{single_line_message}' to appear in tmux pane output",
         )
 
 
-def test_no_await_ready_creates_agent_in_background(
+@pytest.mark.tmux
+def test_extra_window_with_named_window(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mng_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --no-await-ready creates agent in background and exits immediately."""
-    agent_name = f"test-no-await-{int(time.time())}"
-    session_name = f"{mng_test_prefix}{agent_name}"
-
-    with tmux_session_cleanup(session_name):
-        result = cli_runner.invoke(
-            create,
-            [
-                "--name",
-                agent_name,
-                "--agent-cmd",
-                "sleep 817364",
-                "--source",
-                str(temp_work_dir),
-                "--no-connect",
-                "--no-await-ready",
-                "--no-copy-work-dir",
-                "--no-ensure-clean",
-            ],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-
-        assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert "Agent creation started in background" in result.output
-        assert agent_name in result.output
-
-        # Use a longer timeout than the default 5s because --no-await-ready forks a
-        # child process that runs api_create() asynchronously. On loaded CI systems
-        # the forked process may need more time to set up the tmux session.
-        background_timeout = 15.0
-
-        wait_for(
-            lambda: tmux_session_exists(session_name),
-            timeout=background_timeout,
-            error_message=f"Expected tmux session {session_name} to exist",
-        )
-
-        # Wait for the command to actually start running in the session.
-        # The background thread may still be sending keys after the session is created.
-        def command_is_running() -> bool:
-            pane_content = capture_tmux_pane_contents(session_name)
-            return "sleep" in pane_content
-
-        wait_for(
-            command_is_running,
-            timeout=background_timeout,
-            error_message="Expected sleep command to be running",
-        )
-
-
-def test_add_command_with_named_window(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mng_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that -c with name=command syntax creates a tmux window with the specified name."""
+    """Test that -w with name=command syntax creates a tmux window with the specified name."""
     agent_name = f"test-named-window-{int(time.time())}"
     session_name = f"{mng_test_prefix}{agent_name}"
 
@@ -457,15 +419,13 @@ def test_add_command_with_named_window(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 629481",
-                "-c",
+                "-w",
                 'myserver="sleep 847192"',
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
             ],
             obj=plugin_manager,
@@ -473,24 +433,37 @@ def test_add_command_with_named_window(
         )
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-        window_list_result = subprocess.run(
-            ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
-            capture_output=True,
-            text=True,
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            timeout=15.0,
+            error_message=f"Expected tmux session {session_name} to exist",
         )
-        window_names = window_list_result.stdout.strip().split("\n")
-        assert "myserver" in window_names, f"Expected window 'myserver' in {window_names}"
+
+        def has_myserver_window() -> bool:
+            window_list_result = subprocess.run(
+                ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+                capture_output=True,
+                text=True,
+            )
+            window_names = window_list_result.stdout.strip().split("\n")
+            return "myserver" in window_names
+
+        wait_for(
+            has_myserver_window,
+            timeout=15.0,
+            error_message="Expected window 'myserver' to exist",
+        )
 
 
-def test_add_command_without_name_uses_default_window_name(
+@pytest.mark.tmux
+def test_extra_window_without_name_uses_default_window_name(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mng_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that -c without name prefix creates a tmux window with default name (cmd-N)."""
+    """Test that -w without name prefix creates a tmux window with default name (cmd-N)."""
     agent_name = f"test-default-window-{int(time.time())}"
     session_name = f"{mng_test_prefix}{agent_name}"
 
@@ -500,15 +473,13 @@ def test_add_command_without_name_uses_default_window_name(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 538274",
-                "-c",
+                "-w",
                 "sleep 719283",
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
             ],
             obj=plugin_manager,
@@ -516,75 +487,85 @@ def test_add_command_without_name_uses_default_window_name(
         )
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-        window_list_result = subprocess.run(
-            ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
-            capture_output=True,
-            text=True,
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            timeout=15.0,
+            error_message=f"Expected tmux session {session_name} to exist",
         )
-        window_names = window_list_result.stdout.strip().split("\n")
-        assert "cmd-1" in window_names, f"Expected window 'cmd-1' in {window_names}"
+
+        def has_cmd_1_window() -> bool:
+            window_list_result = subprocess.run(
+                ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+                capture_output=True,
+                text=True,
+            )
+            window_names = window_list_result.stdout.strip().split("\n")
+            return "cmd-1" in window_names
+
+        wait_for(
+            has_cmd_1_window,
+            timeout=15.0,
+            error_message="Expected window 'cmd-1' to exist",
+        )
 
 
-def test_agent_cmd_and_agent_type_are_mutually_exclusive(
+def test_command_and_type_are_mutually_exclusive(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --agent-cmd and --agent-type (other than generic) are mutually exclusive."""
+    """Test that --command and --type (other than generic) are mutually exclusive."""
     agent_name = f"test-mutex-{int(time.time())}"
 
-    # "claude" agent type should conflict with --agent-cmd
+    # "claude" agent type should conflict with --command
     result = cli_runner.invoke(
         create,
         [
             "--name",
             agent_name,
-            "--agent-cmd",
+            "--command",
             "sleep 123456",
-            "--agent-type",
+            "--type",
             "claude",
             "--source",
             str(temp_work_dir),
             "--no-connect",
-            "--no-copy-work-dir",
             "--no-ensure-clean",
         ],
         obj=plugin_manager,
     )
 
     assert result.exit_code != 0
-    assert "--agent-cmd and --agent-type are mutually exclusive" in result.output
+    assert "--command and --type are mutually exclusive" in result.output
 
 
-def test_agent_cmd_with_generic_type_is_allowed(
+@pytest.mark.tmux
+def test_command_with_generic_type_is_allowed(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     temp_host_dir: Path,
     mng_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --agent-cmd with --agent-type generic is allowed (they are compatible)."""
+    """Test that --command with --type generic is allowed (they are compatible)."""
     agent_name = f"test-generic-{int(time.time())}"
     session_name = f"{mng_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        # Explicit --agent-type generic is OK with --agent-cmd
+        # Explicit --type generic is OK with --command
         result = cli_runner.invoke(
             create,
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 654321",
-                "--agent-type",
+                "--type",
                 "generic",
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
             ],
             obj=plugin_manager,
@@ -592,51 +573,15 @@ def test_agent_cmd_with_generic_type_is_allowed(
         )
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-
-def test_await_agent_stopped_waits_for_agent_to_exit(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mng_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that --await-agent-stopped waits for the agent to completely finish running."""
-    agent_name = f"test-await-stopped-{int(time.time())}"
-    session_name = f"{mng_test_prefix}{agent_name}"
-
-    # Use tmux_session_cleanup to ensure cleanup even if test fails
-    with tmux_session_cleanup(session_name):
-        # Run a command that echoes something and then exits
-        result = cli_runner.invoke(
-            create,
-            [
-                "--name",
-                agent_name,
-                "--agent-cmd",
-                "echo 'hello from await-stopped test' && exit 0",
-                "--source",
-                str(temp_work_dir),
-                "--no-connect",
-                "--await-agent-stopped",
-                "--no-connect",
-            ],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-
-        assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        # The key assertion: we waited for the agent to stop
-        assert "Waiting for agent to stop..." in result.output
-        assert "Done." in result.output
-
-        # wait for the tmux session to be gone
         wait_for(
-            lambda: not tmux_session_exists(session_name),
-            error_message=f"Expected tmux session {session_name} to be gone after agent stopped",
+            lambda: tmux_session_exists(session_name),
+            timeout=15.0,
+            error_message=f"Expected tmux session {session_name} to exist",
         )
 
 
+@pytest.mark.tmux
 def test_edit_message_sends_edited_content(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -644,6 +589,7 @@ def test_edit_message_sends_edited_content(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    intercepted_execvp_calls: list[tuple[str, list[str]]],
 ) -> None:
     """Test that --edit-message opens an editor and sends the edited message."""
     agent_name = f"test-edit-message-{int(time.time())}"
@@ -664,14 +610,12 @@ def test_edit_message_sends_edited_content(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "cat",
                 "--edit-message",
                 "--source",
                 str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
+                "--connect",
                 "--no-ensure-clean",
             ],
             obj=plugin_manager,
@@ -691,6 +635,7 @@ def test_edit_message_sends_edited_content(
         )
 
 
+@pytest.mark.tmux
 def test_edit_message_with_initial_content(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -698,6 +643,7 @@ def test_edit_message_with_initial_content(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    intercepted_execvp_calls: list[tuple[str, list[str]]],
 ) -> None:
     """Test that --edit-message with --message uses the message as initial content."""
     agent_name = f"test-edit-initial-{int(time.time())}"
@@ -722,16 +668,14 @@ def test_edit_message_with_initial_content(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "cat",
                 "--edit-message",
                 "--message",
                 initial_content,
                 "--source",
                 str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
+                "--connect",
                 "--no-ensure-clean",
             ],
             obj=plugin_manager,
@@ -758,36 +702,7 @@ def test_edit_message_with_initial_content(
         )
 
 
-def test_edit_message_incompatible_with_background_creation(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that --edit-message cannot be used with background creation."""
-    agent_name = f"test-edit-bg-{int(time.time())}"
-
-    result = cli_runner.invoke(
-        create,
-        [
-            "--name",
-            agent_name,
-            "--agent-cmd",
-            "sleep 123456",
-            "--edit-message",
-            "--source",
-            str(temp_work_dir),
-            "--no-connect",
-            "--no-await-ready",
-            "--no-copy-work-dir",
-            "--no-ensure-clean",
-        ],
-        obj=plugin_manager,
-    )
-
-    assert result.exit_code != 0
-    assert "--edit-message cannot be used with background creation" in result.output
-
-
+@pytest.mark.tmux
 def test_edit_message_empty_content_does_not_send(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -795,6 +710,7 @@ def test_edit_message_empty_content_does_not_send(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    intercepted_execvp_calls: list[tuple[str, list[str]]],
 ) -> None:
     """Test that empty content from editor does not send a message."""
     agent_name = f"test-edit-empty-{int(time.time())}"
@@ -815,14 +731,12 @@ def test_edit_message_empty_content_does_not_send(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 f"echo '{marker_text}' && cat",
                 "--edit-message",
                 "--source",
                 str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
+                "--connect",
                 "--no-ensure-clean",
             ],
             obj=plugin_manager,
@@ -846,6 +760,7 @@ def test_edit_message_empty_content_does_not_send(
         assert "No message to send" in result.output or "empty" in result.output.lower()
 
 
+@pytest.mark.tmux
 def test_template_applies_values_from_config(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -867,7 +782,6 @@ def test_template_applies_values_from_config(
     settings_file = mng_dir / "settings.toml"
     settings_file.write_text("""
 [create_templates.mytemplate]
-no_copy_work_dir = true
 no_ensure_clean = true
 """)
 
@@ -877,12 +791,11 @@ no_ensure_clean = true
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 847192",
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
                 "--context",
                 str(config_dir),
                 "--template",
@@ -893,9 +806,15 @@ no_ensure_clean = true
         )
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            timeout=15.0,
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
 
 
+@pytest.mark.tmux
 def test_template_cli_args_take_precedence(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -918,7 +837,6 @@ def test_template_cli_args_take_precedence(
     settings_file.write_text("""
 [create_templates.mytemplate]
 message = "template-message"
-no_copy_work_dir = true
 no_ensure_clean = true
 """)
 
@@ -928,20 +846,17 @@ no_ensure_clean = true
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "cat",
                 "--source",
                 str(temp_work_dir),
                 "--no-connect",
-                "--await-ready",
                 "--context",
                 str(config_dir),
                 "--template",
                 "mytemplate",
                 "--message",
                 "cli-message",
-                "--ready-timeout",
-                "0.01",
             ],
             obj=plugin_manager,
             catch_exceptions=False,
@@ -951,12 +866,14 @@ no_ensure_clean = true
 
         wait_for(
             lambda: tmux_session_exists(session_name),
+            timeout=15.0,
             error_message=f"Expected tmux session {session_name} to exist",
         )
 
         # CLI message should appear, not template message
         wait_for(
             lambda: "cli-message" in capture_tmux_pane_contents(session_name),
+            timeout=15.0,
             error_message="Expected CLI message 'cli-message' to appear in tmux pane output",
         )
 
@@ -979,7 +896,7 @@ def test_template_unknown_template_raises_error(
     settings_file = mng_dir / "settings.toml"
     settings_file.write_text("""
 [create_templates.existing]
-no_copy_work_dir = true
+no_ensure_clean = true
 """)
 
     result = cli_runner.invoke(
@@ -987,7 +904,7 @@ no_copy_work_dir = true
         [
             "--name",
             agent_name,
-            "--agent-cmd",
+            "--command",
             "sleep 123456",
             "--source",
             str(temp_work_dir),
@@ -1006,7 +923,7 @@ no_copy_work_dir = true
 
 
 # =============================================================================
-# Tests for ensure-clean behavior with --base-branch
+# Tests for ensure-clean behavior with explicit base branch
 # =============================================================================
 
 
@@ -1024,7 +941,7 @@ def test_ensure_clean_rejects_dirty_worktree_by_default(
         [
             "--name",
             "test-dirty",
-            "--agent-cmd",
+            "--command",
             "sleep 1",
             "--source",
             str(temp_git_repo),
@@ -1037,6 +954,7 @@ def test_ensure_clean_rejects_dirty_worktree_by_default(
     assert "uncommitted changes" in result.output
 
 
+@pytest.mark.tmux
 def test_ensure_clean_skipped_with_explicit_base_branch(
     cli_runner: CliRunner,
     temp_git_repo: Path,
@@ -1044,7 +962,7 @@ def test_ensure_clean_skipped_with_explicit_base_branch(
     mng_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Creating an agent with --base-branch skips the ensure-clean check."""
+    """Creating an agent with an explicit base branch skips the ensure-clean check."""
     # Create a second branch to use as base
     subprocess.run(
         ["git", "branch", "other-branch"],
@@ -1065,15 +983,13 @@ def test_ensure_clean_skipped_with_explicit_base_branch(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 847192",
                 "--source",
                 str(temp_git_repo),
-                "--base-branch",
-                "other-branch",
+                "--branch",
+                "other-branch:mng/*",
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
             ],
             obj=plugin_manager,
             catch_exceptions=False,
@@ -1081,3 +997,6 @@ def test_ensure_clean_skipped_with_explicit_base_branch(
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
         assert "uncommitted changes" not in result.output
+
+        # Wait for background session so cleanup can properly kill it
+        wait_for_agent_session(session_name)

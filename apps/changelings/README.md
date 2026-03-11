@@ -1,59 +1,34 @@
 # changelings
 
-Nightly autonomous agents that maintain your codebase while you sleep.
+Run your own persistent, specialized AI agents
 
-Each **changeling** is a scheduled agent that performs a specific maintenance task on your codebase: fixing FIXMEs, improving tests, fixing GitHub issues, etc.
+## Overview
 
-Wake up to high-quality PRs that improve your code-base!
+changelings is an application that makes it easy to create and deploy persistent, specialized AI agents that are *fully* yours.
 
-## How it works
+Each changeling is a collection of persistent `mng` agents that, together, form a single higher-level "agent" from the perspective of the end-user. A changeling *must*:
 
-```bash
-# Create a changeling that fixes FIXMEs every night at 3am
-changeling add fixme-fairy --schedule "0 3 * * *"
+1. Serve a web interface (so that it is easy for users to interact with them)
+2. Support chat input/output (able to receive messages from the user and generate responses)
 
-# Or test it immediately
-changeling run fixme-fairy
+Other than that, the design of each changeling is completely open -- you can customize the agent's behavior, the data it has access to, and the way it responds to messages in any way you want.
 
-# See what's registered
-changeling list
+## Terminology
 
-# Check run history
-changeling status nightly-fixmes
-
-# Update the schedule and settings for a changeling
-changeling update fixme-fairy --schedule "0 4 * * *" --settings '{"max_fixes_per_run": 5}'
-
-# Remove a changeling
-changeling remove fixme-fairy
-
-# Or see the help for more options!
-changeling --help
-```
-
-## Built-in agent types
-
-| Agent type | Description |
-|------------|-------------|
-| `fixme-fairy` | Finds all FIXMEs in the codebase and fixes them, one commit per fix, then creates a PR |
-| `test-troll` | Improves tests: speeds them up, removes pointless ones, fixes flakes, increases coverage |
-| `coverage-hunter` | Focused specifically on increasing test coverage without sacrificing speed |
-| `doc-regent` | Produces a markdown report of doc/code inconsistencies |
-| `code-guardian` | Creates a markdown report of the largest inconsistencies and problems in the codebase |
-| `docstring-scribe` | Produces a markdown report of outdated docstrings |
-| `security-soldier` | Produces a report of potential security issues and emails it to you (since it is sensitive) |
-| `issue-servant` | Watches new GitHub issues and attempts to create PRs that fix them |
-| `module-warden` | Reviews and improves a specific sub-module of the codebase |
-
-## Commands
-
-- `changeling add` -- Deploy a new changeling
-- `changeling update` -- Modify a deployed changeling
-- `changeling remove` -- Remove a changeling
-- `changeling list` -- List all registered changelings
-- `changeling run` -- Run a changeling immediately (for testing)
-- `changeling status` -- Check deployment status and run history
+- **changeling**: a collection of persistent mng agents (called **role agents**) that serve a web interface and support chat input/output. The role agents coordinate through shared event streams in a common git repo. Each changeling is identified by its `AgentId` and is labeled with `changeling=true` for discovery via `mng list`. For local deployments, the changeling has a repo directory at `~/.changelings/<agent-id>/`. The agent type is specified via `--agent-type` on the CLI or the `agent_type` field in `changelings.toml`. For remote deployments (Modal, Docker), a temporary repo is prepared and the code is copied to the remote host via `mng create --in <provider>`.
+- **role agent**: a standard mng agent that fulfills a specific role within a changeling (e.g., thinking, working, verifying). Each role agent is created via `mng create`, appears in `mng list`, and has its own lifecycle. Multiple instances of the same role can run simultaneously (e.g., several workers).
+- **supporting service**: a background process running alongside a role agent (e.g., watchers, web server). These are *not* mng agents -- they don't appear in `mng list` and have no lifecycle state. They are infrastructure provisioned automatically by the changeling plugin.
+- **forwarding server**: a local process (started via `changeling forward`) that handles authentication and proxies web traffic from the user's browser to the appropriate changeling's web server. Since a user may have *multiple changelings* running simultaneously, the forwarding server multiplexes access to all of them through a single local endpoint, handling discovery, routing, and authentication centrally.
 
 ## Architecture
 
-See [docs/design.md](docs/design.md) for the full design document and [specs/architecture.md](specs/architecture.md) for the technical architecture.
+The forwarding servers provide:
+- Authentication via one-time codes and signed cookies
+- A landing page listing all accessible changelings
+- Reverse proxying of HTTP and WebSocket traffic to individual changeling web servers using Service Worker-based path rewriting
+
+Each changeling may run one or more web servers on separate ports. The forwarding server multiplexes access to all of them under path prefixes (e.g. `/agents/{agent_id}/{server_name}/`). Navigating to `/agents/{agent_id}/` shows a listing of all available servers for that agent.
+
+## Design
+
+See [./docs/design.md](./docs/design.md) for more details on the design principles and architecture of changelings.

@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import tempfile
 from datetime import datetime
 from datetime import timezone
 from functools import cached_property
@@ -24,7 +25,6 @@ from pyinfra.api import Host as PyinfraHost
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
-from imbue.mng.api.data_types import HostLifecycleOptions
 from imbue.mng.errors import HostNotFoundError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import SnapshotNotFoundError
@@ -32,6 +32,7 @@ from imbue.mng.hosts.host import Host
 from imbue.mng.hosts.offline_host import OfflineHost
 from imbue.mng.interfaces.data_types import CertifiedHostData
 from imbue.mng.interfaces.data_types import CpuResources
+from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.data_types import HostResources
 from imbue.mng.interfaces.data_types import PyinfraConnector
 from imbue.mng.interfaces.data_types import SnapshotInfo
@@ -42,6 +43,7 @@ from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.volume import HostVolume
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostState
@@ -56,9 +58,13 @@ from imbue.mng.providers.docker.host_store import DockerHostStore
 from imbue.mng.providers.docker.host_store import HostRecord
 from imbue.mng.providers.docker.volume import CONTAINER_ENTRYPOINT_CMD
 from imbue.mng.providers.docker.volume import DockerVolume
+from imbue.mng.providers.docker.volume import LABEL_PREFIX
+from imbue.mng.providers.docker.volume import LABEL_PROVIDER
 from imbue.mng.providers.docker.volume import STATE_VOLUME_MOUNT_PATH
 from imbue.mng.providers.docker.volume import ensure_state_container
 from imbue.mng.providers.docker.volume import state_volume_name
+from imbue.mng.providers.ssh_host_setup import REQUIRED_HOST_PACKAGES
+from imbue.mng.providers.ssh_host_setup import build_add_authorized_keys_command
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -73,14 +79,30 @@ from imbue.mng.providers.ssh_utils import wait_for_sshd
 # Container entrypoint as SDK-style command tuple (used by tests)
 CONTAINER_ENTRYPOINT: Final[tuple[str, ...]] = ("sh", "-c", CONTAINER_ENTRYPOINT_CMD)
 
-# Default image used when no image is specified
+# Fallback base image when no image is specified by the user or provider config.
 DEFAULT_IMAGE: Final[str] = "debian:bookworm-slim"
 
-# Docker label prefix
-LABEL_PREFIX: Final[str] = "com.imbue.mng."
+
+def _build_default_dockerfile() -> str:
+    """Build the default Dockerfile contents from REQUIRED_HOST_PACKAGES."""
+    packages = " \\\n    ".join(sorted(pkg.package for pkg in REQUIRED_HOST_PACKAGES))
+    return f"""\
+FROM {DEFAULT_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    {packages} \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+
+
+# Minimal Dockerfile that pre-installs the packages mng requires at runtime.
+# Using this as the default avoids slow runtime installs on every host create.
+# Derived from REQUIRED_HOST_PACKAGES so the two stay in sync.
+DEFAULT_DOCKERFILE_CONTENTS: Final[str] = _build_default_dockerfile()
+
+# Docker label keys (LABEL_PREFIX and LABEL_PROVIDER are imported from volume.py)
 LABEL_HOST_ID: Final[str] = f"{LABEL_PREFIX}host-id"
 LABEL_HOST_NAME: Final[str] = f"{LABEL_PREFIX}host-name"
-LABEL_PROVIDER: Final[str] = f"{LABEL_PREFIX}provider"
 LABEL_TAGS: Final[str] = f"{LABEL_PREFIX}tags"
 
 # Path where the state volume is mounted inside host containers (when host volume is enabled).
@@ -191,7 +213,7 @@ class DockerProviderInstance(BaseProviderInstance):
         """Get the state volume backed by the singleton state container."""
         user_id = str(self.mng_ctx.get_profile_user_id())
         prefix = self.mng_ctx.config.prefix
-        state_container = ensure_state_container(self._docker_client, prefix, user_id)
+        state_container = ensure_state_container(self._docker_client, prefix, user_id, provider_name=str(self.name))
         return DockerVolume(container=state_container)
 
     @cached_property
@@ -221,7 +243,7 @@ class DockerProviderInstance(BaseProviderInstance):
 
         Returns None when host volumes are disabled. When enabled, returns
         '<volume_name>:<mount_path>:rw' so the container can read/write the
-        shared state volume (where per-host data lives under volumes/<host_id>/).
+        shared state volume (where per-host data lives under volumes/vol-<host_hex>/).
         """
         if not self.config.is_host_volume_created:
             return None
@@ -231,11 +253,12 @@ class DockerProviderInstance(BaseProviderInstance):
         """Get the path inside a container that host_dir should symlink to.
 
         Returns the per-host sub-folder of the volume mount, e.g.
-        /mng-state/volumes/<host_id>. Returns None when host volumes are disabled.
+        /mng-state/volumes/vol-<host_hex>. Returns None when host volumes are disabled.
         """
         if not self.config.is_host_volume_created:
             return None
-        return f"{HOST_VOLUME_MOUNT_PATH}/volumes/{host_id}"
+        volume_id = self._volume_id_for_host(host_id)
+        return f"{HOST_VOLUME_MOUNT_PATH}/volumes/{volume_id}"
 
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
@@ -300,6 +323,7 @@ class DockerProviderInstance(BaseProviderInstance):
         host_public_key: str,
         ssh_user: str = "root",
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         host_volume_mount_path: str | None = None,
     ) -> None:
         """Set up SSH access and start sshd in the container."""
@@ -321,6 +345,12 @@ class DockerProviderInstance(BaseProviderInstance):
             if add_known_hosts_cmd is not None:
                 with log_span("Adding {} known_hosts entries to container", len(known_hosts)):
                     self._exec_in_container(container, add_known_hosts_cmd)
+
+        if authorized_keys:
+            add_authorized_keys_cmd = build_add_authorized_keys_command(ssh_user, tuple(authorized_keys))
+            if add_authorized_keys_cmd is not None:
+                with log_span("Adding {} authorized_keys entries to container", len(authorized_keys)):
+                    self._exec_in_container(container, add_authorized_keys_cmd)
 
         with log_span("Starting sshd in container"):
             self._exec_in_container(container, "/usr/sbin/sshd -D", detach=True)
@@ -355,6 +385,7 @@ class DockerProviderInstance(BaseProviderInstance):
         config: ContainerConfig,
         host_data: CertifiedHostData,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
     ) -> tuple[Host, str, int, str]:
         """Set up SSH in a container and create a Host object.
 
@@ -371,6 +402,7 @@ class DockerProviderInstance(BaseProviderInstance):
             host_private_key,
             host_public_key,
             known_hosts=known_hosts,
+            authorized_keys=authorized_keys,
             host_volume_mount_path=host_volume_symlink_target,
         )
 
@@ -429,7 +461,7 @@ class DockerProviderInstance(BaseProviderInstance):
 # Auto-generated shutdown script for mng Docker host
 # Kills PID 1 to stop the container
 
-LOG_FILE="{host_dir_str}/logs/shutdown.log"
+LOG_FILE="{host_dir_str}/events/logs/shutdown.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
 log() {{
@@ -515,6 +547,13 @@ kill -TERM 1
         if result.returncode != 0:
             raise MngError(f"docker build failed:\n{result.stderr}")
         return tag
+
+    def _build_default_image(self, tag: str) -> str:
+        """Build a Docker image from the mng default Dockerfile."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dockerfile_path = Path(tmpdir) / "Dockerfile"
+            dockerfile_path.write_text(DEFAULT_DOCKERFILE_CONTENTS)
+            return self._build_image(["--file", str(dockerfile_path), tmpdir], tag)
 
     def _pull_image(self, image_name: str) -> str:
         """Pull a Docker image if not already present locally."""
@@ -621,7 +660,12 @@ kill -TERM 1
         return containers[0] if containers else None
 
     def _list_containers(self) -> list[docker.models.containers.Container]:
-        """List all Docker containers managed by this provider instance."""
+        """List all Docker containers managed by this provider instance.
+
+        Filters by LABEL_PROVIDER and also by the MNG prefix in the container
+        name.  The prefix filter prevents stale containers from other
+        environments (e.g. interrupted test runs) from polluting discovery.
+        """
         try:
             containers = self._docker_client.containers.list(
                 all=True,
@@ -629,7 +673,16 @@ kill -TERM 1
             )
         except docker.errors.DockerException as e:
             raise MngError(f"Cannot connect to Docker daemon: {e}") from e
-        return containers
+
+        prefix = self.mng_ctx.config.prefix
+        filtered: list[docker.models.containers.Container] = []
+        for container in containers:
+            name = container.name or ""
+            if name.startswith(prefix):
+                filtered.append(container)
+            else:
+                logger.trace("Ignoring container {} (prefix mismatch: expected {})", name, prefix)
+        return filtered
 
     def _is_container_running(self, container: docker.models.containers.Container) -> bool:
         """Check if a container is running."""
@@ -710,6 +763,8 @@ kill -TERM 1
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
+        snapshot: SnapshotName | None = None,
     ) -> Host:
         """Create a new Docker container host.
 
@@ -723,12 +778,26 @@ kill -TERM 1
         base_image = str(image) if image else (self.config.default_image or DEFAULT_IMAGE)
         effective_start_args = tuple(self.config.default_start_args) + tuple(start_args or ())
 
+        # Detect whether we're falling through to the default with no user customization
+        is_using_default = not image and not build_args and not self.config.default_image
+        if is_using_default:
+            logger.warning(
+                "No image or Dockerfile specified -- building from mng default Dockerfile. "
+                "Consider using your own Dockerfile (-b --file=<path>) to include "
+                "your project's dependencies for faster startup.",
+            )
+
         try:
-            # Build image if build_args provided, otherwise pull base image
             if build_args:
+                # Build image from user-provided build args / Dockerfile
                 build_tag = f"mng-build-{host_id}"
                 image_name = self._build_image(build_args, build_tag)
+            elif is_using_default:
+                # Build from the mng default Dockerfile so packages are pre-installed
+                build_tag = f"mng-build-{host_id}"
+                image_name = self._build_default_image(build_tag)
             else:
+                # User specified an image (via --image or config default_image); pull it
                 image_name = self._pull_image(base_image)
 
             labels = build_container_labels(host_id, name, str(self.name), tags)
@@ -801,6 +870,7 @@ kill -TERM 1
                 config=config,
                 host_data=host_data,
                 known_hosts=known_hosts,
+                authorized_keys=authorized_keys,
             )
         except (MngError, docker.errors.DockerException, OSError) as e:
             # Clean up the container on SSH setup failure to avoid orphans
@@ -1059,8 +1129,9 @@ kill -TERM 1
 
         # Clean up the host volume directory
         if self.config.is_host_volume_created:
+            volume_id = self._volume_id_for_host(host_id)
             try:
-                self._state_volume.remove_directory(f"volumes/{host_id}")
+                self._state_volume.remove_directory(f"volumes/{volume_id}")
             except (FileNotFoundError, OSError, MngError) as e:
                 logger.trace("No host volume to clean up for {}: {}", host_id, e)
 
@@ -1082,6 +1153,14 @@ kill -TERM 1
     # =========================================================================
     # Discovery Methods
     # =========================================================================
+
+    def to_offline_host(self, host_id: HostId) -> OfflineHost:
+        """Return an offline representation of the given host for use when it is unreachable."""
+        host_record = self._host_store.read_host_record(host_id, use_cache=False)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
+
+        return self._create_host_from_host_record(host_record)
 
     def get_host(
         self,
@@ -1127,12 +1206,12 @@ kill -TERM 1
 
         raise HostNotFoundError(host)
 
-    def list_hosts(
+    def discover_hosts(
         self,
         cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-    ) -> list[HostInterface]:
-        """List all Docker container hosts."""
+    ) -> list[DiscoveredHost]:
+        """Discover all Docker container hosts."""
         hosts: list[HostInterface] = []
         processed_host_ids: set[HostId] = set()
 
@@ -1200,7 +1279,7 @@ kill -TERM 1
         for h in hosts:
             self._host_by_id_cache[h.id] = h
 
-        return hosts
+        return [DiscoveredHost(host_id=h.id, host_name=h.get_name(), provider_name=self.name) for h in hosts]
 
     def get_host_resources(self, host: HostInterface) -> HostResources:
         """Get resource information for a Docker container.
@@ -1344,6 +1423,15 @@ kill -TERM 1
     # Volume Methods
     # =========================================================================
 
+    @staticmethod
+    def _volume_id_for_host(host_id: HostId) -> VolumeId:
+        """Derive a VolumeId from a HostId.
+
+        Both IDs share the same 32-char hex suffix (``host-<hex>`` ->
+        ``vol-<hex>``), so the mapping is a simple prefix swap.
+        """
+        return VolumeId(f"vol-{host_id.get_uuid().hex}")
+
     def list_volumes(self) -> list[VolumeInfo]:
         """List logical volumes stored on the state volume."""
         try:
@@ -1355,11 +1443,14 @@ kill -TERM 1
         for entry in entries:
             if entry.file_type == VolumeFileType.DIRECTORY:
                 vol_name = entry.path.rsplit("/", 1)[-1]
+                volume_id = VolumeId(vol_name)
+                host_id = HostId(f"host-{volume_id.get_uuid().hex}")
                 volumes.append(
                     VolumeInfo(
-                        volume_id=VolumeId(vol_name),
+                        volume_id=volume_id,
                         name=vol_name,
                         size_bytes=0,
+                        host_id=host_id,
                     )
                 )
         return volumes
@@ -1372,17 +1463,19 @@ kill -TERM 1
         """Get the host volume for a given host.
 
         Returns a HostVolume backed by a sub-folder of the state volume
-        at volumes/<host_id>/. Returns None when host volumes are disabled.
+        at volumes/vol-<host_hex>/. Returns None when host volumes are disabled.
         """
         if not self.config.is_host_volume_created:
             return None
         host_id = host.id if isinstance(host, HostInterface) else host
-        scoped_volume = self._state_volume.scoped(f"volumes/{host_id}")
+        volume_id = self._volume_id_for_host(host_id)
+        scoped_volume = self._state_volume.scoped(f"volumes/{volume_id}")
         return HostVolume(volume=scoped_volume)
 
     def _ensure_host_volume_dir(self, host_id: HostId) -> None:
         """Ensure the volume directory for a host exists on the state volume."""
-        self._state_volume.write_files({f"volumes/{host_id}/.volume": b""})
+        volume_id = self._volume_id_for_host(host_id)
+        self._state_volume.write_files({f"volumes/{volume_id}/.volume": b""})
 
     # =========================================================================
     # Tag Methods (immutable)

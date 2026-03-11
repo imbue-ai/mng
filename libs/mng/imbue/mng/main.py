@@ -3,10 +3,11 @@ from typing import Any
 
 import click
 import pluggy
-from click.shell_completion import CompletionItem
+import setproctitle
 from click_option_group import OptionGroup
 
 from imbue.imbue_common.model_update import to_update
+from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.cli.ask import ask
 from imbue.mng.cli.cleanup import cleanup
 from imbue.mng.cli.clone import clone
@@ -19,15 +20,14 @@ from imbue.mng.cli.connect import connect
 from imbue.mng.cli.create import create
 from imbue.mng.cli.default_command_group import DefaultCommandGroup
 from imbue.mng.cli.destroy import destroy
+from imbue.mng.cli.events import events
 from imbue.mng.cli.exec import exec_command
 from imbue.mng.cli.gc import gc
 from imbue.mng.cli.help_formatter import get_help_metadata
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.issue_reporting import handle_not_implemented_error
 from imbue.mng.cli.issue_reporting import handle_unexpected_error
 from imbue.mng.cli.limit import limit
 from imbue.mng.cli.list import list_command
-from imbue.mng.cli.logs import logs
 from imbue.mng.cli.message import message
 from imbue.mng.cli.migrate import migrate
 from imbue.mng.cli.plugin import plugin as plugin_command
@@ -38,39 +38,18 @@ from imbue.mng.cli.rename import rename
 from imbue.mng.cli.snapshot import snapshot
 from imbue.mng.cli.start import start
 from imbue.mng.cli.stop import stop
+from imbue.mng.config.loader import block_disabled_plugins
+from imbue.mng.config.pre_readers import read_disabled_plugins
 from imbue.mng.errors import BaseMngError
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import get_all_provider_args_help_sections
 from imbue.mng.providers.registry import load_all_registries
+from imbue.mng.utils.click_utils import detect_alias_to_canonical
+from imbue.mng.utils.click_utils import detect_aliases_by_command
 
 # Module-level container for the plugin manager singleton, created lazily.
 # Using a dict avoids the need for the 'global' keyword while still allowing module-level state.
 _plugin_manager_container: dict[str, pluggy.PluginManager | None] = {"pm": None}
-
-# Command aliases - maps canonical command names to their aliases
-# This is used by the help formatter to display aliases
-COMMAND_ALIASES: dict[str, list[str]] = {
-    "create": ["c"],
-    "cleanup": ["clean"],
-    "config": ["cfg"],
-    "destroy": ["rm"],
-    "exec": ["x"],
-    "message": ["msg"],
-    "list": ["ls"],
-    "connect": ["conn"],
-    "provision": ["prov"],
-    "stop": ["s"],
-    "plugin": ["plug"],
-    "limit": ["lim"],
-    "rename": ["mv"],
-    "snapshot": ["snap"],
-}
-
-# Build reverse mapping: alias -> canonical name
-_ALIAS_TO_CANONICAL: dict[str, str] = {}
-for canonical, aliases in COMMAND_ALIASES.items():
-    for alias in aliases:
-        _ALIAS_TO_CANONICAL[alias] = canonical
 
 
 def _call_on_error_hook(ctx: click.Context, error: BaseException) -> None:
@@ -92,8 +71,9 @@ def _call_on_error_hook(ctx: click.Context, error: BaseException) -> None:
 class AliasAwareGroup(DefaultCommandGroup):
     """Custom click.Group that shows aliases inline with commands in --help.
 
-    When no subcommand is given, defaults to 'create'. When an unrecognized
-    subcommand is given, it is treated as arguments to 'create' (e.g.
+    When no subcommand is given, shows help. Users can configure a default
+    subcommand via ``[commands.mng] default_subcommand`` in config files
+    (e.g. set to ``"create"`` to restore the old behavior where
     ``mng my-task`` is equivalent to ``mng create my-task``).
     """
 
@@ -117,25 +97,28 @@ class AliasAwareGroup(DefaultCommandGroup):
             return result
         except NotImplementedError as e:
             _call_on_error_hook(ctx, e)
-            handle_not_implemented_error(e)
+            handle_not_implemented_error(e, is_interactive=ctx.meta.get("is_interactive"))
         except (click.ClickException, click.Abort, click.exceptions.Exit, BaseMngError, bdb.BdbQuit) as e:
             _call_on_error_hook(ctx, e)
             raise
         except Exception as e:
             _call_on_error_hook(ctx, e)
             if ctx.meta.get("is_error_reporting_enabled", False):
-                handle_unexpected_error(e)
+                handle_unexpected_error(e, is_interactive=ctx.meta.get("is_interactive"))
             raise
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Write the command list with aliases shown inline."""
+        alias_to_canonical = detect_alias_to_canonical(self)
+        aliases_by_cmd = detect_aliases_by_command(self)
+
         commands: list[tuple[str, click.Command]] = []
         for subcommand in self.list_commands(ctx):
             cmd = self.get_command(ctx, subcommand)
             if cmd is None or cmd.hidden:
                 continue
             # Skip alias entries - we'll show them with the main command
-            if subcommand in _ALIAS_TO_CANONICAL:
+            if subcommand in alias_to_canonical:
                 continue
             commands.append((subcommand, cmd))
 
@@ -147,9 +130,10 @@ class AliasAwareGroup(DefaultCommandGroup):
 
         rows: list[tuple[str, str]] = []
         for subcommand, cmd in commands:
-            help_text = cmd.get_short_help_str(limit=limit)
+            meta = get_help_metadata(subcommand)
+            help_text = meta.one_line_description if meta is not None else cmd.get_short_help_str(limit=limit)
             # Add aliases if this command has them
-            aliases = COMMAND_ALIASES.get(subcommand, [])
+            aliases = aliases_by_cmd.get(subcommand, [])
             if aliases:
                 subcommand = ", ".join([subcommand] + aliases)
             rows.append((subcommand, help_text))
@@ -157,15 +141,6 @@ class AliasAwareGroup(DefaultCommandGroup):
         if rows:
             with formatter.section("Commands"):
                 formatter.write_dl(rows)
-
-    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        completions = super().shell_complete(ctx, incomplete)
-        completed_names = {item.value for item in completions}
-        return [
-            item
-            for item in completions
-            if item.value not in _ALIAS_TO_CANONICAL or _ALIAS_TO_CANONICAL[item.value] not in completed_names
-        ]
 
 
 @click.command(cls=AliasAwareGroup)
@@ -175,6 +150,8 @@ def cli(ctx: click.Context) -> None:
     """
     Initial entry point for mng CLI commands.
     """
+    setproctitle.setproctitle("mng")
+
     # expose the plugin manager in the command context so that all commands have access to it
     # This uses the singleton that was already created during command registration
     pm = get_or_create_plugin_manager()
@@ -265,11 +242,19 @@ def create_plugin_manager() -> pluggy.PluginManager:
     """
     Initializes the plugin manager and loads all plugin registries.
 
+    Plugins disabled in config files are blocked via pm.set_blocked() before
+    setuptools entrypoints are loaded, so they are never registered. CLI-level
+    --disable-plugin flags are handled later in load_config().
+
     This should only really be called once from the main command (or during testing).
     """
     # Create plugin manager and load registries first (needed for config parsing)
     pm = pluggy.PluginManager("mng")
     pm.add_hookspecs(hookspecs)
+
+    # Block plugins that are disabled in config files. This must happen before
+    # load_setuptools_entrypoints so disabled plugins are never registered.
+    block_disabled_plugins(pm, read_disabled_plugins())
 
     # Automatically discover and load plugins registered via setuptools entry points.
     # External packages can register hooks by adding an entry point for the "mng" group.
@@ -277,6 +262,10 @@ def create_plugin_manager() -> pluggy.PluginManager:
 
     # load all classes defined by plugins so they are available later
     load_all_registries(pm)
+    load_agents_from_plugins(pm)
+
+    # Wire up the agent type resolver so hosts can resolve agent types
+    # without directly importing from the agents layer
 
     return pm
 
@@ -312,7 +301,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     destroy,
     exec_command,
     list_command,
-    logs,
+    events,
     connect,
     message,
     provision,
@@ -367,17 +356,16 @@ def _update_create_help_with_provider_args() -> None:
     are registered and their help text is available.
     """
     provider_sections = get_all_provider_args_help_sections()
-    for command_name in ("create", "c"):
-        existing_metadata = get_help_metadata(command_name)
-        if existing_metadata is None:
-            continue
-        updated_metadata = existing_metadata.model_copy_update(
-            to_update(
-                existing_metadata.field_ref().additional_sections,
-                existing_metadata.additional_sections + provider_sections,
-            ),
-        )
-        register_help_metadata(command_name, updated_metadata)
+    existing_metadata = get_help_metadata("create")
+    if existing_metadata is None:
+        return
+    updated_metadata = existing_metadata.model_copy_update(
+        to_update(
+            existing_metadata.field_ref().additional_sections,
+            existing_metadata.additional_sections + provider_sections,
+        ),
+    )
+    updated_metadata.register()
 
 
 _update_create_help_with_provider_args()

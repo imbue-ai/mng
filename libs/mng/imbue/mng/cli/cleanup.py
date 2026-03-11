@@ -6,7 +6,6 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import ConfigDict
-from urwid.display.raw import Screen
 from urwid.event_loop.abstract_loop import ExitMainLoop
 from urwid.event_loop.main_loop import MainLoop
 from urwid.widget.attr_map import AttrMap
@@ -31,14 +30,14 @@ from imbue.mng.cli.connect import filter_agents
 from imbue.mng.cli.connect import handle_search_key
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_info
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.cli.urwid_utils import create_urwid_screen_preserving_terminal
 from imbue.mng.config.data_types import OutputOptions
-from imbue.mng.interfaces.data_types import AgentInfo
+from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.primitives import CleanupAction
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
@@ -145,23 +144,6 @@ class CleanupCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def cleanup(ctx: click.Context, **kwargs) -> None:
-    """Destroy or stop agents and hosts to free up resources. [experimental]
-
-    When running interactively, provides an interactive interface for reviewing
-    and selecting agents. Use --yes to skip prompts.
-
-    Examples:
-
-      mng cleanup
-
-      mng cleanup --dry-run --yes
-
-      mng cleanup --older-than 7d --yes
-
-      mng cleanup --stop --idle-for 1h --yes
-
-      mng cleanup --provider docker --yes
-    """
     try:
         _cleanup_impl(ctx, **kwargs)
     except AbortError as e:
@@ -285,9 +267,9 @@ def _build_cel_filters_from_options(
 
 
 def _run_interactive_selection(
-    agents: list[AgentInfo],
+    agents: list[AgentDetails],
     action: CleanupAction,
-) -> list[AgentInfo]:
+) -> list[AgentDetails]:
     """Show a urwid-based multi-select TUI for choosing agents to clean up."""
     if not agents:
         return []
@@ -304,12 +286,12 @@ class _CleanupSelectorState(MutableModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    agents: list[AgentInfo]
-    filtered_agents: list[AgentInfo] = []
+    agents: list[AgentDetails]
+    filtered_agents: list[AgentDetails] = []
     selected_ids: set[str] = set()
     list_walker: Any
     status_text: Any
-    result: list[AgentInfo] | None = None
+    result: list[AgentDetails] | None = None
     hide_stopped: bool = False
     search_query: str = ""
     last_ctrl_c_time: float = 0.0
@@ -326,7 +308,7 @@ def _selected_marker(is_selected: bool) -> str:
 
 
 def _create_cleanup_list_item(
-    agent: AgentInfo,
+    agent: AgentDetails,
     is_selected: bool,
     name_width: int,
     state_width: int,
@@ -478,7 +460,7 @@ class _CleanupInputHandler(MutableModel):
         return True if handled else None
 
 
-def _run_cleanup_selector(agents: list[AgentInfo], action: CleanupAction) -> list[AgentInfo]:
+def _run_cleanup_selector(agents: list[AgentDetails], action: CleanupAction) -> list[AgentDetails]:
     """Run the multi-select cleanup TUI and return selected agents."""
     # Calculate column widths
     name_width = min(max((len(str(a.name)) for a in agents), default=10), 40)
@@ -563,16 +545,14 @@ def _run_cleanup_selector(agents: list[AgentInfo], action: CleanupAction) -> lis
 
     input_handler = _CleanupInputHandler(state=state)
 
-    screen = Screen()
-    screen.tty_signal_keys(intr="undefined")
-
-    loop = MainLoop(
-        frame,
-        palette=palette,
-        unhandled_input=input_handler,
-        screen=screen,
-    )
-    loop.run()
+    with create_urwid_screen_preserving_terminal() as screen:
+        loop = MainLoop(
+            frame,
+            palette=palette,
+            unhandled_input=input_handler,
+            screen=screen,
+        )
+        loop.run()
 
     if state.result is None:
         return []
@@ -593,7 +573,7 @@ def _emit_no_agents_found(output_opts: OutputOptions) -> None:
 
 
 def _emit_dry_run_output(
-    agents: list[AgentInfo],
+    agents: list[AgentDetails],
     action: CleanupAction,
     output_opts: OutputOptions,
 ) -> None:
@@ -675,14 +655,12 @@ def _emit_result(
 
 
 # Register help metadata for git-style help formatting
-_CLEANUP_HELP_METADATA = CommandHelpMetadata(
-    name="mng-cleanup",
+CommandHelpMetadata(
+    key="cleanup",
     one_line_description="Destroy or stop agents and hosts to free up resources [experimental]",
     synopsis="mng [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURATION] "
     "[--provider PROVIDER] [--agent-type TYPE] [--tag TAG] [-f|--force|--yes] [--dry-run]",
-    description="""Destroy or stop agents and hosts in order to free up resources.
-
-When running in a pty, defaults to providing an interactive interface for
+    description="""When running in a pty, defaults to providing an interactive interface for
 reviewing running agents and hosts and selecting which ones to destroy or stop.
 
 When running in a non-interactive setting (or if --yes is provided), will
@@ -709,12 +687,7 @@ see `mng gc`.""",
         ("gc", "Garbage collect orphaned resources"),
         ("list", "List agents with filtering"),
     ),
-)
-
-register_help_metadata("cleanup", _CLEANUP_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _CLEANUP_HELP_METADATA.aliases:
-    register_help_metadata(alias, _CLEANUP_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the cleanup command
 add_pager_help_option(cleanup)

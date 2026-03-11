@@ -29,6 +29,7 @@ from imbue.mng.errors import LockNotHeldError
 from imbue.mng.errors import MngError
 from imbue.mng.hosts.common import is_macos
 from imbue.mng.hosts.host import Host
+from imbue.mng.hosts.tmux import capture_tmux_pane_content
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import ActivityConfig
 from imbue.mng.interfaces.host import AgentDataOptions
@@ -52,6 +53,7 @@ from imbue.mng.providers.ssh.instance import SSHHostConfig
 from imbue.mng.providers.ssh.instance import SSHProviderInstance
 from imbue.mng.utils.polling import poll_until
 from imbue.mng.utils.polling import wait_for
+from imbue.mng.utils.testing import capture_tmux_pane_contents
 from imbue.mng.utils.testing import generate_ssh_keypair
 from imbue.mng.utils.testing import local_sshd
 
@@ -635,6 +637,7 @@ def test_get_idle_seconds_after_boot_activity(host_with_temp_dir: tuple[Host, Pa
 # =============================================================================
 
 
+@pytest.mark.tmux
 def test_unset_vars_applied_during_agent_start(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -679,8 +682,8 @@ def test_unset_vars_applied_during_agent_start(
         result = host.execute_command(f"tmux has-session -t '{session_name}'")
         if not result.success:
             return False
-        capture_result = host.execute_command(f"tmux capture-pane -t '{session_name}' -p")
-        return capture_result.success and ("sleep 736249" in capture_result.stdout)
+        pane_content = capture_tmux_pane_content(host, session_name)
+        return pane_content is not None and "sleep 736249" in pane_content
 
     wait_for(session_ready, timeout=30.0, poll_interval=0.5, error_message="tmux session not ready")
 
@@ -700,10 +703,9 @@ def test_unset_vars_applied_during_agent_start(
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo PROFILE_VALUE=${{PROFILE:-UNSET}}' Enter")
 
     def check_output() -> bool:
-        capture_result = host.execute_command(f"tmux capture-pane -t '{session_name}' -p")
-        if not capture_result.success:
+        output = capture_tmux_pane_content(host, session_name)
+        if output is None:
             return False
-        output = capture_result.stdout
         has_histfile = "HISTFILE_VALUE=UNSET" in output or "HISTFILE_VALUE=" in output
         has_profile = "PROFILE_VALUE=UNSET" in output or "PROFILE_VALUE=" in output
         return has_histfile and has_profile
@@ -751,6 +753,7 @@ def test_procps_ps_command_available() -> None:
         raise AssertionError("ps aux output invalid")
 
 
+@pytest.mark.tmux
 def test_stop_agent_kills_single_pane_processes(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -805,6 +808,7 @@ def test_stop_agent_kills_single_pane_processes(
     wait_for(check_cleanup, timeout=10, error_message="Agent session and processes not cleaned up after stop")
 
 
+@pytest.mark.tmux
 def test_stop_agent_kills_multi_pane_processes(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -867,6 +871,7 @@ def test_stop_agent_kills_multi_pane_processes(
     )
 
 
+@pytest.mark.tmux
 def test_start_agent_creates_process_group(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -924,6 +929,7 @@ def test_start_agent_creates_process_group(
         host.stop_agents([agent.id])
 
 
+@pytest.mark.tmux
 def test_start_agent_starts_process_activity_monitor(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -1037,6 +1043,7 @@ def test_additional_commands_stored_in_agent_data(
     ]
 
 
+@pytest.mark.tmux
 def test_start_agent_creates_additional_tmux_windows(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -1094,6 +1101,7 @@ def test_start_agent_creates_additional_tmux_windows(
         host.stop_agents([agent.id])
 
 
+@pytest.mark.tmux
 def test_start_agent_additional_windows_run_commands(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -1556,9 +1564,9 @@ def _init_git_repo(path: Path, commit_message: str = "Initial commit") -> None:
 
 
 def test_get_ssh_connection_info_returns_none_for_local_host(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test that _get_ssh_connection_info returns None for local hosts."""
+    """Test that get_ssh_connection_info returns None for local hosts."""
     host, _ = host_with_temp_dir
-    ssh_info = host._get_ssh_connection_info()
+    ssh_info = host.get_ssh_connection_info()
     assert ssh_info is None
 
 
@@ -1577,12 +1585,13 @@ def test_create_work_dir_same_path_no_transfer(host_with_temp_dir: tuple[Host, P
         target_path=source_path,
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == source_path
     assert (work_dir / "test_file.txt").read_text() == "original content"
 
 
+@pytest.mark.rsync
 def test_create_work_dir_copy_without_git(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test copying a directory without git."""
     host, temp_dir = host_with_temp_dir
@@ -1602,13 +1611,14 @@ def test_create_work_dir_copy_without_git(host_with_temp_dir: tuple[Host, Path])
         target_path=target_path,
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "file1.txt").read_text() == "content1"
     assert (work_dir / "subdir" / "file2.txt").read_text() == "content2"
 
 
+@pytest.mark.rsync
 def test_create_work_dir_copy_with_git(
     host_with_temp_dir: tuple[Host, Path],
     setup_git_config: None,
@@ -1631,7 +1641,7 @@ def test_create_work_dir_copy_with_git(
         target_path=target_path,
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "file1.txt").read_text() == "tracked content"
@@ -1648,6 +1658,40 @@ def test_create_work_dir_copy_with_git(
     assert "Initial commit" in result.stdout
 
 
+@pytest.mark.rsync
+def test_create_work_dir_copy_with_git_copies_info_exclude(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
+    """Test that .git/info/exclude is copied from source to target by default."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_info_exclude"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content")
+    _init_git_repo(source_path)
+
+    # Write a custom exclude pattern to .git/info/exclude
+    exclude_file = source_path / ".git" / "info" / "exclude"
+    exclude_file.write_text("my_custom_pattern\n")
+
+    target_path = temp_dir / "target_info_exclude"
+
+    options = CreateAgentOptions(
+        name=AgentName("copy-info-exclude"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+    )
+
+    host.create_agent_work_dir(host, source_path, options)
+
+    target_exclude = target_path / ".git" / "info" / "exclude"
+    assert target_exclude.exists()
+    assert target_exclude.read_text() == "my_custom_pattern\n"
+
+
+@pytest.mark.rsync
 def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that .git is excluded when not syncing git data."""
     host, temp_dir = host_with_temp_dir
@@ -1669,13 +1713,14 @@ def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tup
         git=AgentGitOptions(is_git_synced=False),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "file1.txt").read_text() == "content"
     assert not (work_dir / ".git").exists()
 
 
+@pytest.mark.rsync
 def test_create_work_dir_copy_with_untracked_files(
     host_with_temp_dir: tuple[Host, Path],
     setup_git_config: None,
@@ -1710,13 +1755,14 @@ def test_create_work_dir_copy_with_untracked_files(
         git=AgentGitOptions(is_include_unclean=True),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "tracked.txt").read_text() == "tracked"
     assert (work_dir / "untracked.txt").read_text() == "untracked"
 
 
+@pytest.mark.rsync
 def test_create_work_dir_copy_with_gitignored_files(
     host_with_temp_dir: tuple[Host, Path],
     setup_git_config: None,
@@ -1744,13 +1790,14 @@ def test_create_work_dir_copy_with_gitignored_files(
         git=AgentGitOptions(is_include_gitignored=True),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "tracked.txt").read_text() == "tracked"
     assert (work_dir / "debug.log").read_text() == "log content"
 
 
+@pytest.mark.rsync
 def test_create_work_dir_copy_with_renamed_file(
     host_with_temp_dir: tuple[Host, Path],
     setup_git_config: None,
@@ -1777,18 +1824,19 @@ def test_create_work_dir_copy_with_renamed_file(
         git=AgentGitOptions(is_include_unclean=True),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     # After git transfer and rsync, the renamed file should be present
     assert (work_dir / "new_name.txt").read_text() == "content"
 
 
+@pytest.mark.rsync
 def test_create_work_dir_generates_new_branch(
     host_with_temp_dir: tuple[Host, Path],
     setup_git_config: None,
 ) -> None:
-    """Test that git transfer creates a new branch when is_new_branch is True."""
+    """Test that git transfer creates a new branch when new_branch_name is set."""
     host, temp_dir = host_with_temp_dir
 
     source_path = temp_dir / "source_new_branch"
@@ -1804,15 +1852,15 @@ def test_create_work_dir_generates_new_branch(
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        git=AgentGitOptions(is_new_branch=True, new_branch_prefix="test/"),
+        git=AgentGitOptions(new_branch_name="test/new-branch-test"),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "file.txt").read_text() == "content"
 
-    # Check the branch name starts with test/
+    # Check the branch name
     result = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
         cwd=work_dir,
@@ -1820,7 +1868,94 @@ def test_create_work_dir_generates_new_branch(
         text=True,
     )
     assert result.returncode == 0
-    assert result.stdout.strip().startswith("test/")
+    assert result.stdout.strip() == "test/new-branch-test"
+
+
+@pytest.mark.rsync
+def test_create_work_dir_preserves_origin_remote(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
+    """Test that git transfer preserves the origin remote from the source repo."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_origin"
+    source_path.mkdir()
+    (source_path / "file.txt").write_text("content")
+
+    _init_git_repo(source_path)
+
+    # Add an origin remote to the source repo
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/owner/repo.git"],
+        cwd=source_path,
+        check=True,
+        capture_output=True,
+    )
+
+    target_path = temp_dir / "target_origin"
+
+    options = CreateAgentOptions(
+        name=AgentName("origin-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(new_branch_name="test/origin-test"),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
+
+    assert work_dir == target_path
+    assert (work_dir / "file.txt").read_text() == "content"
+
+    # Check that origin remote was preserved on the target
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "https://github.com/owner/repo.git"
+
+
+@pytest.mark.rsync
+def test_create_work_dir_works_without_origin_remote(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
+    """Test that git transfer works when the source repo has no origin remote."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_no_origin"
+    source_path.mkdir()
+    (source_path / "file.txt").write_text("content")
+
+    _init_git_repo(source_path)
+
+    target_path = temp_dir / "target_no_origin"
+
+    options = CreateAgentOptions(
+        name=AgentName("no-origin-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(new_branch_name="test/no-origin-test"),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
+
+    assert work_dir == target_path
+    assert (work_dir / "file.txt").read_text() == "content"
+
+    # Verify no origin remote exists (since source had none)
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
 
 
 # =============================================================================
@@ -1944,6 +2079,7 @@ def test_provision_agent_env_vars_precedence(
     assert "from_file" not in content
 
 
+@pytest.mark.tmux
 def test_start_agent_has_access_to_env_vars(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -2006,6 +2142,7 @@ def test_start_agent_has_access_to_env_vars(
         host.stop_agents([agent.id])
 
 
+@pytest.mark.tmux
 @pytest.mark.timeout(25)
 def test_new_tmux_window_inherits_env_vars(
     temp_host_dir: Path,
@@ -2014,12 +2151,23 @@ def test_new_tmux_window_inherits_env_vars(
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
     mng_test_prefix: str,
+    tmp_home_dir: Path,
 ) -> None:
     """Test that new tmux windows created by the user also have env vars.
 
     This verifies that the default-command sources env files so that any new
     window/pane created by the user will have the agent's env vars available.
     """
+    # Write shell rc files with a known prompt in the fake HOME so we can
+    # reliably detect when the shell is ready. We need .zshenv (empty, to
+    # suppress errors from the real user's .zshenv which references paths
+    # under $HOME that don't exist in the fake HOME), plus .zshrc and
+    # .bashrc to set the prompt for whichever shell the user has.
+    prompt_sentinel = "MNG_TEST_READY>"
+    (tmp_home_dir / ".zshenv").write_text("")
+    (tmp_home_dir / ".zshrc").write_text(f"PS1='{prompt_sentinel} '\n")
+    (tmp_home_dir / ".bashrc").write_text(f"PS1='{prompt_sentinel} '\n")
+
     config = MngConfig(default_host_dir=temp_host_dir, prefix=mng_test_prefix)
     mng_ctx = MngContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
@@ -2051,16 +2199,42 @@ def test_new_tmux_window_inherits_env_vars(
     host.start_agents([agent.id])
 
     try:
-        # Create a new window in the session (simulating what a user would do)
-        # This window should inherit env vars via tmux set-environment
+        # Create a new window in the session (simulating what a user would do).
+        # This window should inherit env vars via the default-command which
+        # sources the agent's env files. Pass -e HOME/ZDOTDIR so the shell
+        # reads our controlled rc files (tmux overrides HOME from the passwd
+        # database for new window processes, so we must re-override it).
+        fake_home = str(tmp_home_dir)
         subprocess.run(
-            ["tmux", "new-window", "-t", session_name, "-n", "user-window"],
+            [
+                "tmux",
+                "new-window",
+                "-t",
+                session_name,
+                "-n",
+                "user-window",
+                "-e",
+                f"HOME={fake_home}",
+                "-e",
+                f"ZDOTDIR={fake_home}",
+            ],
             check=True,
             capture_output=True,
         )
 
-        # Keys sent before the shell is ready are buffered in the pty.
+        # Wait for the shell to be ready before sending keys
         window_target = f"{session_name}:user-window"
+
+        def shell_prompt_visible() -> bool:
+            pane = capture_tmux_pane_contents(window_target)
+            return prompt_sentinel in pane
+
+        if not poll_until(shell_prompt_visible, timeout=10.0):
+            pane_stdout = capture_tmux_pane_contents(window_target)
+            raise AssertionError(
+                f"Shell prompt did not appear in new tmux window within 10s.\nPane content:\n{pane_stdout}"
+            )
+
         subprocess.run(
             [
                 "tmux",
@@ -2082,16 +2256,12 @@ def test_new_tmux_window_inherits_env_vars(
             return "NEW_WINDOW_VAR=new_window_value_123456" in content
 
         if not poll_until(check_marker_file, timeout=10.0):
-            pane_content = subprocess.run(
-                ["tmux", "capture-pane", "-t", window_target, "-p"],
-                capture_output=True,
-                text=True,
-            )
+            pane_stdout = capture_tmux_pane_contents(window_target)
             marker_content = marker_file.read_text() if marker_file.exists() else "<file does not exist>"
             raise AssertionError(
                 f"New tmux window did not inherit environment variables.\n"
                 f"Marker file content: {marker_content!r}\n"
-                f"Pane content:\n{pane_content.stdout}"
+                f"Pane content:\n{pane_stdout}"
             )
 
     finally:
@@ -2132,6 +2302,7 @@ def test_provision_agent_host_env_sourced_before_agent_env(host_with_temp_dir: t
     assert "SHARED_VAR=from_agent" in content
 
 
+@pytest.mark.rsync
 def test_rsync_extra_args_parsing(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that rsync extra_args are parsed correctly using shlex."""
     host, temp_dir = host_with_temp_dir
@@ -2156,7 +2327,7 @@ def test_rsync_extra_args_parsing(host_with_temp_dir: tuple[Host, Path]) -> None
         ),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "file1.txt").read_text() == "content1"
@@ -2165,6 +2336,7 @@ def test_rsync_extra_args_parsing(host_with_temp_dir: tuple[Host, Path]) -> None
     assert not (work_dir / "exclude_me.txt").exists()
 
 
+@pytest.mark.rsync
 def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that rsync extra_args with quoted spaces are parsed correctly."""
     host, temp_dir = host_with_temp_dir
@@ -2189,7 +2361,7 @@ def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> 
         ),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "normal.txt").read_text() == "normal content"
@@ -2197,6 +2369,7 @@ def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> 
     assert not (work_dir / "file with spaces.txt").exists()
 
 
+@pytest.mark.rsync
 def test_transfer_extra_files_with_many_files(
     host_with_temp_dir: tuple[Host, Path],
     setup_git_config: None,
@@ -2224,7 +2397,7 @@ def test_transfer_extra_files_with_many_files(
         git=AgentGitOptions(is_git_synced=True, is_include_unclean=True),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "tracked.txt").read_text() == "tracked"
@@ -2234,6 +2407,7 @@ def test_transfer_extra_files_with_many_files(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(60)
 def test_rsync_files_remote_files_from_handling(
     host_with_temp_dir: tuple[Host, Path],
@@ -2288,6 +2462,7 @@ def test_rsync_files_remote_files_from_handling(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(60)
 def test_rsync_files_remote_to_remote(
     ssh_host_factory: Callable[[str], Host],
@@ -2327,6 +2502,7 @@ def test_rsync_files_remote_to_remote(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(60)
 def test_rsync_files_remote_to_remote_with_files_from(
     ssh_host_factory: Callable[[str], Host],
@@ -2358,6 +2534,7 @@ def test_rsync_files_remote_to_remote_with_files_from(
     assert not (target_path / "exclude_me.txt").exists()
 
 
+@pytest.mark.rsync
 def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that rsync without --delete preserves existing files in target.
 
@@ -2383,7 +2560,7 @@ def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tup
         data_options=AgentDataOptions(is_rsync_enabled=True),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     # New file should be copied
@@ -2392,6 +2569,7 @@ def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tup
     assert (work_dir / "existing_file.txt").read_text() == "existing content"
 
 
+@pytest.mark.rsync
 def test_rsync_with_delete_removes_extra_files(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that rsync with --delete removes files not in source.
 
@@ -2419,10 +2597,85 @@ def test_rsync_with_delete_removes_extra_files(host_with_temp_dir: tuple[Host, P
         ),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     # New file should be copied
     assert (work_dir / "new_file.txt").read_text() == "new content"
     # Existing file SHOULD be deleted (--delete flag passed)
     assert not (work_dir / "existing_file.txt").exists()
+
+
+@pytest.mark.rsync
+def test_create_work_dir_cross_host_generates_unique_paths(
+    host_with_temp_dir: tuple[Host, Path],
+    tmp_path: Path,
+    temp_mng_ctx: MngContext,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that cross-host work dir creation generates unique paths under host_dir/projects/.
+
+    When no target_path is specified and source and target are on different hosts,
+    each call should produce a unique directory so multiple agents on a shared host
+    don't collide.
+    """
+    target_host, _temp_dir = host_with_temp_dir
+
+    # Create a source host with a different default_host_dir so it gets a different host ID
+    source_host_dir = tmp_path / "source_host_dir"
+    source_host_dir.mkdir()
+    source_profile_dir = source_host_dir / "profiles" / "default"
+    source_profile_dir.mkdir(parents=True)
+    source_config = MngConfig(
+        default_host_dir=source_host_dir,
+        prefix=mng_test_prefix,
+        is_error_reporting_enabled=False,
+    )
+    source_mng_ctx = MngContext(
+        config=source_config,
+        pm=plugin_manager,
+        profile_dir=source_profile_dir,
+        concurrency_group=temp_mng_ctx.concurrency_group,
+    )
+    source_provider = LocalProviderInstance(
+        name=ProviderInstanceName("local"),
+        host_dir=source_host_dir,
+        mng_ctx=source_mng_ctx,
+    )
+    source_host = source_provider.create_host(HostName("localhost"))
+
+    # Verify the two hosts have different IDs (cross-host scenario)
+    assert source_host.id != target_host.id
+
+    # Create a source directory with a file
+    source_path = tmp_path / "source_project"
+    source_path.mkdir()
+    (source_path / "file.txt").write_text("content")
+
+    options = CreateAgentOptions(
+        name=AgentName("agent-one"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        data_options=AgentDataOptions(is_rsync_enabled=True),
+    )
+
+    work_dir_1 = target_host.create_agent_work_dir(source_host, source_path, options).path
+
+    # The generated path should be under host_dir/projects/
+    assert str(work_dir_1).startswith(str(target_host.host_dir / "projects"))
+    assert (work_dir_1 / "file.txt").read_text() == "content"
+
+    # Create a second agent on the same target host - should get a different path
+    options_2 = CreateAgentOptions(
+        name=AgentName("agent-two"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        data_options=AgentDataOptions(is_rsync_enabled=True),
+    )
+
+    work_dir_2 = target_host.create_agent_work_dir(source_host, source_path, options_2).path
+
+    assert str(work_dir_2).startswith(str(target_host.host_dir / "projects"))
+    assert work_dir_1 != work_dir_2
+    assert (work_dir_2 / "file.txt").read_text() == "content"

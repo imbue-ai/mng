@@ -9,30 +9,28 @@
 mng [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURATION] [--provider PROVIDER] [--agent-type TYPE] [--tag TAG] [-f|--force|--yes] [--dry-run]
 ```
 
+Destroy or stop agents and hosts to free up resources [experimental].
 
-Destroy or stop agents and hosts to free up resources. [experimental]
+When running in a pty, defaults to providing an interactive interface for
+reviewing running agents and hosts and selecting which ones to destroy or stop.
 
-When running interactively, provides an interactive interface for reviewing
-and selecting agents. Use --yes to skip prompts.
+When running in a non-interactive setting (or if --yes is provided), will
+destroy all selected agents/hosts without prompting.
 
-Examples:
+Convenience filters like --older-than and --idle-for are translated into CEL
+expressions internally, so they can be combined with --include and --exclude
+for precise control.
 
-  mng cleanup
+For automatic garbage collection of unused resources without interaction,
+see `mng gc`.
 
-  mng cleanup --dry-run --yes
-
-  mng cleanup --older-than 7d --yes
-
-  mng cleanup --stop --idle-for 1h --yes
-
-  mng cleanup --provider docker --yes
+Alias: clean
 
 **Usage:**
 
 ```text
 mng cleanup [OPTIONS]
 ```
-
 **Options:**
 
 ## General
@@ -68,22 +66,16 @@ mng cleanup [OPTIONS]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
-| `--json` | boolean | Alias for --format json | `False` |
-| `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
-| `--log-file` | path | Path to log file (overrides default ~/.mng/logs/<timestamp>-<pid>.json) | None |
+| `--log-file` | path | Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json) | None |
 | `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
 | `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
 | `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--headless` | boolean | Disable all interactive behavior (prompts, TUI, editor). Also settable via MNG_HEADLESS env var or 'headless' config key. | `False` |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## See Also

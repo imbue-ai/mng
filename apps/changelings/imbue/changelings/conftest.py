@@ -1,41 +1,74 @@
+"""Conftest for changelings package-level tests (e.g. end-to-end release tests).
+
+The deployed_test_coder fixture is module-scoped so that multiple tests
+sharing it reuse a single deployed agent, avoiding redundant deploy cycles.
+"""
+
+import shutil
+from collections.abc import Generator
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
+from loguru import logger
 
-from imbue.changelings.data_types import ChangelingDefinition
-from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
-from imbue.changelings.primitives import ChangelingName
-
-
-@pytest.fixture(autouse=True)
-def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate config operations to a temporary home directory."""
-    monkeypatch.setenv("HOME", str(tmp_path))
+from imbue.changelings.testing import find_agent
+from imbue.changelings.testing import run_changeling
+from imbue.changelings.testing import run_mng
+from imbue.mng.utils.polling import wait_for
 
 
-def make_test_changeling(
-    name: str = "test-changeling",
-    agent_type: str = "code-guardian",
-    branch: str = "main",
-    initial_message: str = DEFAULT_INITIAL_MESSAGE,
-    extra_mng_args: str = "",
-    env_vars: dict[str, str] | None = None,
-    secrets: tuple[str, ...] | None = None,
-    mng_options: dict[str, str] | None = None,
-    mng_profile: str | None = None,
-) -> ChangelingDefinition:
-    """Create a ChangelingDefinition for testing."""
-    kwargs: dict = {
-        "name": ChangelingName(name),
-        "agent_type": agent_type,
-        "branch": branch,
-        "initial_message": initial_message,
-        "extra_mng_args": extra_mng_args,
-        "env_vars": env_vars or {},
-        "mng_options": mng_options or {},
-    }
-    if secrets is not None:
-        kwargs["secrets"] = secrets
-    if mng_profile is not None:
-        kwargs["mng_profile"] = mng_profile
-    return ChangelingDefinition(**kwargs)
+@pytest.fixture(scope="module")
+def deployed_test_coder() -> Generator[dict[str, object], None, None]:
+    """Deploy a test-coder changeling and yield its agent record.
+
+    Module-scoped so all tests in the module share a single deployed agent,
+    avoiding redundant deploy cycles (~30s each). Handles deployment and
+    cleanup so individual tests only need to exercise the deployed agent.
+
+    Waits for provisioning to complete (mng create backgrounds provisioning
+    when called with --no-connect) before yielding.
+    """
+    agent_name = f"e2e-test-{uuid4().hex}"
+
+    deploy_result = run_changeling(
+        "deploy",
+        "--agent-type",
+        "test-coder",
+        "--name",
+        agent_name,
+        "--provider",
+        "local",
+        "--no-self-deploy",
+    )
+    assert deploy_result.returncode == 0, (
+        f"Deploy failed:\nstdout: {deploy_result.stdout}\nstderr: {deploy_result.stderr}"
+    )
+
+    agent = find_agent(agent_name)
+    assert agent is not None, f"Agent {agent_name} not found in mng list"
+
+    agent_id = str(agent["id"])
+    settings_path = Path(str(agent["work_dir"])) / "changelings.toml"
+    wait_for(
+        condition=settings_path.exists,
+        timeout=60.0,
+        poll_interval=1.0,
+        error_message=f"Provisioning did not complete within 60s (waiting for {settings_path})",
+    )
+
+    try:
+        yield agent
+    finally:
+        _cleanup_agent(agent_name, agent_id)
+
+
+def _cleanup_agent(agent_name: str, agent_id: str) -> None:
+    """Destroy an agent and clean up its changeling directory."""
+    result = run_mng("destroy", agent_name, "--force", timeout=30.0)
+    if result.returncode != 0:
+        logger.warning("Failed to destroy agent {}: {}", agent_name, result.stderr[:200])
+
+    changeling_dir = Path.home() / ".changelings" / agent_id
+    if changeling_dir.exists():
+        shutil.rmtree(changeling_dir, ignore_errors=True)

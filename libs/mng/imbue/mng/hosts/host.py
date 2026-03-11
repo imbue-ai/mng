@@ -16,13 +16,13 @@ from typing import IO
 from typing import Iterator
 from typing import Mapping
 from typing import Sequence
-from typing import cast
 
 from loguru import logger
 from paramiko import SSHException
 from pydantic import Field
 from pydantic import ValidationError
 from pyinfra.api.command import StringCommand
+from pyinfra.api.exceptions import ConnectError
 from pyinfra.connectors.util import CommandOutput
 from tenacity import retry
 from tenacity import retry_if_exception
@@ -36,11 +36,11 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
-from imbue.mng.agents.agent_registry import resolve_agent_type
-from imbue.mng.agents.base_agent import BaseAgent
+from imbue.mng.config.agent_config_registry import resolve_agent_type
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import AgentStartError
+from imbue.mng.errors import HostAuthenticationError
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostDataSchemaError
 from imbue.mng.errors import InvalidActivityTypeError
@@ -49,6 +49,7 @@ from imbue.mng.errors import MngError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import LOCAL_CONNECTOR_NAME
+from imbue.mng.hosts.common import add_safe_directory_on_remote
 from imbue.mng.hosts.offline_host import BaseHost
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import CertifiedHostData
@@ -57,20 +58,24 @@ from imbue.mng.interfaces.data_types import FileTransferSpec
 from imbue.mng.interfaces.data_types import HostResources
 from imbue.mng.interfaces.data_types import PyinfraConnector
 from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import CreateWorkDirResult
+from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import AgentTypeName
+from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import WorkDirCopyMode
+from imbue.mng.utils.env_utils import build_source_env_shell_commands
 from imbue.mng.utils.env_utils import parse_env_file
 from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.git_utils import get_git_author_info
+from imbue.mng.utils.git_utils import get_git_remote_url
 from imbue.mng.utils.polling import wait_for
 
 
@@ -143,8 +148,14 @@ class Host(BaseHost, OnlineHostInterface):
 
     def _ensure_connected(self) -> None:
         """Ensure the pyinfra host is connected."""
-        if not self.connector.host.connected:
-            self.connector.host.connect(raise_exceptions=True)
+        try:
+            if not self.connector.host.connected:
+                self.connector.host.connect(raise_exceptions=True)
+        except ConnectError as e:
+            if "authentication error" in str(e).lower():
+                raise HostAuthenticationError(f"Authentication failed when connecting to host: {e}") from e
+            else:
+                raise HostConnectionError(f"Failed to connect to host: {e}") from e
 
     def disconnect(self) -> None:
         """Disconnect the pyinfra host if connected.
@@ -492,7 +503,7 @@ class Host(BaseHost, OnlineHostInterface):
         joined_dirs = " ".join(f"'{str(p)}'" for p in paths)
         self.execute_command(f"mkdir -p {joined_dirs}")
 
-    def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
+    def get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
         """Get SSH connection info for this host if it's remote.
 
         Returns (user, hostname, port, private_key_path) if remote, None if local.
@@ -689,6 +700,9 @@ class Host(BaseHost, OnlineHostInterface):
         )
         self.set_certified_data(updated_data)
 
+    def to_offline_host(self) -> HostInterface:
+        return self.provider_instance.to_offline_host(self.id)
+
     # =========================================================================
     # Reported Plugin Data
     # =========================================================================
@@ -718,6 +732,10 @@ class Host(BaseHost, OnlineHostInterface):
     # =========================================================================
     # Environment
     # =========================================================================
+
+    def get_host_env_path(self) -> Path:
+        """Get the path to the host env file."""
+        return self.host_dir / "env"
 
     def get_env_vars(self) -> dict[str, str]:
         """Get all environment variables from the host env file."""
@@ -835,7 +853,7 @@ class Host(BaseHost, OnlineHostInterface):
         logger.trace("Loaded {} agent(s) from host {}", len(agents), self.id)
         return agents
 
-    def get_agent_references(self) -> list[AgentReference]:
+    def discover_agents(self) -> list[DiscoveredAgent]:
         """Get lightweight references to all agents on this host.
 
         This method reads only the data.json files for each agent, avoiding the
@@ -855,7 +873,7 @@ class Host(BaseHost, OnlineHostInterface):
                 dir_listing = self._list_directory(agents_dir)
 
             with log_span("Listing agent files from dir for host {}", self.id):
-                agent_refs: list[AgentReference] = []
+                agent_refs: list[DiscoveredAgent] = []
                 for dir_name in dir_listing:
                     agent_dir = agents_dir / dir_name
                     if self._is_directory(agent_dir):
@@ -872,7 +890,7 @@ class Host(BaseHost, OnlineHostInterface):
                                 "Could not load agent reference from {} because json was invalid: {}", data_path, e
                             )
                             continue
-                        ref = self._validate_and_create_agent_reference(data)
+                        ref = self._validate_and_create_discovered_agent(data)
                         if ref is not None:
                             agent_refs.append(ref)
 
@@ -894,7 +912,7 @@ class Host(BaseHost, OnlineHostInterface):
         agent_type = AgentTypeName(data["type"])
         resolved = resolve_agent_type(agent_type, self.mng_ctx.config)
 
-        return cast(type[BaseAgent], resolved.agent_class)(
+        return resolved.agent_class(
             id=AgentId(data["id"]),
             name=AgentName(data["name"]),
             agent_type=agent_type,
@@ -911,7 +929,7 @@ class Host(BaseHost, OnlineHostInterface):
         host: OnlineHostInterface,
         path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         """Create the work_dir directory for a new agent."""
         copy_mode = options.git.copy_mode if options.git else WorkDirCopyMode.COPY
         with log_span("Creating agent work directory", copy_mode=str(copy_mode)):
@@ -927,30 +945,44 @@ class Host(BaseHost, OnlineHostInterface):
         source_host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         # Check if source and target are on the same host
         source_is_same_host = source_host.id == self.id
 
-        # If target path is specified, use it; otherwise use source path
+        # If target path is specified, use it; otherwise derive one
         if options.target_path:
             target_path = options.target_path
             # If target equals source and same host, it's in-place
             is_generated_work_dir = not (source_is_same_host and source_path == target_path)
-        else:
-            # No target path specified, use source path directly (in-place if same host)
+        elif source_is_same_host:
+            # Same host, no target path: run in-place at source path
             target_path = source_path
-            is_generated_work_dir = not source_is_same_host
+            is_generated_work_dir = False
+        else:
+            # Different host (remote copy): generate a unique work directory so that
+            # multiple agents sharing the same host each get their own directory.
+            target_path = self.host_dir / "projects" / str(AgentId.generate())
+            is_generated_work_dir = True
 
         self._mkdir(target_path)
 
-        # Track generated work directories at the host level
+        # Track generated work directories at the host level.
+        # When running in-place, actively remove from generated_work_dirs in case
+        # a previous agent had registered this path (e.g., a worktree agent created
+        # this directory, then the user ran --in-place from it). Without this removal,
+        # GC would treat the directory as orphaned and delete it after the in-place
+        # agent is destroyed.
         if is_generated_work_dir:
             self._add_generated_work_dir(target_path)
+        else:
+            self._remove_generated_work_dir(target_path)
+
+        created_branch_name: str | None = None
 
         # If source and target are same path on same host, nothing to transfer
         if source_is_same_host and source_path == target_path:
             logger.debug("Skipped file transfer: source and target are the same path")
-            return target_path
+            return CreateWorkDirResult(path=target_path)
 
         # Check if source has a .git directory
         if source_host.is_local:
@@ -971,7 +1003,7 @@ class Host(BaseHost, OnlineHostInterface):
                 self._rsync_files(source_host, source_path, target_path, "--delete", exclude_git=True)
             # Source is a git repo, transfer via git
             else:
-                self._transfer_git_repo(source_host, source_path, target_path, options)
+                created_branch_name = self._transfer_git_repo(source_host, source_path, target_path, options)
                 self._transfer_extra_files(source_host, source_path, target_path, options)
 
         # Run rsync if enabled. This is designed for adding extra files (e.g., data files not in git),
@@ -988,7 +1020,7 @@ class Host(BaseHost, OnlineHostInterface):
                 exclude_git=has_git_options,
             )
 
-        return target_path
+        return CreateWorkDirResult(path=target_path, created_branch_name=created_branch_name)
 
     def _transfer_git_repo(
         self,
@@ -996,9 +1028,12 @@ class Host(BaseHost, OnlineHostInterface):
         source_path: Path,
         target_path: Path,
         options: CreateAgentOptions,
-    ) -> None:
-        """Transfer a git repository from source to target."""
-        new_branch_name = self._determine_branch_name(options)
+    ) -> str | None:
+        """Transfer a git repository from source to target.
+
+        Returns the name of the branch created on the target, or None if no new branch.
+        """
+        new_branch_name = options.git.new_branch_name if options.git else None
         if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
         elif source_host.is_local:
@@ -1010,9 +1045,10 @@ class Host(BaseHost, OnlineHostInterface):
             )
             base_branch_name = result.stdout.strip() if result.success else "main"
 
-        # Get git author info from source repo
+        # Get git author info and origin remote URL from source repo
         if source_host.is_local:
             git_author_name, git_author_email = get_git_author_info(source_path, self.mng_ctx.concurrency_group)
+            origin_url = get_git_remote_url(source_path, "origin", self.mng_ctx.concurrency_group)
         else:
             name_result = source_host.execute_command("git config user.name", cwd=source_path)
             email_result = source_host.execute_command("git config user.email", cwd=source_path)
@@ -1021,6 +1057,10 @@ class Host(BaseHost, OnlineHostInterface):
             )
             git_author_email = (
                 email_result.stdout.strip() if email_result.success and email_result.stdout.strip() else None
+            )
+            origin_result = source_host.execute_command("git remote get-url origin", cwd=source_path)
+            origin_url = (
+                origin_result.stdout.strip() if origin_result.success and origin_result.stdout.strip() else None
             )
 
         with log_span(
@@ -1044,24 +1084,83 @@ class Host(BaseHost, OnlineHostInterface):
                     result = self.execute_command(f"git init --bare {shlex.quote(str(target_path / '.git'))}")
                     if not result.success:
                         raise MngError(f"Failed to initialize git repo on target: {result.stderr}")
+                    add_safe_directory_on_remote(self, target_path)
 
             self._git_push_to_target(source_host, source_path, target_path)
 
             with log_span("Configuring target git repo"):
+                if new_branch_name:
+                    checkout_cmd = f"git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}"
+                else:
+                    checkout_cmd = f"git checkout {shlex.quote(base_branch_name)}"
                 config_commands = [
                     "git config --bool core.bare false",
-                    f"git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
+                    checkout_cmd,
                 ]
                 if git_author_name:
                     config_commands.append(f"git config user.name {shlex.quote(git_author_name)}")
                 if git_author_email:
                     config_commands.append(f"git config user.email {shlex.quote(git_author_email)}")
+                if origin_url:
+                    # Use set-url if origin already exists (e.g. from --mirror push),
+                    # otherwise add it.
+                    set_or_add = (
+                        f"git remote set-url origin {shlex.quote(origin_url)}"
+                        f" 2>/dev/null"
+                        f" || git remote add origin {shlex.quote(origin_url)}"
+                    )
+                    config_commands.append(set_or_add)
                 result = self.execute_command(
                     " && ".join(config_commands),
                     cwd=target_path,
                 )
                 if not result.success:
                     raise MngError(f"Failed to configure git repo on target: {result.stderr}")
+
+            # Copy .git/info/exclude from source to target. This file is not
+            # transferred by git push --mirror since it lives outside the git
+            # object store.
+            self._transfer_git_info_exclude(source_host, source_path, target_path)
+
+        return new_branch_name
+
+    def _transfer_git_info_exclude(
+        self,
+        source_host: OnlineHostInterface,
+        source_path: Path,
+        target_path: Path,
+    ) -> None:
+        """Copy .git/info/exclude from source to target if it exists."""
+        # Resolve the git common dir on the source so this works in worktrees,
+        # where .git is a file rather than a directory.
+        if source_host.is_local:
+            try:
+                result = self.mng_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "-C", str(source_path), "rev-parse", "--git-common-dir"],
+                )
+            except ProcessError:
+                logger.trace("Could not resolve git common dir in source, skipping info/exclude transfer")
+                return
+            git_common_dir = Path(result.stdout.strip())
+        else:
+            result = source_host.execute_command("git rev-parse --git-common-dir", cwd=source_path)
+            if not result.success:
+                logger.trace("Could not resolve git common dir in source, skipping info/exclude transfer")
+                return
+            git_common_dir = Path(result.stdout.strip())
+        if not git_common_dir.is_absolute():
+            git_common_dir = source_path / git_common_dir
+
+        source_exclude_path = git_common_dir / "info" / "exclude"
+        target_exclude_path = target_path / ".git" / "info" / "exclude"
+        try:
+            content = source_host.read_file(source_exclude_path)
+        except (FileNotFoundError, NotADirectoryError):
+            logger.trace("No info/exclude in source, skipping")
+            return
+
+        with log_span("Copying .git/info/exclude to target"):
+            self.write_file(target_exclude_path, content)
 
     def _git_push_to_target(
         self,
@@ -1071,13 +1170,13 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> None:
         """Push git repo from source to target using git push --mirror."""
         self._warn_if_submodules_detected(source_host, source_path)
-        target_ssh_info = self._get_ssh_connection_info()
+        target_ssh_info = self.get_ssh_connection_info()
 
         if target_ssh_info is None:
             if source_host.is_local:
                 git_url = str(target_path / ".git")
             else:
-                source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+                source_ssh_info = source_host.get_ssh_connection_info() if isinstance(source_host, Host) else None
                 if source_ssh_info is None:
                     raise MngError("Cannot determine SSH connection info for remote source host")
                 user, hostname, port, key_path = source_ssh_info
@@ -1261,7 +1360,7 @@ class Host(BaseHost, OnlineHostInterface):
             rsync_description = "rsync: local to local"
         elif source_host.is_local and not self.is_local:
             # Local to remote
-            target_ssh_info = self._get_ssh_connection_info()
+            target_ssh_info = self.get_ssh_connection_info()
             assert target_ssh_info is not None
             user, hostname, port, key_path = target_ssh_info
             rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
@@ -1269,7 +1368,7 @@ class Host(BaseHost, OnlineHostInterface):
             rsync_description = f"rsync: local to remote {user}@{hostname}:{port}"
         elif not source_host.is_local and self.is_local:
             # Remote to local
-            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+            source_ssh_info = source_host.get_ssh_connection_info() if isinstance(source_host, Host) else None
             assert source_ssh_info is not None
             user, hostname, port, key_path = source_ssh_info
             rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
@@ -1277,9 +1376,9 @@ class Host(BaseHost, OnlineHostInterface):
             rsync_description = f"rsync: remote to local {user}@{hostname}:{port}"
         else:
             # Remote to remote: sync via local temp directory as intermediary
-            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+            source_ssh_info = source_host.get_ssh_connection_info() if isinstance(source_host, Host) else None
             assert source_ssh_info is not None
-            target_ssh_info = self._get_ssh_connection_info()
+            target_ssh_info = self.get_ssh_connection_info()
             assert target_ssh_info is not None
 
             src_user, src_hostname, src_port, src_key_path = source_ssh_info
@@ -1340,7 +1439,7 @@ class Host(BaseHost, OnlineHostInterface):
         host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         """Create a work_dir using git worktree.
 
         Worktrees are placed at ~/.mng/worktrees/<agent-id>/ by default.
@@ -1355,7 +1454,10 @@ class Host(BaseHost, OnlineHostInterface):
         else:
             work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
-        branch_name = self._determine_branch_name(options)
+        # Worktree mode always requires a new branch (enforced at CLI)
+        if not options.git or not options.git.new_branch_name:
+            raise UserInputError("Worktree mode requires a new branch name in git options")
+        branch_name = options.git.new_branch_name
 
         with log_span("Creating git worktree", path=str(work_dir_path), branch=branch_name):
             cmd = f"mkdir -p {work_dir_path.parent} && git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
@@ -1370,26 +1472,16 @@ class Host(BaseHost, OnlineHostInterface):
             # Track generated work directories at the host level
             self._add_generated_work_dir(work_dir_path)
 
-            return work_dir_path
-
-    def _determine_branch_name(self, options: CreateAgentOptions) -> str:
-        """Determine the branch name for a new work_dir."""
-        if options.git and options.git.new_branch_name:
-            return options.git.new_branch_name
-
-        agent_name = options.name or AgentName("agent")
-        provider_name = self.provider_instance.name
-        branch_prefix = options.git.new_branch_prefix if options.git else "mng/"
-
-        return f"{branch_prefix}{agent_name}-{provider_name}"
+            return CreateWorkDirResult(path=work_dir_path, created_branch_name=branch_name)
 
     def create_agent_state(
         self,
         work_dir_path: Path,
         options: CreateAgentOptions,
+        created_branch_name: str | None = None,
     ) -> AgentInterface:
         """Create the agent state directory and return the agent."""
-        agent_id = AgentId.generate()
+        agent_id = options.agent_id if options.agent_id is not None else AgentId.generate()
         agent_name = options.name or AgentName(f"agent-{str(agent_id)}")
         agent_type = options.agent_type or AgentTypeName("claude")
         with log_span(
@@ -1401,11 +1493,11 @@ class Host(BaseHost, OnlineHostInterface):
             resolved = resolve_agent_type(agent_type, self.mng_ctx.config)
 
             state_dir = self.host_dir / "agents" / str(agent_id)
-            self._mkdirs([state_dir, state_dir / "logs"])
+            self._mkdirs([state_dir, state_dir / "events"])
 
             create_time = datetime.now(timezone.utc)
 
-            agent = cast(type[BaseAgent], resolved.agent_class)(
+            agent = resolved.agent_class(
                 id=agent_id,
                 name=agent_name,
                 agent_type=agent_type,
@@ -1441,6 +1533,7 @@ class Host(BaseHost, OnlineHostInterface):
                 "permissions": [],
                 "start_on_boot": False,
                 "labels": dict(options.label_options.labels),
+                "created_branch_name": created_branch_name,
             }
 
             data_path = state_dir / "data.json"
@@ -1493,6 +1586,7 @@ class Host(BaseHost, OnlineHostInterface):
         env_vars["MNG_AGENT_NAME"] = str(agent.name)
         env_vars["MNG_AGENT_STATE_DIR"] = str(agent_state_dir)
         env_vars["MNG_AGENT_WORK_DIR"] = str(agent.work_dir)
+        env_vars["LLM_USER_PATH"] = str(agent_state_dir / "llm_data")
 
         # 2. Add programmatic defaults
         env_vars["GIT_BASE_BRANCH"] = (options.git.base_branch if options.git else None) or ""
@@ -1507,6 +1601,9 @@ class Host(BaseHost, OnlineHostInterface):
         for env_var in options.environment.env_vars:
             env_vars[env_var.key] = env_var.value
 
+        # 5. Let the agent modify env vars (e.g. set UV_TOOL_DIR for per-agent mng)
+        agent.modify_env_vars(host=self, env_vars=env_vars)
+
         return env_vars
 
     def _write_agent_env_file(self, agent: AgentInterface, env_vars: Mapping[str, str]) -> None:
@@ -1520,27 +1617,12 @@ class Host(BaseHost, OnlineHostInterface):
         logger.debug("Wrote env vars", count=len(env_vars), path=str(env_path))
 
     def _build_source_env_commands(self, agent: AgentInterface) -> list[str]:
-        """Build shell commands that source host and agent env files.
-
-        Returns a list of shell commands that:
-        1. Set 'set -a' to auto-export all sourced variables
-        2. Source host env if it exists (host env first)
-        3. Source agent env if it exists (agent can override host)
-        4. Restore with 'set +a'
-
-        The caller is responsible for joining these appropriately.
-        """
+        """Build shell commands that source host and agent env files."""
         host_env_path = self.host_dir / "env"
         agent_env_path = self.get_agent_env_path(agent)
+        return build_source_env_shell_commands(host_env_path, agent_env_path)
 
-        return [
-            "set -a",
-            f"[ -f {shlex.quote(str(host_env_path))} ] && . {shlex.quote(str(host_env_path))} || true",
-            f"[ -f {shlex.quote(str(agent_env_path))} ] && . {shlex.quote(str(agent_env_path))} || true",
-            "set +a",
-        ]
-
-    def _build_source_env_prefix(self, agent: AgentInterface) -> str:
+    def build_source_env_prefix(self, agent: AgentInterface) -> str:
         """Build a shell prefix that sources host and agent env files if they exist."""
         commands = self._build_source_env_commands(agent)
         return " && ".join(commands) + " && "
@@ -1557,12 +1639,13 @@ class Host(BaseHost, OnlineHostInterface):
         1. Call agent.on_before_provisioning() (validation only)
         2. Call agent.get_provision_file_transfers() to collect file transfers
         3. Validate required files exist, execute file transfers
-        4. Call agent.provision() (agent-type-specific provisioning)
-        5. Create directories (so paths exist for uploads)
-        6. Upload files (files exist before modifications)
-        7. Append text to files
-        8. Prepend text to files
-        9. Write environment variables to agent env file
+        4. Write environment variables to agent env file (before agent.provision()
+           so agent provisioning can use env vars like UV_TOOL_DIR)
+        5. Call agent.provision() (agent-type-specific provisioning)
+        6. Create directories (so paths exist for uploads)
+        7. Upload files (files exist before modifications)
+        8. Append text to files
+        9. Prepend text to files
         10. Run sudo commands (system-level setup, with env vars sourced)
         11. Run user commands (user-level setup, with env vars sourced)
         12. Call agent.on_after_provisioning() (finalization)
@@ -1578,7 +1661,12 @@ class Host(BaseHost, OnlineHostInterface):
         # 3. Validate required files exist and execute transfers
         self._execute_agent_file_transfers(agent, all_file_transfers)
 
-        # 4. Call agent.provision() for agent-type-specific provisioning
+        # 4. Write environment variables to agent env file (before agent.provision()
+        # so that agent provisioning can use env vars like UV_TOOL_DIR)
+        env_vars = self._collect_agent_env_vars(agent, options)
+        self._write_agent_env_file(agent, env_vars)
+
+        # 5. Call agent.provision() for agent-type-specific provisioning
         with log_span("Calling provision for agent {}", agent.name):
             agent.provision(host=self, options=options, mng_ctx=mng_ctx)
 
@@ -1593,34 +1681,30 @@ class Host(BaseHost, OnlineHostInterface):
             sudo_cmds=len(provisioning.sudo_commands),
             user_cmds=len(provisioning.user_commands),
         ):
-            # 5. Create directories
+            # 6. Create directories
             for directory in provisioning.create_directories:
                 self._mkdir(directory)
                 logger.trace("Created directory: {}", directory)
 
-            # 6. Upload files (read from local filesystem, write to host)
+            # 7. Upload files (read from local filesystem, write to host)
             for upload_spec in provisioning.upload_files:
                 # Read from local filesystem (not via host primitives)
                 local_content = upload_spec.local_path.read_bytes()
                 self.write_file(upload_spec.remote_path, local_content)
                 logger.trace("Uploaded file: {} -> {}", upload_spec.local_path, upload_spec.remote_path)
 
-            # 7. Append text to files
+            # 8. Append text to files
             for append_spec in provisioning.append_to_files:
                 self._append_to_file(append_spec.remote_path, append_spec.text)
                 logger.trace("Appended to file: {}", append_spec.remote_path)
 
-            # 8. Prepend text to files
+            # 9. Prepend text to files
             for prepend_spec in provisioning.prepend_to_files:
                 self._prepend_to_file(prepend_spec.remote_path, prepend_spec.text)
                 logger.trace("Prepended to file: {}", prepend_spec.remote_path)
 
-            # 9. Write environment variables to agent env file
-            env_vars = self._collect_agent_env_vars(agent, options)
-            self._write_agent_env_file(agent, env_vars)
-
             # Build the source prefix for commands (sources host env, then agent env)
-            source_prefix = self._build_source_env_prefix(agent)
+            source_prefix = self.build_source_env_prefix(agent)
 
             # 10. Run sudo commands (with env vars sourced)
             for cmd in provisioning.sudo_commands:
@@ -2119,8 +2203,8 @@ Welcome to your first agent!
 
 Mng runs your agents in tmux sessions,
 and I can see you're already a tmux user.
-Here are some tips for using nested tmux sessions:
-https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/nested_tmux.md
+Here are some tips for using mng alongside tmux:
+https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/tmux_users.md
 
 The config file for mng's tmux sessions is ~/.mng/tmux.conf.
 Among other things, it sets up some extra keybindings:
@@ -2224,11 +2308,10 @@ def _build_start_agent_shell_command(
         )
         steps.append(f"tmux set-hook -t {quoted_session} client-attached[99] {shlex.quote(hook_value)}")
 
-    # Send the agent command as literal keys, then Enter to execute
-    steps.append(f"tmux send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}")
-    steps.append(f"tmux send-keys -t {shlex.quote(session_name)} Enter")
-
-    # Create additional windows for each additional command
+    # Create additional windows BEFORE sending the agent command. This
+    # ensures all windows exist before the agent starts, preventing a race
+    # where a fast-exiting agent command destroys the session before
+    # additional windows can be created.
     for idx, named_cmd in enumerate(additional_commands):
         window_name = named_cmd.window_name if named_cmd.window_name else f"cmd-{idx + 1}"
         window_target = f"{session_name}:{window_name}"
@@ -2243,8 +2326,16 @@ def _build_start_agent_shell_command(
         steps.append(f"tmux send-keys -t {shlex.quote(window_target)} Enter")
 
     # If we created additional windows, select the first window (the main agent)
+    # before sending the agent command
     if additional_commands:
         steps.append(f"tmux select-window -t {shlex.quote(session_name + ':0')}")
+
+    # Send the agent command as literal keys, then Enter to execute.
+    # Target window :0 explicitly so this works even after additional windows
+    # have been created (which changes the active window).
+    agent_window = shlex.quote(session_name + ":0")
+    steps.append(f"tmux send-keys -t {agent_window} -l {shlex.quote(command)}")
+    steps.append(f"tmux send-keys -t {agent_window} Enter")
 
     # Record START activity for idle detection by writing JSON to the activity file
     # The authoritative activity time is the file's mtime, not the JSON content

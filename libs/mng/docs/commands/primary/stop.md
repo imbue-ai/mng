@@ -9,36 +9,23 @@
 mng [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]
 ```
 
-
 Stop running agent(s).
 
 For remote hosts, this stops the agent's tmux session. The host remains
-running (use idle detection or explicit host stop for host shutdown).
+running unless idle detection stops it automatically.
 
-For local agents, this stops the agent's tmux session.
+For local agents, this stops the agent's tmux session. The local host
+itself cannot be stopped (if you want that, shut down your computer).
 
 Supports custom format templates via --format. Available fields: name.
 
 Alias: s
-
-Examples:
-
-  mng stop my-agent
-
-  mng stop agent1 agent2
-
-  mng stop --agent my-agent
-
-  mng stop --all
-
-  mng stop --all --format '{name}'
 
 **Usage:**
 
 ```text
 mng stop [OPTIONS] [AGENTS]...
 ```
-
 ## Arguments
 
 - `AGENTS`: The agents (optional)
@@ -70,22 +57,16 @@ mng stop [OPTIONS] [AGENTS]...
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
-| `--json` | boolean | Alias for --format json | `False` |
-| `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
-| `--log-file` | path | Path to log file (overrides default ~/.mng/logs/<timestamp>-<pid>.json) | None |
+| `--log-file` | path | Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json) | None |
 | `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
 | `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
 | `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--headless` | boolean | Disable all interactive behavior (prompts, TUI, editor). Also settable via MNG_HEADLESS env var or 'headless' config key. | `False` |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## See Also
@@ -124,4 +105,10 @@ $ mng stop --session mng-my-agent
 
 ```bash
 $ mng stop --all --dry-run
+```
+
+**Custom format template output**
+
+```bash
+$ mng stop --all --format '{name}'
 ```

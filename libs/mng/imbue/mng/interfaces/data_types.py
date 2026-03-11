@@ -9,6 +9,7 @@ from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
 from typing import Final
+from typing import Literal
 
 from pydantic import Field
 from pydantic import GetCoreSchemaHandler
@@ -31,13 +32,13 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import IdleMode
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.primitives import SSHInfo
 from imbue.mng.primitives import SnapshotId
 from imbue.mng.primitives import SnapshotName
 from imbue.mng.primitives import VolumeId
 
 # Canonical mapping from IdleMode to the activity sources it enables.
-# This must stay in sync with get_activity_sources_for_idle_mode in hosts/common.py.
-_ACTIVITY_SOURCES_BY_IDLE_MODE: Final[dict[IdleMode, tuple[ActivitySource, ...]]] = {
+ACTIVITY_SOURCES_BY_IDLE_MODE: Final[dict[IdleMode, tuple[ActivitySource, ...]]] = {
     IdleMode.IO: (
         ActivitySource.USER,
         ActivitySource.AGENT,
@@ -79,17 +80,22 @@ _ACTIVITY_SOURCES_BY_IDLE_MODE: Final[dict[IdleMode, tuple[ActivitySource, ...]]
 }
 
 # Reverse mapping: frozenset of activity sources -> IdleMode
-_IDLE_MODE_BY_ACTIVITY_SOURCES: Final[dict[frozenset[ActivitySource], IdleMode]] = {
-    frozenset(sources): mode for mode, sources in _ACTIVITY_SOURCES_BY_IDLE_MODE.items()
+IDLE_MODE_BY_ACTIVITY_SOURCES: Final[dict[frozenset[ActivitySource], IdleMode]] = {
+    frozenset(sources): mode for mode, sources in ACTIVITY_SOURCES_BY_IDLE_MODE.items()
 }
 
 
-def _get_idle_mode_for_activity_sources(activity_sources: tuple[ActivitySource, ...]) -> IdleMode:
+def get_activity_sources_for_idle_mode(idle_mode: IdleMode) -> tuple[ActivitySource, ...]:
+    """Get the activity sources that should be monitored for a given idle mode."""
+    return ACTIVITY_SOURCES_BY_IDLE_MODE[idle_mode]
+
+
+def get_idle_mode_for_activity_sources(activity_sources: tuple[ActivitySource, ...]) -> IdleMode:
     """Derive the IdleMode from a set of activity sources.
 
     Returns CUSTOM if the activity sources don't match any known IdleMode preset.
     """
-    return _IDLE_MODE_BY_ACTIVITY_SOURCES.get(frozenset(activity_sources), IdleMode.CUSTOM)
+    return IDLE_MODE_BY_ACTIVITY_SOURCES.get(frozenset(activity_sources), IdleMode.CUSTOM)
 
 
 class PyinfraConnector:
@@ -229,7 +235,7 @@ class ActivityConfig(FrozenModel):
 
     idle_timeout_seconds: int = Field(description="Maximum idle time before stopping")
     activity_sources: tuple[ActivitySource, ...] = Field(
-        default=_ACTIVITY_SOURCES_BY_IDLE_MODE[IdleMode.IO],
+        default=ACTIVITY_SOURCES_BY_IDLE_MODE[IdleMode.IO],
         description="Activity sources that count toward keeping host active",
     )
 
@@ -237,7 +243,7 @@ class ActivityConfig(FrozenModel):
     @cached_property
     def idle_mode(self) -> IdleMode:
         """Derived from activity_sources."""
-        return _get_idle_mode_for_activity_sources(self.activity_sources)
+        return get_idle_mode_for_activity_sources(self.activity_sources)
 
 
 class HostConfig(FrozenModel):
@@ -260,7 +266,7 @@ class CertifiedHostData(FrozenModel):
         description="Maximum idle time before stopping",
     )
     activity_sources: tuple[ActivitySource, ...] = Field(
-        default=_ACTIVITY_SOURCES_BY_IDLE_MODE[IdleMode.IO],
+        default=ACTIVITY_SOURCES_BY_IDLE_MODE[IdleMode.IO],
         description="Activity sources that count toward keeping host active",
     )
 
@@ -288,7 +294,7 @@ class CertifiedHostData(FrozenModel):
     @cached_property
     def idle_mode(self) -> IdleMode:
         """Derived from activity_sources."""
-        return _get_idle_mode_for_activity_sources(self.activity_sources)
+        return get_idle_mode_for_activity_sources(self.activity_sources)
 
     max_host_age: int | None = Field(
         default=None,
@@ -404,18 +410,8 @@ class BuildCacheInfo(FrozenModel):
     created_at: datetime = Field(description="When the cache entry was created")
 
 
-class SSHInfo(FrozenModel):
-    """SSH connection information for a remote host."""
-
-    user: str = Field(description="SSH username")
-    host: str = Field(description="SSH hostname")
-    port: int = Field(description="SSH port")
-    key_path: Path = Field(description="Path to SSH private key")
-    command: str = Field(description="Full SSH command to connect")
-
-
-class HostInfo(FrozenModel):
-    """Information about a host/machine."""
+class HostDetails(FrozenModel):
+    """Full host information collected by connecting to the host."""
 
     id: HostId = Field(description="Host ID")
     name: str = Field(description="Host name")
@@ -446,17 +442,19 @@ class HostInfo(FrozenModel):
     )
 
 
-class AgentInfo(FrozenModel):
-    """Complete information about an agent for listing purposes.
+class AgentDetails(FrozenModel):
+    """Full agent information collected by connecting to the host.
 
     This combines certified and reported data from the agent with host information.
     """
 
+    resource_type: Literal["agent"] = "agent"
     id: AgentId = Field(description="Agent ID")
     name: AgentName = Field(description="Agent name")
     type: str = Field(description="Agent type (claude, codex, etc.)")
     command: CommandString = Field(description="Command used to start the agent")
     work_dir: Path = Field(description="Working directory")
+    initial_branch: str | None = Field(description="Git branch name created for this agent")
     create_time: datetime = Field(description="Creation timestamp")
     start_on_boot: bool = Field(description="Whether agent starts on host boot")
 
@@ -475,7 +473,7 @@ class AgentInfo(FrozenModel):
 
     labels: dict[str, str] = Field(default_factory=dict, description="Agent labels (key-value pairs)")
 
-    host: HostInfo = Field(description="Host information")
+    host: HostDetails = Field(description="Host information")
 
     plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
 
@@ -530,3 +528,51 @@ class FileTransferSpec(FrozenModel):
     is_required: bool = Field(
         description="If True, provisioning fails if local file doesn't exist. If False, skipped if missing."
     )
+
+
+class HostLifecycleOptions(FrozenModel):
+    """Lifecycle and idle detection options for the host.
+
+    These options control when a host is considered idle and should be shut down.
+    All fields are optional; when None, provider defaults are used.
+    """
+
+    idle_timeout_seconds: int | None = Field(
+        default=None,
+        description="Shutdown after idle for N seconds (None for provider default)",
+    )
+    idle_mode: IdleMode | None = Field(
+        default=None,
+        description="When to consider host idle (None for provider default)",
+    )
+    activity_sources: tuple[ActivitySource, ...] | None = Field(
+        default=None,
+        description="Activity sources for idle detection (None for provider default)",
+    )
+
+    def to_activity_config(
+        self,
+        default_idle_timeout_seconds: int,
+        default_idle_mode: IdleMode,
+        default_activity_sources: tuple[ActivitySource, ...],
+    ) -> ActivityConfig:
+        """Convert to ActivityConfig, using provided defaults for None values.
+
+        When activity_sources is not explicitly provided, it is derived from the
+        resolved idle_mode using ACTIVITY_SOURCES_BY_IDLE_MODE. This ensures
+        that specifying --idle-mode boot results in only BOOT activity being monitored,
+        without needing to also explicitly specify --activity-sources boot.
+        """
+        resolved_idle_mode = self.idle_mode if self.idle_mode is not None else default_idle_mode
+
+        if self.activity_sources is not None:
+            resolved_activity_sources = self.activity_sources
+        else:
+            resolved_activity_sources = ACTIVITY_SOURCES_BY_IDLE_MODE[resolved_idle_mode]
+
+        return ActivityConfig(
+            idle_timeout_seconds=self.idle_timeout_seconds
+            if self.idle_timeout_seconds is not None
+            else default_idle_timeout_seconds,
+            activity_sources=resolved_activity_sources,
+        )

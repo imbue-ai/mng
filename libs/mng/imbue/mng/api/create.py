@@ -5,14 +5,15 @@ from loguru import logger
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
 from imbue.mng.api.data_types import CreateAgentResult
-from imbue.mng.api.data_types import HostEnvironmentOptions
-from imbue.mng.api.data_types import NewHostOptions
-from imbue.mng.api.data_types import OnBeforeCreateArgs
+from imbue.mng.api.discovery_events import emit_discovery_events_for_host
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import HostEnvironmentOptions
+from imbue.mng.interfaces.host import NewHostOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.plugins.hookspecs import OnBeforeCreateArgs
 from imbue.mng.utils.env_utils import parse_env_file
 
 
@@ -63,6 +64,7 @@ def create(
     agent_options: CreateAgentOptions,
     mng_ctx: MngContext,
     create_work_dir: bool = True,
+    created_branch_name: str | None = None,
 ) -> CreateAgentResult:
     """Create and run an agent.
 
@@ -88,7 +90,7 @@ def create(
     # Notify plugins that a new host was created (only for new hosts)
     if is_new_host:
         with log_span("Calling on_host_created hooks"):
-            mng_ctx.pm.hook.on_host_created(host=host)
+            mng_ctx.pm.hook.on_host_created(host=host, mng_ctx=mng_ctx)
 
     # while we are deploying an agent, lock the host:
     with host.lock_cooperatively():
@@ -97,7 +99,9 @@ def create(
             with log_span("Calling on_before_initial_file_copy hooks"):
                 mng_ctx.pm.hook.on_before_initial_file_copy(agent_options=agent_options, host=host)
             with log_span("Creating agent work directory from source {}", source_location.path):
-                work_dir_path = host.create_agent_work_dir(source_location.host, source_location.path, agent_options)
+                work_dir_result = host.create_agent_work_dir(source_location.host, source_location.path, agent_options)
+                work_dir_path = work_dir_result.path
+                created_branch_name = work_dir_result.created_branch_name
             with log_span("Calling on_after_initial_file_copy hooks"):
                 mng_ctx.pm.hook.on_after_initial_file_copy(
                     agent_options=agent_options, host=host, work_dir_path=work_dir_path
@@ -112,15 +116,15 @@ def create(
 
         # Create the agent state (registers the agent with the host)
         with log_span("Creating agent state in work directory {}", work_dir_path):
-            agent = host.create_agent_state(work_dir_path, agent_options)
+            agent = host.create_agent_state(work_dir_path, agent_options, created_branch_name=created_branch_name)
 
         # Run provisioning for the agent (hooks, dependency installation, etc.)
         with log_span("Calling on_before_provisioning hooks"):
-            mng_ctx.pm.hook.on_before_provisioning(agent=agent, host=host)
+            mng_ctx.pm.hook.on_before_provisioning(agent=agent, host=host, mng_ctx=mng_ctx)
         with log_span("Provisioning agent {}", agent.name):
             host.provision_agent(agent, agent_options, mng_ctx)
         with log_span("Calling on_after_provisioning hooks"):
-            mng_ctx.pm.hook.on_after_provisioning(agent=agent, host=host)
+            mng_ctx.pm.hook.on_after_provisioning(agent=agent, host=host, mng_ctx=mng_ctx)
 
         # Send initial message if one is configured
         initial_message = agent.get_initial_message()
@@ -147,6 +151,9 @@ def create(
         # Call on_agent_created hooks to notify plugins about the new agent
         with log_span("Calling on_agent_created hooks"):
             mng_ctx.pm.hook.on_agent_created(agent=result.agent, host=result.host)
+
+        # Emit discovery events for the host and newly created agent
+        emit_discovery_events_for_host(mng_ctx.config, host)
 
     return result
 
@@ -186,26 +193,33 @@ def resolve_target_host(
     """Resolve which host to use for the agent."""
     if target_host is not None and isinstance(target_host, NewHostOptions):
         # Create a new host using the specified provider
-        with log_span("Calling on_before_host_create hooks"):
-            mng_ctx.pm.hook.on_before_host_create(name=target_host.name, provider_name=target_host.provider)
         provider = get_provider_instance(target_host.provider, mng_ctx)
+        host_name = (
+            target_host.name if target_host.name is not None else provider.get_host_name(target_host.name_style)
+        )
+
+        with log_span("Calling on_before_host_create hooks"):
+            mng_ctx.pm.hook.on_before_host_create(name=host_name, provider_name=target_host.provider)
         with log_span(
             "Creating new host '{}' using provider '{}'",
-            target_host.name,
+            host_name,
             target_host.provider,
             tags=target_host.tags,
             build_args=target_host.build.build_args,
             start_args=target_host.build.start_args,
             lifecycle=target_host.lifecycle,
             known_hosts_count=len(target_host.environment.known_hosts),
+            authorized_keys_count=len(target_host.environment.authorized_keys),
         ):
             new_host = provider.create_host(
-                name=target_host.name,
+                name=host_name,
                 tags=target_host.tags,
                 build_args=target_host.build.build_args,
                 start_args=target_host.build.start_args,
                 lifecycle=target_host.lifecycle,
                 known_hosts=target_host.environment.known_hosts,
+                authorized_keys=target_host.environment.authorized_keys,
+                snapshot=target_host.build.snapshot,
             )
 
         # Write host environment variables to the host env file (if creating a new host)

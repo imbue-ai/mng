@@ -100,6 +100,11 @@ class AgentInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
+    def get_created_branch_name(self) -> str | None:
+        """Return the git branch name that was created for this agent, or None if not applicable."""
+        ...
+
+    @abstractmethod
     def get_is_start_on_boot(self) -> bool:
         """Return whether this agent should start automatically on host boot."""
         ...
@@ -141,6 +146,15 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def send_message(self, message: str) -> None:
         """Send a message to the running agent via its stdin."""
+        ...
+
+    @abstractmethod
+    def capture_pane_content(self) -> str | None:
+        """Capture the current tmux pane content for this agent.
+
+        Returns the pane content as a string, or None if capture fails
+        (e.g., the session doesn't exist or the host is unreachable).
+        """
         ...
 
     def wait_for_ready_signal(
@@ -305,6 +319,22 @@ class AgentInterface(MutableModel, ABC):
 
         All collected file transfers are executed before package installation
         and other provisioning steps.
+        """
+        ...
+
+    def modify_env_vars(
+        self,
+        host: OnlineHostInterface,
+        env_vars: dict[str, str],
+    ) -> None:
+        """Mutate the agent's environment variables before they are written.
+
+        Called during provisioning after the base env vars (MNG_HOST_DIR,
+        MNG_AGENT_STATE_DIR, etc.) and user-provided env vars have been
+        collected, but before the env file is written to disk. Subclasses
+        can add, update, or remove entries in env_vars.
+
+        The default implementation is a no-op.
         """
         ...
 

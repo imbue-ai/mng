@@ -9,26 +9,20 @@
 mng ask [--execute] QUERY...
 ```
 
+Chat with mng for help [experimental].
 
-Chat with mng for help. [experimental]
+Ask a question and mng will generate the appropriate CLI command.
+If no query is provided, shows general help about available commands
+and common workflows.
 
-Ask mng a question and it will generate the appropriate CLI command.
-If no query is provided, shows general help.
-
-Examples:
-
-  mng ask "how do I create an agent?"
-
-  mng ask start a container with claude code
-
-  mng ask --execute forward port 8080 to the public internet
+When --execute is specified, the generated CLI command is executed
+directly instead of being printed.
 
 **Usage:**
 
 ```text
 mng ask [OPTIONS] [QUERY]...
 ```
-
 ## Arguments
 
 - `QUERY`: The query (optional)
@@ -46,22 +40,16 @@ mng ask [OPTIONS] [QUERY]...
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
-| `--json` | boolean | Alias for --format json | `False` |
-| `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
-| `--log-file` | path | Path to log file (overrides default ~/.mng/logs/<timestamp>-<pid>.json) | None |
+| `--log-file` | path | Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json) | None |
 | `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
 | `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
 | `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--headless` | boolean | Disable all interactive behavior (prompts, TUI, editor). Also settable via MNG_HEADLESS env var or 'headless' config key. | `False` |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## See Also

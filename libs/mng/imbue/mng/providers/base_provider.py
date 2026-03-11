@@ -2,14 +2,17 @@ from typing import Mapping
 from typing import Sequence
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mng.api.data_types import HostLifecycleOptions
 from imbue.mng.hosts.host import Host
+from imbue.mng.hosts.offline_host import OfflineHost
+from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ImageReference
 from imbue.mng.primitives import SnapshotId
+from imbue.mng.primitives import SnapshotName
 
 
 class BaseProviderInstance(ProviderInstanceInterface):
@@ -28,6 +31,8 @@ class BaseProviderInstance(ProviderInstanceInterface):
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
+        snapshot: SnapshotName | None = None,
     ) -> Host:
         raise NotImplementedError()
 
@@ -44,11 +49,14 @@ class BaseProviderInstance(ProviderInstanceInterface):
     ) -> HostInterface:
         raise NotImplementedError()
 
-    def list_hosts(
+    def to_offline_host(self, host_id: HostId) -> OfflineHost:
+        raise NotImplementedError("Offline hosts not supported for this provider")
+
+    def discover_hosts(
         self,
         cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-    ) -> list[HostInterface]:
+    ) -> list[DiscoveredHost]:
         raise NotImplementedError()
 
     def rename_host(

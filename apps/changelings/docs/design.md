@@ -1,118 +1,73 @@
 # Overview
 
-Each changeling is deployed as a Modal App with a cron-scheduled function. When triggered, the function uses `mng create` to spin up a specific `mng` "agent type" that does its work (creating commits, PRs, reports, etc.) and then shuts down.
+See the [README](../README.md) for an overview of what changelings are and the terminology used throughout.
+
+# Relationship to mng
+
+Changelings are built on top of `mng` and should interact with it exclusively through the `mng` CLI interface. Changelings should never directly access mng's internal data directories (e.g., `~/.mng/agents/`). Instead, use `mng` commands like `mng list`, `mng events`, `mng exec`, etc. This ensures changelings remain compatible as mng's internals evolve and work correctly across all provider backends (local, modal, docker).
 
 # Design principles
 
-1. **Simplicity**: The system should be as simple as possible, both in terms of user experience and internal architecture. Each changeling corresponds to one Modal App and one scheduled function, with minimal moving parts. Each invocation results in one new `mng` agent that runs to completion and then exits, making it easy to connect and debug.
-2. **Modularity**: Each changeling is independent and self-contained. This allows users to mix and match different agent types, settings, and schedules without them interfering with each other. It also makes it easier to reason about and debug individual changelings.
-3. **Native**: The agents operate directly in GitHub and the user's codebase, creating real commits, PRs, and issues. This ensures that the work they do is visible, actionable, and integrated into the user's existing workflows.
-4. **Personal**: Changelings are designed to serve an *individual* user. There are no team features or shared data. Each user's changelings are private, and are intended to act as extensions of themselves. A user should be able to use `changelings` without their boss even knowing, and just look super-productive!
+1. **Simplicity**: The system should be as simple as possible, both in terms of user experience and internal architecture. Each changeling is simply a web server with some persistent storage (ideally just a file system) that, by convention, ends up calling an AI agent to respond to messages from the user. The only required routes are for the index and for handling incoming messages.
+2. **Personal**: Changelings are designed to serve an *individual* user. They may respond to requests from other humans (or agents), but only to the extent that they are configured to do so by their primary human user.
+3. **Open**: Changelings are both transparent (the user should always be able to see exactly what is going on and dive into any detail they want) and extensible (the user should be able to easily add new capabilities, and to modify or remove existing ones).
+4. **Trustworthy**: Changelings should take security and safety seriously. They should have minimal access to data that they do not need, and for the minimal amount of time that they need it.
 
-# Deployment model
+# Architecture for changeling agents
 
-## What gets deployed
+For local deployments, each changeling has its own repo stored at `~/.changelings/<agent-id>/`. This repo is created by cloning from a git remote, or constructed from scratch via `changeling deploy --agent-type`. The agent runs directly in this directory (via `mng create --in-place`) and should make commits there if it changes anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
 
-Each changeling is a Modal App containing:
+For remote deployments (Modal, Docker), a temporary repo is prepared and the code is copied to the remote host via `mng create --in <provider> --source-path <temp-dir>`. The temporary repo is cleaned up after deployment.
 
-- The full repository contents in question (via a selected cloning strategy, see [Building Images](#building-images) below for options)
-- For now, the full imbue monorepo codebase (so `mng` and all its dependencies are available). Eventually this will be packaged more sensibly.
-- A single function decorated with `@modal.Cron(schedule)` that:
-  1. Contains the base data for the repo
-  2. Calls `mng create` with the appropriate arguments
-  3. Exits immediately (so that you're only charged for the agent runtime)
+## Agent type
 
-By default, each changeling is a **separate Modal App** because this makes it easier to deploy them all independently. In the future we may relax this constraint to enable deploying groups of changelings together, but for now one changeling = one Modal App.
+The agent type is passed directly to `mng create --agent-type <type>` during deployment. The type is resolved from (in order of precedence):
 
-## The execution flow
-
-```
-Modal Cron trigger
-  --> Modal function starts in a fresh container
-  --> Puts the secrets into the .env file
-  --> Creates a sandbox for this "run" of this changeling by calling:
-        mng create <agent-name> <agent-type> --in modal --no-connect --tag CREATOR=changeling --base-branch main --new-branch changelings/<name>-<date> --env-file .env
-  --> Modal function exits, sandbox torn down
-
-Modal agent sandbox:
-  --> Sandbox starts, runs the agent code
-  --> Agent (Claude) runs, makes commits, creates PR
-  --> Agent finishes, mng returns
-  --> Sandbox is torn down / snapshotted
-```
-
-By creating a new sandbox for each run, we ensure that each execution of the changeling is isolated and has a clean environment. This also makes it easy to connect to the agent while it's running (and after) for debugging, since it's a standard `mng` agent running in a Modal sandbox.
-
-## Building images
-
-There are a few different ways that `changelings` can get the codebase into the Modal App for the scheduled function to use when it calls `mng create`, each with their own trade-offs.
-
-The main options are:
-
-1. **fresh clone from GitHub** (default): the Modal Sandbox (where the agent runs) will use the GH_TOKEN to clone the repo directly from GitHub when the agent starts up. This is simple and ensures that the agent always has the latest code, but it can be slow (especially for large repos) and may run into rate limits or other issues with GitHub. It also does not do anything to install dependencies, so each agent may need to figure that process out for itself, which can be slow and expensive.
-2. **snapshot during deploy**: during deployment of the Modal App, we can create a snapshot of an agent container by creating a placeholder agent that simply immediately exits, then saving off that snapshot id. Then, when the agent starts up as a result of the Function invocation, the agent can start from that point and simply pull the latest code from GitHub. This can be much faster, though the agent can end up with an outdated version of the environment over time if there are changes to the dependencies or setup process. It also adds some complexity and latency to the deployment process.
-3. **commit-pinned Dockerfile**: this is the strategy used in the `mng` repo: we create a .tar.gz file of a specific commit hash in the repo (via `make_tar_of_repo.sh`), then include that when we deploy our Modal Function. Then when the Function invokes `mng create`, it can *also* point at that uploaded .tar.gz of the repo, which is referenced by the Dockerfile for building the image. This is the most complex to set up, but it is very fast, and always stays fully up-to-date. See [this blogpost](TK-link) for more details on this strategy.
-4. **custom**: users can also specify their own custom image building strategy if they want by setting the appropriate `mng` config arguments.
-
-# Configuration
-
-Changeling definitions are stored in `~/.changelings/config.toml`. This is a single file containing all registered changelings for the current user.
-
-This file should **not** be checked into source control!  (since it is user-dependent).  In the future we may also want to mirror this file into a Modal volume (to make it easier for the user to share this config across machines), but for now it only lives locally.
+1. The `--agent-type` CLI flag on `changeling deploy`
+2. The `agent_type` field in `changelings.toml` in the repo
 
 ```toml
-# which mng profile to use. Doesn't need to be set, defaults to the default mng profile.
-mng_profile = "changelings"
-
-# the name of the entry is the unique identifier for this changeling. Runs will use this name.
-[changelings.fixme-fairy]
-# defaults to the name of the changeling if not specified. This will be passed through to mng
-agent_type = "fixme-fairy"
-# defaults to "0 0 * * *" (every night at 3AM in the user's local time) if not specified
-schedule = "0 3 * * *"
-# defaults to "main" if not specified
-branch = "main"
-# defaults to true
-enabled = true
-# if you want to specify extra secrets, use this to forward the value of those env vars to the agent
-# (these are forwarded by default, and if you change this setting, you'll probably want to continue including them) 
-secrets = ["GH_TOKEN", "ANTHROPIC_API_KEY"]
-# the message sent to the agent when it starts. Defaults to "Please use your primary skill",
-# which triggers the agent's configured primary skill (set via the mng agent type).
-# Override this to give the agent custom instructions instead.
-initial_message = "Please use your primary skill"
-
-# other mng arguments can optionally be specified as well, like:
-build_args = ["--no-cache"]
-# etc.
+# changelings.toml
+agent_type = "elena-code"
 ```
 
-Because all config variables have defaults, you *should* be able to *just* specify the name, and as long as that is a valid "agent type" in `mng`, everything should "Just Work".
+## Settings
 
-# Auth and secrets
+Changelings read per-deployment settings from `changelings.toml` in the agent work directory (`$MNG_AGENT_WORK_DIR/changelings.toml`). This file is optional -- if it does not exist, all settings use their built-in defaults.
 
-Any configured secrets are forwarded to the sandbox as environment variables by way of Modal Secrets, and can be used by the agent.
+The settings are modeled by `ClaudeChangelingSettings` in `imbue.mng_claude_changeling.data_types`.
 
-Below are some specific details about generally required secrets for most agents.
+Bash scripts read settings via python3 one-liners with fallback defaults. Python tool scripts (deployed as standalone files to the agent host) read the TOML file directly at module load time.
 
-## GitHub access
+## Data and servers
 
-Most changelings need access to GitHub. This is generally done by requiring a `GH_TOKEN` with permissions to do whatever the agent needs to do, eg:
-- Clone private repos
-- Create branches and push commits
-- Create pull requests
-- Read and comment on issues (for issue-fixer)
+Changelings use space in the host volume (via the agent dir) for persistent data. The structure and format of this data is up to each individual changeling. You can optionally configure them to store their memories in git (but that is less secure, as data would leak out if synced).
 
-## API keys
+Changelings *must* serve web requests on one or more ports. On startup, they write JSON records to `$MNG_AGENT_STATE_DIR/events/servers/events.jsonl` -- one line per server -- containing the server name and URL, e.g. `{"server": "web", "url": "http://127.0.0.1:9100"}`. An agent may write multiple records for different servers (e.g. a "web" UI server and an "api" backend server). Later entries for the same server name override earlier ones. The forwarding server reads this via `mng events <agent-id> servers/events.jsonl` to discover all backends.
 
-The agent (eg, Claude) generally needs an API key. By default, we forward `ANTHROPIC_API_KEY`, though if you need additional keys for other services, you can specify those in the `secrets` config variable and they will be forwarded as well.
+# Forwarding server
 
-## SSH keys
+The forwarding server handles routing and authentication so that the URLs being served by the changeling are accessible remotely.
 
-Your local `mng` SSH public key(s) will be forwarded to the sandbox as well (so that you can access it).
+See [the forwarding server design doc](../imbue/changelings/forwarding_server/README.md) for more details on how it is implemented.
 
-## `mng` data
+# Command line interface
 
-By default, all relevant `mng` data (ex: user id, environment names, etc) will be injected into the deployed App so that the created agents are directly accessible via you.
+- `changeling deploy <git-url>` (clones a git repo and deploys a changeling from it)
+- `changeling deploy --agent-type <type>` (creates a changeling from scratch for the given agent type)
+- `changeling deploy ... --add-path SRC:DEST` (copies extra files into the changeling repo, works with both modes)
+- `changeling update <agent-name>` (updates an existing changeling by snapshotting, stopping, pushing new code, re-provisioning, and restarting)
+- `changeling list` (lists deployed changelings with their current state)
+- `changeling forward` (starts the local forwarding server for accessing changelings)
 
-If you want, you can specify a separate `mng` profile for use by `changelings` (so that it doesn't clutter up your normal namespace--they will be tagged anyway, but sometimes it's nice not to have to see them).
+[future] Additional commands for managing deployed changelings (stop, start, destroy, logs, etc.)
+
+# Deferred items
+
+The following are planned but not in the initial implementation:
+
+- [future] Remote forwarding server deployment (e.g. to Modal) for access from anywhere
+- [future] Mobile notifications from changelings
+- [future] Desktop client / system tray icon
+- [future] Multi-agent interaction between changelings
+- [future] Offline agent handling (serving cached pages when agent is not running)

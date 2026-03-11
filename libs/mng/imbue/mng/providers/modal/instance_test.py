@@ -14,6 +14,7 @@ import modal.exception
 import pytest
 
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import HostNameConflictError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import ModalAuthError
 from imbue.mng.interfaces.data_types import CertifiedHostData
@@ -36,7 +37,9 @@ from imbue.mng.providers.modal.instance import TAG_HOST_NAME
 from imbue.mng.providers.modal.instance import TAG_USER_PREFIX
 from imbue.mng.providers.modal.instance import _build_modal_secrets_from_env
 from imbue.mng.providers.modal.instance import _parse_volume_spec
+from imbue.mng.providers.modal.instance import _substitute_dockerfile_build_args
 from imbue.mng.providers.modal.instance import build_sandbox_tags
+from imbue.mng.providers.modal.instance import check_host_name_is_unique
 from imbue.mng.providers.modal.instance import parse_sandbox_tags
 
 # =============================================================================
@@ -307,9 +310,11 @@ def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_err
     """
     # The expired_credentials_modal_provider raises AuthError when _get_modal_app is
     # called, simulating expired/invalid credentials.
-    # list_hosts is decorated with @handle_modal_auth_error
+    # discover_hosts is decorated with @handle_modal_auth_error
     with pytest.raises(ModalAuthError) as exc_info:
-        expired_credentials_modal_provider.list_hosts(cg=expired_credentials_modal_provider.mng_ctx.concurrency_group)
+        expired_credentials_modal_provider.discover_hosts(
+            cg=expired_credentials_modal_provider.mng_ctx.concurrency_group
+        )
 
     # Verify the error message contains helpful information
     error_message = str(exc_info.value)
@@ -319,7 +324,7 @@ def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_err
 
 
 # =============================================================================
-# list_hosts and stopped host tests (unit tests with mocked volume)
+# discover_hosts and stopped host tests (unit tests with mocked volume)
 # =============================================================================
 
 
@@ -327,6 +332,7 @@ def _make_host_record(
     host_id: HostId,
     host_name: str = "test-host",
     snapshots: list[SnapshotRecord] | None = None,
+    failure_reason: str | None = None,
 ) -> HostRecord:
     """Create a HostRecord for testing."""
     now = datetime.now(timezone.utc)
@@ -335,6 +341,7 @@ def _make_host_record(
         host_name=host_name,
         user_tags={},
         snapshots=snapshots or [],
+        failure_reason=failure_reason,
         created_at=now,
         updated_at=now,
     )
@@ -368,7 +375,20 @@ def test_list_all_host_records_returns_empty_when_volume_empty(
     host_records = modal_provider._list_all_host_records(modal_provider.mng_ctx.concurrency_group)
 
     assert host_records == []
-    mock_volume.listdir.assert_called_once_with("/")
+    mock_volume.listdir.assert_called_once_with("/hosts/")
+
+
+def test_list_all_host_records_returns_empty_when_hosts_dir_missing(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_records should return empty list when /hosts/ directory does not exist."""
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.side_effect = modal.exception.NotFoundError("Not found")
+
+    host_records = modal_provider._list_all_host_records(modal_provider.mng_ctx.concurrency_group)
+
+    assert host_records == []
+    mock_volume.listdir.assert_called_once_with("/hosts/")
 
 
 def test_list_all_host_records_returns_records_from_volume(
@@ -380,7 +400,7 @@ def test_list_all_host_records_returns_records_from_volume(
 
     # Mock volume.listdir to return a file entry
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -398,11 +418,11 @@ def test_list_all_host_records_skips_non_json_files(
     """_list_all_host_records should skip non-.json files."""
     # Mock volume.listdir to return both .json and non-.json files
     mock_entry_json = MagicMock()
-    mock_entry_json.path = f"/{HostId.generate()}.json"
+    mock_entry_json.path = f"hosts/{HostId.generate()}.json"
     mock_entry_txt = MagicMock()
-    mock_entry_txt.path = "/readme.txt"
+    mock_entry_txt.path = "hosts/readme.txt"
     mock_entry_dir = MagicMock()
-    mock_entry_dir.path = "/subdir"
+    mock_entry_dir.path = "hosts/subdir"
 
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry_json, mock_entry_txt, mock_entry_dir]
@@ -414,10 +434,10 @@ def test_list_all_host_records_skips_non_json_files(
         assert mock_read.call_count == 1
 
 
-def test_list_hosts_includes_running_sandboxes_without_host_records(
+def test_discover_hosts_includes_running_sandboxes_without_host_records(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """list_hosts should include running sandboxes even if host record hasn't propagated."""
+    """discover_hosts should include running sandboxes even if host record hasn't propagated."""
     host_id = HostId.generate()
 
     # Mock _list_sandboxes to return a sandbox
@@ -431,22 +451,23 @@ def test_list_hosts_includes_running_sandboxes_without_host_records(
     # Mock _create_host_from_sandbox to return a mock host
     mock_host = MagicMock()
     mock_host.id = host_id
+    mock_host.get_name.return_value = HostName("test-host")
 
     with (
         patch.object(modal_provider, "_list_sandboxes", return_value=[mock_sandbox]),
         patch.object(modal_provider, "_list_all_host_records", return_value=[]),
         patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host),
     ):
-        hosts = modal_provider.list_hosts(cg=modal_provider.mng_ctx.concurrency_group)
+        hosts = modal_provider.discover_hosts(cg=modal_provider.mng_ctx.concurrency_group)
 
     assert len(hosts) == 1
-    assert hosts[0].id == host_id
+    assert hosts[0].host_id == host_id
 
 
-def test_list_hosts_returns_stopped_hosts_with_snapshots(
+def test_discover_hosts_returns_stopped_hosts_with_snapshots(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """list_hosts should return stopped hosts (no sandbox, has snapshots)."""
+    """discover_hosts should return stopped hosts (no sandbox, has snapshots)."""
     host_id = HostId.generate()
     snapshot = _make_snapshot_record("initial")
     host_record = _make_host_record(host_id, snapshots=[snapshot])
@@ -456,22 +477,23 @@ def test_list_hosts_returns_stopped_hosts_with_snapshots(
     # Mock _create_host_from_host_record to return a mock host
     mock_host = MagicMock()
     mock_host.id = host_id
+    mock_host.get_name.return_value = HostName("test-host")
 
     with (
         patch.object(modal_provider, "_list_sandboxes", return_value=[]),
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(modal_provider, "_create_host_from_host_record", return_value=mock_host),
     ):
-        hosts = modal_provider.list_hosts(cg=modal_provider.mng_ctx.concurrency_group)
+        hosts = modal_provider.discover_hosts(cg=modal_provider.mng_ctx.concurrency_group)
 
     assert len(hosts) == 1
-    assert hosts[0].id == host_id
+    assert hosts[0].host_id == host_id
 
 
-def test_list_hosts_excludes_destroyed_hosts_by_default(
+def test_discover_hosts_excludes_destroyed_hosts_by_default(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """list_hosts should exclude destroyed hosts (no sandbox, no snapshots) by default."""
+    """discover_hosts should exclude destroyed hosts (no sandbox, no snapshots) by default."""
     host_id = HostId.generate()
     # Host record with no snapshots = destroyed
     host_record = _make_host_record(host_id, snapshots=[])
@@ -480,37 +502,38 @@ def test_list_hosts_excludes_destroyed_hosts_by_default(
         patch.object(modal_provider, "_list_sandboxes", return_value=[]),
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
     ):
-        hosts = modal_provider.list_hosts(cg=modal_provider.mng_ctx.concurrency_group, include_destroyed=False)
+        hosts = modal_provider.discover_hosts(cg=modal_provider.mng_ctx.concurrency_group, include_destroyed=False)
 
     assert len(hosts) == 0
 
 
-def test_list_hosts_includes_destroyed_hosts_when_requested(
+def test_discover_hosts_includes_destroyed_hosts_when_requested(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """list_hosts(include_destroyed=True) should include destroyed hosts."""
+    """discover_hosts(include_destroyed=True) should include destroyed hosts."""
     host_id = HostId.generate()
     # Host record with no snapshots = destroyed
     host_record = _make_host_record(host_id, snapshots=[])
 
     mock_host = MagicMock()
     mock_host.id = host_id
+    mock_host.get_name.return_value = HostName("test-host")
 
     with (
         patch.object(modal_provider, "_list_sandboxes", return_value=[]),
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(modal_provider, "_create_host_from_host_record", return_value=mock_host),
     ):
-        hosts = modal_provider.list_hosts(cg=modal_provider.mng_ctx.concurrency_group, include_destroyed=True)
+        hosts = modal_provider.discover_hosts(cg=modal_provider.mng_ctx.concurrency_group, include_destroyed=True)
 
     assert len(hosts) == 1
-    assert hosts[0].id == host_id
+    assert hosts[0].host_id == host_id
 
 
-def test_list_hosts_prefers_running_sandbox_over_host_record(
+def test_discover_hosts_prefers_running_sandbox_over_host_record(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """list_hosts should use sandbox for running hosts, not host record."""
+    """discover_hosts should use sandbox for running hosts, not host record."""
     host_id = HostId.generate()
     snapshot = _make_snapshot_record("initial")
     host_record = _make_host_record(host_id, snapshots=[snapshot])
@@ -524,6 +547,7 @@ def test_list_hosts_prefers_running_sandbox_over_host_record(
 
     mock_host = MagicMock()
     mock_host.id = host_id
+    mock_host.get_name.return_value = HostName("test-host")
 
     with (
         patch.object(modal_provider, "_list_sandboxes", return_value=[mock_sandbox]),
@@ -531,7 +555,7 @@ def test_list_hosts_prefers_running_sandbox_over_host_record(
         patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host) as mock_from_sandbox,
         patch.object(modal_provider, "_create_host_from_host_record") as mock_from_record,
     ):
-        hosts = modal_provider.list_hosts(cg=modal_provider.mng_ctx.concurrency_group)
+        hosts = modal_provider.discover_hosts(cg=modal_provider.mng_ctx.concurrency_group)
 
     assert len(hosts) == 1
     # Should use sandbox, not host record
@@ -1250,7 +1274,7 @@ def test_persist_agent_data_writes_to_volume(
     modal_provider.persist_agent_data(host_id, agent_data)
 
     # Verify the file was written to the correct path
-    expected_path = f"/{host_id}/{agent_id}.json"
+    expected_path = f"/hosts/{host_id}/{agent_id}.json"
     assert expected_path in uploaded_files
 
     # Verify the content is valid JSON with expected fields
@@ -1291,7 +1315,7 @@ def test_remove_persisted_agent_data_removes_file(
 
     modal_provider.remove_persisted_agent_data(host_id, agent_id)
 
-    expected_path = f"/{host_id}/{agent_id}.json"
+    expected_path = f"/hosts/{host_id}/{agent_id}.json"
     mock_volume.remove_file.assert_called_once_with(expected_path, recursive=False)
 
 
@@ -1309,7 +1333,7 @@ def test_remove_persisted_agent_data_handles_file_not_found(
     modal_provider.remove_persisted_agent_data(host_id, agent_id)
 
     # Verify the method was called
-    expected_path = f"/{host_id}/{agent_id}.json"
+    expected_path = f"/hosts/{host_id}/{agent_id}.json"
     mock_volume.remove_file.assert_called_once_with(expected_path, recursive=False)
 
 
@@ -1454,7 +1478,7 @@ def test_list_all_host_and_agent_records_returns_empty_when_volume_empty(
 
     assert host_records == []
     assert agent_data == {}
-    mock_volume.listdir.assert_called_once_with("/")
+    mock_volume.listdir.assert_called_once_with("/hosts/")
 
 
 def test_list_all_host_and_agent_records_returns_host_records_and_agent_data(
@@ -1467,7 +1491,7 @@ def test_list_all_host_and_agent_records_returns_host_records_and_agent_data(
     agent_data_list = [{"id": str(agent_id), "name": "test-agent", "type": "claude"}]
 
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -1491,9 +1515,9 @@ def test_list_all_host_and_agent_records_skips_non_json_files(
 ) -> None:
     """_list_all_host_and_agent_records only processes .json files."""
     mock_entry_json = MagicMock()
-    mock_entry_json.path = f"/{HostId.generate()}.json"
+    mock_entry_json.path = f"hosts/{HostId.generate()}.json"
     mock_entry_dir = MagicMock()
-    mock_entry_dir.path = "/some-directory"
+    mock_entry_dir.path = "hosts/some-directory"
 
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry_json, mock_entry_dir]
@@ -1515,7 +1539,7 @@ def test_list_all_host_and_agent_records_without_agents(
     host_record = _make_host_record(host_id)
 
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -1539,7 +1563,7 @@ def test_list_all_host_and_agent_records_skips_none_host_records(
     host_id = HostId.generate()
 
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -1608,14 +1632,14 @@ def test_list_running_host_ids_skips_sandboxes_without_host_id_tag(
 
 
 # =============================================================================
-# Tests for load_agent_refs (optimized modal implementation)
+# Tests for discover_hosts_and_agents (optimized modal implementation)
 # =============================================================================
 
 
-def test_load_agent_refs_returns_agents_from_volume_data(
+def test_discover_hosts_and_agents_returns_agents_from_volume_data(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """load_agent_refs builds HostReference->AgentReference map from volume data."""
+    """discover_hosts_and_agents builds DiscoveredHost->DiscoveredAgent map from volume data."""
     host_id = HostId.generate()
     agent_id = AgentId.generate()
     snapshot = _make_snapshot_record("initial")
@@ -1630,7 +1654,7 @@ def test_load_agent_refs_returns_agents_from_volume_data(
             return_value=([host_record], {host_id: agent_data}),
         ),
     ):
-        result = modal_provider.load_agent_refs(cg=modal_provider.mng_ctx.concurrency_group)
+        result = modal_provider.discover_hosts_and_agents(cg=modal_provider.mng_ctx.concurrency_group)
 
     assert len(result) == 1
     host_ref = next(iter(result.keys()))
@@ -1643,10 +1667,10 @@ def test_load_agent_refs_returns_agents_from_volume_data(
     assert agent_refs[0].agent_id == agent_id
 
 
-def test_load_agent_refs_excludes_destroyed_hosts_by_default(
+def test_discover_hosts_and_agents_excludes_destroyed_hosts_by_default(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """load_agent_refs excludes destroyed hosts (no sandbox, no snapshots) by default."""
+    """discover_hosts_and_agents excludes destroyed hosts (no sandbox, no snapshots) by default."""
     host_id = HostId.generate()
     host_record = _make_host_record(host_id, snapshots=[])
 
@@ -1654,15 +1678,17 @@ def test_load_agent_refs_excludes_destroyed_hosts_by_default(
         patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
         patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([host_record], {})),
     ):
-        result = modal_provider.load_agent_refs(cg=modal_provider.mng_ctx.concurrency_group, include_destroyed=False)
+        result = modal_provider.discover_hosts_and_agents(
+            cg=modal_provider.mng_ctx.concurrency_group, include_destroyed=False
+        )
 
     assert len(result) == 0
 
 
-def test_load_agent_refs_includes_destroyed_hosts_when_requested(
+def test_discover_hosts_and_agents_includes_destroyed_hosts_when_requested(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """load_agent_refs includes destroyed hosts when include_destroyed=True."""
+    """discover_hosts_and_agents includes destroyed hosts when include_destroyed=True."""
     host_id = HostId.generate()
     host_record = _make_host_record(host_id, snapshots=[])
 
@@ -1670,15 +1696,17 @@ def test_load_agent_refs_includes_destroyed_hosts_when_requested(
         patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
         patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([host_record], {})),
     ):
-        result = modal_provider.load_agent_refs(cg=modal_provider.mng_ctx.concurrency_group, include_destroyed=True)
+        result = modal_provider.discover_hosts_and_agents(
+            cg=modal_provider.mng_ctx.concurrency_group, include_destroyed=True
+        )
 
     assert len(result) == 1
 
 
-def test_load_agent_refs_includes_running_hosts_from_host_records(
+def test_discover_hosts_and_agents_includes_running_hosts_from_host_records(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """load_agent_refs includes running hosts (sandbox exists + host record exists)."""
+    """discover_hosts_and_agents includes running hosts (sandbox exists + host record exists)."""
     host_id = HostId.generate()
     host_record = _make_host_record(host_id, host_name="running-host", snapshots=[])
 
@@ -1686,7 +1714,7 @@ def test_load_agent_refs_includes_running_hosts_from_host_records(
         patch.object(modal_provider, "_list_running_host_ids", return_value={host_id}),
         patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([host_record], {})),
     ):
-        result = modal_provider.load_agent_refs(cg=modal_provider.mng_ctx.concurrency_group)
+        result = modal_provider.discover_hosts_and_agents(cg=modal_provider.mng_ctx.concurrency_group)
 
     # Running host (sandbox exists) should be included even without snapshots
     assert len(result) == 1
@@ -1694,16 +1722,141 @@ def test_load_agent_refs_includes_running_hosts_from_host_records(
     assert host_ref.host_id == host_id
 
 
-def test_load_agent_refs_ignores_running_sandbox_without_host_record(
+def test_discover_hosts_and_agents_ignores_running_sandbox_without_host_record(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """load_agent_refs does not create entries for sandboxes that have no host record."""
+    """discover_hosts_and_agents does not create entries for sandboxes that have no host record."""
     orphan_host_id = HostId.generate()
 
     with (
         patch.object(modal_provider, "_list_running_host_ids", return_value={orphan_host_id}),
         patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([], {})),
     ):
-        result = modal_provider.load_agent_refs(cg=modal_provider.mng_ctx.concurrency_group)
+        result = modal_provider.discover_hosts_and_agents(cg=modal_provider.mng_ctx.concurrency_group)
 
     assert len(result) == 0
+
+
+# =============================================================================
+# Docker Build Args Tests
+# =============================================================================
+
+
+def test_parse_build_args_docker_build_arg(modal_provider: ModalProviderInstance) -> None:
+    """Should parse --docker-build-arg arguments."""
+    config = modal_provider._parse_build_args(["--docker-build-arg=CLAUDE_CODE_VERSION=2.1.50"])
+    assert config.docker_build_args == ("CLAUDE_CODE_VERSION=2.1.50",)
+
+
+def test_parse_build_args_multiple_docker_build_args(modal_provider: ModalProviderInstance) -> None:
+    """Should parse multiple --docker-build-arg arguments."""
+    config = modal_provider._parse_build_args(
+        [
+            "docker-build-arg=CLAUDE_CODE_VERSION=2.1.50",
+            "docker-build-arg=OTHER_ARG=value",
+        ]
+    )
+    assert config.docker_build_args == ("CLAUDE_CODE_VERSION=2.1.50", "OTHER_ARG=value")
+
+
+def test_parse_build_args_docker_build_arg_default_empty(modal_provider: ModalProviderInstance) -> None:
+    """docker_build_args should default to empty tuple."""
+    config = modal_provider._parse_build_args([])
+    assert config.docker_build_args == ()
+
+
+def test_substitute_dockerfile_build_args_replaces_default() -> None:
+    """_substitute_dockerfile_build_args should replace ARG defaults."""
+    dockerfile = 'FROM python:3.11-slim\nARG CLAUDE_CODE_VERSION=""\nRUN echo $CLAUDE_CODE_VERSION'
+    result = _substitute_dockerfile_build_args(dockerfile, ("CLAUDE_CODE_VERSION=2.1.50",))
+    assert 'ARG CLAUDE_CODE_VERSION="2.1.50"' in result
+    assert 'ARG CLAUDE_CODE_VERSION=""' not in result
+
+
+def test_substitute_dockerfile_build_args_replaces_non_empty_default() -> None:
+    """_substitute_dockerfile_build_args should replace non-empty ARG defaults."""
+    dockerfile = 'FROM python:3.11\nARG MY_VERSION="1.0.0"\n'
+    result = _substitute_dockerfile_build_args(dockerfile, ("MY_VERSION=2.0.0",))
+    assert 'ARG MY_VERSION="2.0.0"' in result
+
+
+def test_substitute_dockerfile_build_args_raises_for_missing_arg() -> None:
+    """_substitute_dockerfile_build_args should raise if ARG is not found."""
+    dockerfile = "FROM python:3.11-slim\nRUN echo hello\n"
+    with pytest.raises(MngError, match="not found as an ARG instruction"):
+        _substitute_dockerfile_build_args(dockerfile, ("NONEXISTENT_ARG=value",))
+
+
+def test_substitute_dockerfile_build_args_raises_for_bad_format() -> None:
+    """_substitute_dockerfile_build_args should raise for non KEY=VALUE format."""
+    dockerfile = 'FROM python:3.11-slim\nARG FOO=""\n'
+    with pytest.raises(MngError, match="KEY=VALUE format"):
+        _substitute_dockerfile_build_args(dockerfile, ("no-equals-sign",))
+
+
+# =============================================================================
+# Tests for check_host_name_is_unique
+# =============================================================================
+
+
+def test_check_host_name_is_unique_passes_when_no_existing_hosts() -> None:
+    """check_host_name_is_unique should not raise when there are no existing hosts."""
+    check_host_name_is_unique(HostName("new-host"), host_records=[], running_host_ids=set())
+
+
+def test_check_host_name_is_unique_passes_when_name_is_different() -> None:
+    """check_host_name_is_unique should not raise when the name is different from existing hosts."""
+    host_id = HostId.generate()
+    existing_record = _make_host_record(host_id, host_name="existing-host", snapshots=[_make_snapshot_record()])
+
+    check_host_name_is_unique(HostName("different-host"), host_records=[existing_record], running_host_ids=set())
+
+
+def test_check_host_name_is_unique_raises_when_name_already_exists_on_running_host() -> None:
+    """check_host_name_is_unique should raise HostNameConflictError when a running host has the same name."""
+    host_id = HostId.generate()
+    existing_record = _make_host_record(host_id, host_name="taken-name")
+
+    with pytest.raises(HostNameConflictError) as exc_info:
+        check_host_name_is_unique(HostName("taken-name"), host_records=[existing_record], running_host_ids={host_id})
+    assert "taken-name" in str(exc_info.value)
+
+
+def test_check_host_name_is_unique_raises_when_name_exists_on_stopped_host_with_snapshots() -> None:
+    """check_host_name_is_unique should raise when a stopped host with snapshots has the same name."""
+    host_id = HostId.generate()
+    existing_record = _make_host_record(host_id, host_name="taken-name", snapshots=[_make_snapshot_record()])
+
+    with pytest.raises(HostNameConflictError):
+        check_host_name_is_unique(HostName("taken-name"), host_records=[existing_record], running_host_ids=set())
+
+
+def test_check_host_name_is_unique_allows_reuse_of_destroyed_host_name() -> None:
+    """check_host_name_is_unique should allow reusing a name from a destroyed host."""
+    host_id = HostId.generate()
+    # A destroyed host: no snapshots, no failure_reason, not running
+    destroyed_record = _make_host_record(host_id, host_name="reusable-name", snapshots=[])
+
+    # Should not raise
+    check_host_name_is_unique(HostName("reusable-name"), host_records=[destroyed_record], running_host_ids=set())
+
+
+def test_check_host_name_is_unique_raises_when_name_matches_any_non_destroyed() -> None:
+    """check_host_name_is_unique should raise if the name matches any non-destroyed host."""
+    host_records = [
+        _make_host_record(HostId.generate(), host_name="host-alpha", snapshots=[_make_snapshot_record()]),
+        _make_host_record(HostId.generate(), host_name="host-beta", snapshots=[_make_snapshot_record()]),
+        _make_host_record(HostId.generate(), host_name="host-gamma", snapshots=[_make_snapshot_record()]),
+    ]
+
+    with pytest.raises(HostNameConflictError):
+        check_host_name_is_unique(HostName("host-beta"), host_records=host_records, running_host_ids=set())
+
+
+def test_check_host_name_is_unique_raises_when_name_exists_on_failed_host() -> None:
+    """check_host_name_is_unique should raise for a failed host (not running, no snapshots, but has failure_reason)."""
+    host_id = HostId.generate()
+    failed_record = _make_host_record(host_id, host_name="failed-host", failure_reason="Build failed")
+
+    with pytest.raises(HostNameConflictError):
+        check_host_name_is_unique(HostName("failed-host"), host_records=[failed_record], running_host_ids=set())

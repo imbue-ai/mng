@@ -9,36 +9,23 @@
 mng [exec|x] [AGENTS...] COMMAND [--agent <AGENT>] [--all] [--user <USER>] [--cwd <DIR>] [--timeout <SECONDS>] [--on-error <MODE>]
 ```
 
+Execute a shell command on one or more agents' hosts [experimental].
 
-Execute a shell command on one or more agents' hosts. [experimental]
+The command runs in each agent's work_dir by default. Use --cwd to override
+the working directory.
 
-Runs COMMAND on the host(s) where the specified agent(s) are running,
-defaulting to each agent's work_dir. The command's stdout is printed to
-stdout and stderr to stderr.
+The command's stdout is printed to stdout and stderr to stderr. The exit
+code is 0 if all commands succeeded, 1 if any failed.
 
-Supports custom format templates via --format. Available fields:
-agent, stdout, stderr, success.
+Supports custom format templates via --format. Available fields: agent, stdout, stderr, success.
 
 Alias: x
-
-Examples:
-
-  mng exec my-agent "echo hello"
-
-  mng exec agent1 agent2 "echo hello"
-
-  mng exec --agent my-agent --agent another-agent "echo hello"
-
-  mng exec --all "echo hello"
-
-  mng exec --all "hostname" --format '{agent}\t{stdout}'
 
 **Usage:**
 
 ```text
 mng exec [OPTIONS] [AGENTS]... COMMAND
 ```
-
 ## Arguments
 
 - `AGENTS`: Name(s) or ID(s) of the agent(s) whose host will run the command
@@ -78,22 +65,16 @@ mng exec [OPTIONS] [AGENTS]... COMMAND
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
-| `--json` | boolean | Alias for --format json | `False` |
-| `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
-| `--log-file` | path | Path to log file (overrides default ~/.mng/logs/<timestamp>-<pid>.json) | None |
+| `--log-file` | path | Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json) | None |
 | `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
 | `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
 | `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--headless` | boolean | Disable all interactive behavior (prompts, TUI, editor). Also settable via MNG_HEADLESS env var or 'headless' config key. | `False` |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Related Documentation
@@ -142,4 +123,16 @@ $ mng exec my-agent "whoami" --user root
 
 ```bash
 $ mng exec my-agent "sleep 100" --timeout 5
+```
+
+**Use --agent flag (repeatable)**
+
+```bash
+$ mng exec --agent my-agent --agent another-agent "echo hello"
+```
+
+**Custom format template output**
+
+```bash
+$ mng exec --all "hostname" --format '{agent}\t{stdout}'
 ```

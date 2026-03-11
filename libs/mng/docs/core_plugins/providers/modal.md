@@ -10,7 +10,7 @@ mng create my-agent --in modal
 
 ## Build Arguments
 
-Build arguments configure the Modal sandbox. Pass them using `-b` or `--build-args`:
+Build arguments configure the Modal sandbox. Pass them using `-b` (or `--build-arg`):
 
 ```bash
 # Key-value format (recommended)
@@ -18,9 +18,6 @@ mng create my-agent --in modal -b gpu=h100 -b cpu=2 -b memory=8
 
 # Flag format (also supported)
 mng create my-agent --in modal -b --gpu=h100 -b --cpu=2
-
-# Bulk format
-mng create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 ```
 
 ### Available Build Arguments
@@ -36,9 +33,10 @@ mng create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `context-dir` | Build context directory for Dockerfile COPY/ADD instructions | Dockerfile's directory |
 | `secret` | Environment variable name to pass as a secret during image build (can be specified multiple times) | None |
 | `cidr-allowlist` | Restrict network access to the specified CIDR range (can be specified multiple times) | None |
-| `dockerfile` | Path to a Dockerfile for building a custom image | None |
+| `file` | Path to a Dockerfile for building a custom image | None |
 | `offline` | Block all outbound network access from the sandbox | off |
 | `volume` | Mount a persistent Modal Volume (format: `name:/path`, can be specified multiple times) | None |
+| `docker-build-arg` | Override a Dockerfile ARG default value (format: `KEY=VALUE`, can be specified multiple times) | None |
 
 ### Examples
 
@@ -79,7 +77,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 Then use it with:
 
 ```bash
-mng create my-agent --in modal -b dockerfile=./Dockerfile -b offline
+mng create my-agent --in modal -b file=./Dockerfile -b offline
 ```
 
 ### Using Secrets During Image Build
@@ -88,10 +86,10 @@ The `secret` build argument allows passing environment variables as secrets to t
 
 ```bash
 # Pass a single secret
-mng create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN
+mng create my-agent --in modal -b file=./Dockerfile -b secret=NPM_TOKEN
 
 # Pass multiple secrets
-mng create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN -b secret=GH_TOKEN
+mng create my-agent --in modal -b file=./Dockerfile -b secret=NPM_TOKEN -b secret=GH_TOKEN
 ```
 
 In your Dockerfile, access the secret using `--mount=type=secret`:
@@ -152,7 +150,7 @@ See [`mng snapshot`](../../commands/secondary/snapshot.md) for all options.
 
 ## Host Volume
 
-By default, mng creates a persistent Modal Volume for each host's data directory. This volume stores logs, agent data, and other host state, making them accessible even when the host is offline (e.g., via `mng logs`).
+By default, mng creates a persistent Modal Volume for each host's data directory. This volume stores logs, agent data, and other host state, making them accessible even when the host is offline (e.g., via `mng events`).
 
 You can disable this behavior by setting `is_host_volume_created = false` in your provider configuration:
 

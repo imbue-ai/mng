@@ -3,33 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from imbue.mng.utils.testing import generate_test_environment_name
 from imbue.mng.utils.testing import get_short_random_string
-from imbue.mng.utils.testing import get_subprocess_test_env
 
-pytestmark = [pytest.mark.docker, pytest.mark.acceptance]
-
-
-@pytest.fixture
-def docker_subprocess_env(tmp_path: Path) -> dict[str, str]:
-    """Create a subprocess test environment for Docker tests."""
-    host_dir = tmp_path / "docker-test-hosts"
-    host_dir.mkdir()
-    prefix = f"{generate_test_environment_name()}-"
-    return get_subprocess_test_env(
-        root_name="mng-docker-test",
-        prefix=prefix,
-        host_dir=host_dir,
-    )
-
-
-@pytest.fixture
-def temp_source_dir(tmp_path: Path) -> Path:
-    """Create a temporary source directory for tests."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
-    (source_dir / "test.txt").write_text("test content")
-    return source_dir
+pytestmark = [pytest.mark.docker, pytest.mark.acceptance, pytest.mark.rsync]
 
 
 @pytest.mark.timeout(120)
@@ -52,7 +28,6 @@ def test_mng_create_echo_command_on_docker(
             "--in",
             "docker",
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source-path",
             str(temp_source_dir),
@@ -89,7 +64,6 @@ def test_mng_create_with_start_args_on_docker(
             "--in",
             "docker",
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source-path",
             str(temp_source_dir),
@@ -130,11 +104,10 @@ def test_mng_create_with_tags_on_docker(
             "--in",
             "docker",
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source-path",
             str(temp_source_dir),
-            "--tag",
+            "--host-label",
             "env=test",
             "--",
             expected_output,
@@ -184,7 +157,6 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
             "--in",
             "docker",
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source-path",
             str(temp_source_dir),
@@ -226,7 +198,6 @@ def test_mng_create_stop_start_destroy_lifecycle(
             "--in",
             "docker",
             "--no-connect",
-            "--await-ready",
             "--no-ensure-clean",
             "--source-path",
             str(temp_source_dir),

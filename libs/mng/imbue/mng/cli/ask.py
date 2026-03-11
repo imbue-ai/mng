@@ -22,7 +22,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import get_all_help_metadata
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_info
@@ -38,7 +37,7 @@ _QUERY_PREFIX: Final[str] = (
     #
     "user: How do I create a container on modal with custom packages installed by default?\n"
     "response: Simply run:\n"
-    '    mng create --in modal --build-arg "--dockerfile path/to/Dockerfile"\n'
+    '    mng create --in modal -b "--file path/to/Dockerfile"\n'
     "If you don't have a Dockerfile for your project, run:\n"
     "    mng bootstrap\n"
     "from the repo where you would like a Dockerfile created.\n\n"
@@ -79,21 +78,39 @@ _QUERY_PREFIX: Final[str] = (
     "user: How do I destroy all my agents?\n"
     "response: mng destroy --all --force\n\n"
     #
-    "user: How do I create an agent with environment secrets and GitHub SSH access?\n"
-    "response: mng create --env-file .env.secrets --known-host github.com\n\n"
+    "user: How do I create an agent with environment secrets?\n"
+    "response: mng create --env-file .env.secrets\n\n"
     #
     "user: How do I create an agent from a saved template?\n"
     "response: mng create --template gpu-heavy\n\n"
     #
     "user: How do I run a test watcher alongside my agent?\n"
-    "response: Use --add-command to open an extra tmux window:\n"
-    '    mng create --add-command "watch -n5 pytest"\n\n'
+    "response: Use --extra-window (or -w) to open an extra tmux window:\n"
+    '    mng create -w "watch -n5 pytest"\n\n'
     #
     "user: How do I get a list of running agent names as JSON?\n"
     "response: mng list --running --format json\n\n"
     #
     "user: How do I watch agent status in real time?\n"
     "response: mng list --watch 5\n\n"
+    #
+    "user: How do I list all agents that are running or waiting?\n"
+    "response: Use a CEL filter on the `state` field:\n"
+    '    mng list --include \'state == "RUNNING" || state == "WAITING"\'\n\n'
+    #
+    "user: How do I list agents whose name contains 'prod'?\n"
+    "response: mng list --include 'name.contains(\"prod\")'\n\n"
+    #
+    "user: How do I find agents that have been idle for more than an hour?\n"
+    "response: mng list --include 'idle_seconds > 3600'\n\n"
+    #
+    "user: How do I list running agents on Modal?\n"
+    'response: mng list --include \'state == "RUNNING" && host.provider == "modal"\'\n'
+    "To include agents that are waiting for input, add WAITING:\n"
+    '    mng list --include \'(state == "RUNNING" || state == "WAITING") && host.provider == "modal"\'\n\n'
+    #
+    "user: How do I list agents for the mng project?\n"
+    "response: mng list --include 'labels.project == \"mng\"'\n\n"
     #
     "user: How do I message only agents with a specific tag?\n"
     "response: Use a CEL filter:\n"
@@ -163,6 +180,21 @@ _EXECUTE_QUERY_PREFIX: Final[str] = (
     #
     "user: list running agents as json\n"
     "response: mng list --running --format json\n\n"
+    #
+    "user: list all agents that are running or waiting\n"
+    'response: mng list --include \'state == "RUNNING" || state == "WAITING"\'\n\n'
+    #
+    "user: list agents whose name contains prod\n"
+    "response: mng list --include 'name.contains(\"prod\")'\n\n"
+    #
+    "user: find agents idle for more than an hour\n"
+    "response: mng list --include 'idle_seconds > 3600'\n\n"
+    #
+    "user: list running agents on modal\n"
+    'response: mng list --include \'state == "RUNNING" && host.provider == "modal"\'\n\n'
+    #
+    "user: list agents for the mng project\n"
+    "response: mng list --include 'labels.project == \"mng\"'\n\n"
     #
     "user: clone my-agent into a new agent called experiment\n"
     "response: mng clone my-agent experiment\n\n"
@@ -324,7 +356,7 @@ def _build_ask_context() -> str:
         parts.append("")
         parts.append(f"Synopsis: {metadata.synopsis}")
         parts.append("")
-        parts.append(metadata.description.strip())
+        parts.append(metadata.full_description.strip())
         parts.append("")
         if metadata.examples:
             parts.append("Examples:")
@@ -372,19 +404,6 @@ class AskCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def ask(ctx: click.Context, **kwargs: Any) -> None:
-    """Chat with mng for help. [experimental]
-
-    Ask mng a question and it will generate the appropriate CLI command.
-    If no query is provided, shows general help.
-
-    Examples:
-
-      mng ask "how do I create an agent?"
-
-      mng ask start a container with claude code
-
-      mng ask --execute forward port 8080 to the public internet
-    """
     try:
         _ask_impl(ctx, **kwargs)
     except AbortError as e:
@@ -463,13 +482,11 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
 
 
 # Register help metadata for git-style help formatting
-_ASK_HELP_METADATA: Final[CommandHelpMetadata] = CommandHelpMetadata(
-    name="mng-ask",
+CommandHelpMetadata(
+    key="ask",
     one_line_description="Chat with mng for help [experimental]",
     synopsis="mng ask [--execute] QUERY...",
-    description="""Chat directly with mng for help -- it can create the
-necessary CLI call for pretty much anything you want to do.
-
+    description="""Ask a question and mng will generate the appropriate CLI command.
 If no query is provided, shows general help about available commands
 and common workflows.
 
@@ -485,9 +502,7 @@ directly instead of being printed.""",
         ("list", "List existing agents"),
         ("connect", "Connect to an agent"),
     ),
-)
-
-register_help_metadata("ask", _ASK_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the ask command
 add_pager_help_option(ask)

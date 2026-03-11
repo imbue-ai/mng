@@ -9,29 +9,22 @@
 mng [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]
 ```
 
+Rename an agent or host [experimental].
 
-Rename an agent or host. [experimental]
+Updates the agent's name in its data.json and renames the tmux session
+if the agent is currently running. Git branch names are not renamed.
 
-Renames the agent's data.json and tmux session (if running).
-Git branch names are not renamed.
-
-If a previous rename was interrupted, re-running the command
-will attempt to finish it.
+If a previous rename was interrupted (e.g., the tmux session was renamed
+but data.json was not updated), re-running the command will attempt
+to complete it.
 
 Alias: mv
-
-Examples:
-
-  mng rename my-agent new-name
-
-  mng rename my-agent new-name --dry-run
 
 **Usage:**
 
 ```text
 mng rename [OPTIONS] CURRENT NEW-NAME
 ```
-
 ## Arguments
 
 - `CURRENT`: Current name or ID of the agent to rename
@@ -51,22 +44,16 @@ mng rename [OPTIONS] CURRENT NEW-NAME
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
-| `--json` | boolean | Alias for --format json | `False` |
-| `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
-| `--log-file` | path | Path to log file (overrides default ~/.mng/logs/<timestamp>-<pid>.json) | None |
+| `--log-file` | path | Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json) | None |
 | `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
 | `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
 | `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--headless` | boolean | Disable all interactive behavior (prompts, TUI, editor). Also settable via MNG_HEADLESS env var or 'headless' config key. | `False` |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## See Also

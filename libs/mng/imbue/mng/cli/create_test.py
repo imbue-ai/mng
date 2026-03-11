@@ -8,6 +8,7 @@ import pytest
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.cli.create import CreateCliOptions
 from imbue.mng.cli.create import _parse_agent_opts
+from imbue.mng.cli.create import _parse_branch_flag
 from imbue.mng.cli.create import _parse_host_lifecycle_options
 from imbue.mng.cli.create import _parse_project_name
 from imbue.mng.cli.create import _resolve_source_location
@@ -22,12 +23,12 @@ from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
+from imbue.mng.primitives import DiscoveredAgent
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
-from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import IdleMode
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
@@ -146,23 +147,23 @@ TEST_AGENT_ID_1 = "agent-00000000000000000000000000000001"
 TEST_AGENT_ID_2 = "agent-00000000000000000000000000000002"
 
 
-def _make_host_ref(
+def _make_discovered_host(
     provider: str = "local", host_id: str = TEST_HOST_ID_1, host_name: str = "test-host"
-) -> HostReference:
-    return HostReference(
+) -> DiscoveredHost:
+    return DiscoveredHost(
         provider_name=ProviderInstanceName(provider),
         host_id=HostId(host_id),
         host_name=HostName(host_name),
     )
 
 
-def _make_agent_ref(
+def _make_discovered_agent(
     agent_id: str = TEST_AGENT_ID_1,
     agent_name: str = "test-agent",
     host_id: str = TEST_HOST_ID_1,
     provider: str = "local",
-) -> AgentReference:
-    return AgentReference(
+) -> DiscoveredAgent:
+    return DiscoveredAgent(
         agent_id=AgentId(agent_id),
         agent_name=AgentName(agent_name),
         host_id=HostId(host_id),
@@ -188,8 +189,8 @@ def test_try_reuse_existing_agent_no_agents_found(temp_mng_ctx: MngContext) -> N
 
 def test_try_reuse_existing_agent_no_matching_name(temp_mng_ctx: MngContext) -> None:
     """Returns None when agents exist but none match the name."""
-    host_ref = _make_host_ref()
-    agent_ref = _make_agent_ref(agent_name="other-agent")
+    host_ref = _make_discovered_host()
+    agent_ref = _make_discovered_agent(agent_name="other-agent")
 
     result = _try_reuse_existing_agent(
         agent_name=AgentName("test-agent"),
@@ -204,8 +205,8 @@ def test_try_reuse_existing_agent_no_matching_name(temp_mng_ctx: MngContext) -> 
 
 def test_try_reuse_existing_agent_filters_by_provider(temp_mng_ctx: MngContext) -> None:
     """Returns None when agent exists but on different provider."""
-    host_ref = _make_host_ref(provider="modal")
-    agent_ref = _make_agent_ref(agent_name="test-agent", provider="modal")
+    host_ref = _make_discovered_host(provider="modal")
+    agent_ref = _make_discovered_agent(agent_name="test-agent", provider="modal")
 
     result = _try_reuse_existing_agent(
         agent_name=AgentName("test-agent"),
@@ -220,10 +221,10 @@ def test_try_reuse_existing_agent_filters_by_provider(temp_mng_ctx: MngContext) 
 
 def test_try_reuse_existing_agent_filters_by_host(temp_mng_ctx: MngContext) -> None:
     """Returns None when agent exists but on different host."""
-    host_ref = _make_host_ref(host_id=TEST_HOST_ID_1)
-    agent_ref = _make_agent_ref(agent_name="test-agent", host_id=TEST_HOST_ID_1)
+    host_ref = _make_discovered_host(host_id=TEST_HOST_ID_1)
+    agent_ref = _make_discovered_agent(agent_name="test-agent", host_id=TEST_HOST_ID_1)
 
-    target_host_ref = _make_host_ref(host_id=TEST_HOST_ID_2)
+    target_host_ref = _make_discovered_host(host_id=TEST_HOST_ID_2)
 
     result = _try_reuse_existing_agent(
         agent_name=AgentName("test-agent"),
@@ -239,6 +240,7 @@ def test_try_reuse_existing_agent_filters_by_host(temp_mng_ctx: MngContext) -> N
 # -- Tests using real local provider infrastructure --
 
 
+@pytest.mark.tmux
 def test_try_reuse_existing_agent_found_and_started(
     local_provider: LocalProviderInstance,
     temp_mng_ctx: MngContext,
@@ -259,12 +261,12 @@ def test_try_reuse_existing_agent_found_and_started(
     )
 
     # Build references that match the real host and agent
-    host_ref = HostReference(
+    host_ref = DiscoveredHost(
         provider_name=ProviderInstanceName("local"),
         host_id=local_host.id,
         host_name=local_host.get_name(),
     )
-    agent_ref = AgentReference(
+    agent_ref = DiscoveredAgent(
         agent_id=agent.id,
         agent_name=agent.name,
         host_id=local_host.id,
@@ -297,12 +299,12 @@ def test_try_reuse_existing_agent_not_found_on_host(
     local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
 
     # Build references pointing to this host, but with a nonexistent agent ID
-    host_ref = HostReference(
+    host_ref = DiscoveredHost(
         provider_name=ProviderInstanceName("local"),
         host_id=local_host.id,
         host_name=local_host.get_name(),
     )
-    agent_ref = AgentReference(
+    agent_ref = DiscoveredAgent(
         agent_id=AgentId(TEST_AGENT_ID_1),
         agent_name=AgentName("ghost-agent"),
         host_id=local_host.id,
@@ -363,8 +365,8 @@ def test_resolve_target_host_with_host_reference(
     local_provider: LocalProviderInstance,
     temp_mng_ctx: MngContext,
 ) -> None:
-    """_resolve_target_host resolves a HostReference to an online host."""
-    host_ref = HostReference(
+    """_resolve_target_host resolves a DiscoveredHost to an online host."""
+    host_ref = DiscoveredHost(
         provider_name=ProviderInstanceName("local"),
         host_id=local_provider.host_id,
         host_name=HostName("localhost"),
@@ -540,10 +542,9 @@ def test_parse_agent_opts_includes_labels(
         to_update(default_create_cli_opts.field_ref().label, ("project=mng", "env=prod")),
     )
 
-    result = _parse_agent_opts(
+    result, _ = _parse_agent_opts(
         opts=opts,
         initial_message=None,
-        resume_message=None,
         source_location=source_location,
         mng_ctx=temp_mng_ctx,
     )
@@ -568,7 +569,6 @@ def test_parse_agent_opts_label_invalid_format_raises(
         _parse_agent_opts(
             opts=opts,
             initial_message=None,
-            resume_message=None,
             source_location=source_location,
             mng_ctx=temp_mng_ctx,
         )
@@ -584,12 +584,147 @@ def test_parse_agent_opts_empty_labels_by_default(
     local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     source_location = HostLocation(host=local_host, path=temp_work_dir)
 
-    result = _parse_agent_opts(
+    result, _ = _parse_agent_opts(
         opts=default_create_cli_opts,
         initial_message=None,
-        resume_message=None,
         source_location=source_location,
         mng_ctx=temp_mng_ctx,
     )
 
     assert result.label_options.labels == {}
+
+
+def test_parse_agent_opts_with_agent_id(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mng_ctx: MngContext,
+    temp_work_dir: Path,
+) -> None:
+    """--id should be parsed into id field."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
+    source_location = HostLocation(host=local_host, path=temp_work_dir)
+    explicit_id = AgentId()
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().id, str(explicit_id)),
+    )
+
+    result, _ = _parse_agent_opts(
+        opts=opts,
+        initial_message=None,
+        source_location=source_location,
+        mng_ctx=temp_mng_ctx,
+    )
+
+    assert result.agent_id == explicit_id
+
+
+def test_parse_agent_opts_agent_id_none_by_default(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mng_ctx: MngContext,
+    temp_work_dir: Path,
+) -> None:
+    """Without --id, id should be None (auto-generated later)."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
+    source_location = HostLocation(host=local_host, path=temp_work_dir)
+
+    result, _ = _parse_agent_opts(
+        opts=default_create_cli_opts,
+        initial_message=None,
+        source_location=source_location,
+        mng_ctx=temp_mng_ctx,
+    )
+
+    assert result.agent_id is None
+
+
+# =============================================================================
+# Tests for _parse_branch_flag
+# =============================================================================
+
+
+def test_parse_branch_flag_base_only() -> None:
+    """A branch spec with no colon means base branch only, no new branch."""
+    base, new, has_explicit_base = _parse_branch_flag("main", AgentName("my-agent"))
+
+    assert base == "main"
+    assert new is None
+    assert has_explicit_base is True
+
+
+def test_parse_branch_flag_base_and_new() -> None:
+    """BASE:NEW creates a new branch from the base."""
+    base, new, has_explicit_base = _parse_branch_flag("main:feature", AgentName("my-agent"))
+
+    assert base == "main"
+    assert new == "feature"
+    assert has_explicit_base is True
+
+
+def test_parse_branch_flag_base_and_wildcard() -> None:
+    """Wildcard * in NEW is replaced by the agent name."""
+    base, new, has_explicit_base = _parse_branch_flag("main:mng/*", AgentName("my-agent"))
+
+    assert base == "main"
+    assert new == "mng/my-agent"
+    assert has_explicit_base is True
+
+
+def test_parse_branch_flag_empty_base_with_new() -> None:
+    """Empty base (colon prefix) defaults base to None (current branch)."""
+    base, new, has_explicit_base = _parse_branch_flag(":feature", AgentName("my-agent"))
+
+    assert base is None
+    assert new == "feature"
+    assert has_explicit_base is False
+
+
+def test_parse_branch_flag_empty_base_with_wildcard() -> None:
+    """Default format :mng/* uses current branch and auto-generates name."""
+    base, new, has_explicit_base = _parse_branch_flag(":mng/*", AgentName("my-agent"))
+
+    assert base is None
+    assert new == "mng/my-agent"
+    assert has_explicit_base is False
+
+
+def test_parse_branch_flag_empty_new_uses_default() -> None:
+    """Empty NEW after colon (e.g. 'main:') falls back to default pattern."""
+    base, new, has_explicit_base = _parse_branch_flag("main:", AgentName("my-agent"))
+
+    assert base == "main"
+    assert new == "mng/my-agent"
+    assert has_explicit_base is True
+
+
+def test_parse_branch_flag_just_colon_uses_default() -> None:
+    """Just ':' means current branch with default new branch pattern."""
+    base, new, has_explicit_base = _parse_branch_flag(":", AgentName("my-agent"))
+
+    assert base is None
+    assert new == "mng/my-agent"
+    assert has_explicit_base is False
+
+
+def test_parse_branch_flag_multiple_wildcards_raises() -> None:
+    """More than one * in NEW raises an error."""
+    with pytest.raises(UserInputError, match="at most one"):
+        _parse_branch_flag("main:mng/*-*", AgentName("my-agent"))
+
+
+def test_parse_branch_flag_empty_string() -> None:
+    """Empty string means no base branch and no new branch."""
+    base, new, has_explicit_base = _parse_branch_flag("", AgentName("my-agent"))
+
+    assert base is None
+    assert new is None
+    assert has_explicit_base is False
+
+
+def test_parse_branch_flag_new_without_wildcard() -> None:
+    """NEW without wildcard uses the exact name."""
+    base, new, has_explicit_base = _parse_branch_flag(":my-exact-branch", AgentName("ignored"))
+
+    assert base is None
+    assert new == "my-exact-branch"
+    assert has_explicit_base is False

@@ -1,5 +1,6 @@
 import json
 import subprocess
+from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -14,19 +15,25 @@ import pytest
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.subprocess_utils import FinishedProcess
+from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mng.agents.default_plugins.claude_agent import _build_install_command_hint
 from imbue.mng.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
+from imbue.mng.agents.default_plugins.claude_agent import _get_claude_version
 from imbue.mng.agents.default_plugins.claude_agent import _has_api_credentials_available
+from imbue.mng.agents.default_plugins.claude_agent import _install_claude
+from imbue.mng.agents.default_plugins.claude_agent import _parse_claude_version_output
 from imbue.mng.agents.default_plugins.claude_agent import _read_macos_keychain_credential
+from imbue.mng.agents.default_plugins.claude_agent import get_files_for_deploy
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
 from imbue.mng.agents.default_plugins.claude_config import build_readiness_hooks_config
+from imbue.mng.api.testing import FakeHost
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import EnvVar
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.conftest import make_mng_ctx
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
 from imbue.mng.hosts.host import Host
@@ -35,6 +42,7 @@ from imbue.mng.interfaces.host import AgentGitOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentId
+from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
@@ -42,6 +50,7 @@ from imbue.mng.primitives import HostName
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.utils.testing import init_git_repo
+from imbue.mng.utils.testing import make_mng_ctx
 
 # =============================================================================
 # Test Helpers
@@ -128,11 +137,18 @@ def _setup_git_worktree(tmp_path: Path) -> tuple[Path, Path]:
     return source, worktree
 
 
+_ALL_DIALOGS_DISMISSED = {
+    "effortCalloutDismissed": True,
+    "hasCompletedOnboarding": True,
+    "bypassPermissionsModeAccepted": True,
+}
+
+
 def _write_claude_trust(source_path: Path) -> None:
-    """Write ~/.claude.json with trust entry for source_path."""
+    """Write ~/.claude.json with trust entry for source_path and all dialogs dismissed."""
     config_path = Path.home() / ".claude.json"
     config = {
-        "effortCalloutDismissed": True,
+        **_ALL_DIALOGS_DISMISSED,
         "projects": {
             str(source_path.resolve()): {
                 "hasTrustDialogAccepted": True,
@@ -144,10 +160,10 @@ def _write_claude_trust(source_path: Path) -> None:
 
 
 def _write_mng_trust_entry(path: Path) -> None:
-    """Write ~/.claude.json with a mng-created trust entry for path."""
+    """Write ~/.claude.json with a mng-created trust entry for path and all dialogs dismissed."""
     config_path = Path.home() / ".claude.json"
     config = {
-        "effortCalloutDismissed": True,
+        **_ALL_DIALOGS_DISMISSED,
         "projects": {
             str(path.resolve()): {
                 "hasTrustDialogAccepted": True,
@@ -158,6 +174,45 @@ def _write_mng_trust_entry(path: Path) -> None:
         },
     }
     config_path.write_text(json.dumps(config))
+
+
+def _write_all_dialogs_dismissed(work_dir: Path) -> None:
+    """Write ~/.claude.json with all dialogs dismissed and trust for work_dir."""
+    config_path = Path.home() / ".claude.json"
+    config = {
+        **_ALL_DIALOGS_DISMISSED,
+        "projects": {
+            str(work_dir.resolve()): {
+                "hasTrustDialogAccepted": True,
+            }
+        },
+    }
+    config_path.write_text(json.dumps(config))
+
+
+_CLAUDE_AGENT_MODULE = "imbue.mng.agents.default_plugins.claude_agent"
+
+
+@contextmanager
+def _mock_all_dialog_prompts(
+    trust_accepted: bool = True,
+    effort_accepted: bool = True,
+    onboarding_accepted: bool = True,
+):
+    """Mock all interactive dialog prompts with the given return values.
+
+    Yields a dict of mock names to mock objects for assertion.
+    """
+    with (
+        patch(f"{_CLAUDE_AGENT_MODULE}._prompt_user_for_trust", return_value=trust_accepted) as mock_trust,
+        patch(
+            f"{_CLAUDE_AGENT_MODULE}._prompt_user_for_effort_callout_dismissal", return_value=effort_accepted
+        ) as mock_effort,
+        patch(
+            f"{_CLAUDE_AGENT_MODULE}._prompt_user_for_onboarding_completion", return_value=onboarding_accepted
+        ) as mock_onboarding,
+    ):
+        yield {"trust": mock_trust, "effort": mock_effort, "onboarding": mock_onboarding}
 
 
 _WORKTREE_OPTIONS = CreateAgentOptions(
@@ -248,7 +303,7 @@ def test_claude_agent_assemble_command_with_no_args(
     sid_export = _sid_export_for(uuid)
     # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
-        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
+        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find "$CLAUDE_CONFIG_DIR" -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
     )
 
 
@@ -266,7 +321,7 @@ def test_claude_agent_assemble_command_with_agent_args(
     background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || claude --session-id {uuid} --model opus'
+        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find "$CLAUDE_CONFIG_DIR" -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || claude --session-id {uuid} --model opus'
     )
 
 
@@ -289,7 +344,7 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
     background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus'
+        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find "$CLAUDE_CONFIG_DIR" -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus'
     )
 
 
@@ -311,7 +366,7 @@ def test_claude_agent_assemble_command_with_command_override(
     background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && custom-claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || custom-claude --session-id {uuid} --model opus'
+        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find "$CLAUDE_CONFIG_DIR" -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && custom-claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || custom-claude --session-id {uuid} --model opus'
     )
 
 
@@ -351,7 +406,7 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
     sid_export = _sid_export_for(uuid)
     # Remote hosts SHOULD have IS_SANDBOX set
     assert command == CommandString(
-        f'{background_cmd} export IS_SANDBOX=1 && {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
+        f'{background_cmd} export IS_SANDBOX=1 && {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find "$CLAUDE_CONFIG_DIR" -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
     )
 
 
@@ -426,6 +481,7 @@ def test_on_before_provisioning_skips_check_when_disabled(
 ) -> None:
     """on_before_provisioning should skip installation check when check_installation=False."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
+    _write_all_dialogs_dismissed(agent.work_dir)
 
     options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
 
@@ -532,28 +588,40 @@ def test_build_readiness_hooks_config_has_session_start_hook() -> None:
     # Should fail loudly on missing session_id, not silently swallow
     assert "exit 1" in session_id_hook
     assert ">&2" in session_id_hook
-    # Should append to history file for tracking old session IDs
+    # Should extract source from hook payload
+    assert "source" in session_id_hook
+    assert "_MNG_SOURCE" in session_id_hook
+    # Should append to history file for tracking old session IDs (with source)
     assert "claude_session_id_history" in session_id_hook
     # Should use atomic write (write to .tmp then mv) to prevent torn reads
     assert "claude_session_id.tmp" in session_id_hook
     assert "mv" in session_id_hook
 
 
-def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
-    """build_readiness_hooks_config should include UserPromptSubmit hook that creates active file."""
+@pytest.mark.parametrize(
+    "hook_name, expected_substrings",
+    [
+        ("UserPromptSubmit", ["touch", "active", "permissions_waiting"]),
+        ("PermissionRequest", ["touch", "permissions_waiting"]),
+        ("PostToolUse", ["rm", "permissions_waiting"]),
+        ("PostToolUseFailure", ["rm", "permissions_waiting"]),
+    ],
+)
+def test_build_readiness_hooks_config_has_hook(hook_name: str, expected_substrings: list[str]) -> None:
+    """build_readiness_hooks_config should include the expected hook with correct command."""
     config = build_readiness_hooks_config()
 
-    assert "UserPromptSubmit" in config["hooks"]
-    assert len(config["hooks"]["UserPromptSubmit"]) == 1
-    hook = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    assert hook_name in config["hooks"]
+    assert len(config["hooks"][hook_name]) == 1
+    hook = config["hooks"][hook_name][0]["hooks"][0]
     assert hook["type"] == "command"
-    assert "touch" in hook["command"]
     assert "MNG_AGENT_STATE_DIR" in hook["command"]
-    assert "active" in hook["command"]
+    for substring in expected_substrings:
+        assert substring in hook["command"], f"Expected '{substring}' in {hook_name} hook command"
 
 
 def test_build_readiness_hooks_config_has_notification_idle_hook() -> None:
-    """build_readiness_hooks_config should include Notification idle_prompt hook that removes active file."""
+    """build_readiness_hooks_config should include Notification idle_prompt hook that removes active and permissions_waiting files."""
     config = build_readiness_hooks_config()
 
     assert "Notification" in config["hooks"]
@@ -565,6 +633,32 @@ def test_build_readiness_hooks_config_has_notification_idle_hook() -> None:
     assert "rm" in hook["command"]
     assert "MNG_AGENT_STATE_DIR" in hook["command"]
     assert "active" in hook["command"]
+    assert "permissions_waiting" in hook["command"]
+
+
+def test_get_lifecycle_state_returns_waiting_when_permissions_waiting(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
+) -> None:
+    """ClaudeAgent.get_lifecycle_state downgrades RUNNING to WAITING when permissions_waiting exists."""
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
+    agent._get_agent_dir().mkdir(parents=True, exist_ok=True)
+
+    with patch.object(BaseAgent, "get_lifecycle_state", return_value=AgentLifecycleState.RUNNING):
+        assert agent.get_lifecycle_state() == AgentLifecycleState.RUNNING
+
+        (agent._get_agent_dir() / "permissions_waiting").touch()
+        assert agent.get_lifecycle_state() == AgentLifecycleState.WAITING
+
+    # Non-RUNNING states should pass through unchanged
+    (agent._get_agent_dir() / "permissions_waiting").touch()
+    for state in (
+        AgentLifecycleState.STOPPED,
+        AgentLifecycleState.WAITING,
+        AgentLifecycleState.REPLACED,
+        AgentLifecycleState.DONE,
+    ):
+        with patch.object(BaseAgent, "get_lifecycle_state", return_value=state):
+            assert agent.get_lifecycle_state() == state
 
 
 def test_get_expected_process_name_returns_claude(
@@ -575,12 +669,12 @@ def test_get_expected_process_name_returns_claude(
     assert agent.get_expected_process_name() == "claude"
 
 
-def test_uses_marker_based_send_message_returns_true(
+def test_uses_paste_detection_send_returns_true(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
-    """ClaudeAgent.uses_marker_based_send_message should return True."""
+    """ClaudeAgent.uses_paste_detection_send should return True."""
     agent, _ = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
-    assert agent.uses_marker_based_send_message() is True
+    assert agent.uses_paste_detection_send() is True
 
 
 def test_configure_readiness_hooks_raises_when_not_gitignored(
@@ -732,6 +826,7 @@ def test_provision_configures_readiness_hooks(
         agent_config=ClaudeAgentConfig(check_installation=False),
     )
     _init_git_with_gitignore(agent.work_dir)
+    _write_all_dialogs_dismissed(agent.work_dir)
 
     options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
     agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
@@ -794,7 +889,7 @@ def test_provision_extends_trust_for_worktree(
     temp_mng_ctx: MngContext,
     setup_git_config: None,
 ) -> None:
-    """provision should extend Claude trust when using worktree mode."""
+    """provision should create per-agent config with trust for worktree."""
     source_path, worktree_path, agent, host = _setup_worktree_agent(
         local_provider,
         tmp_path,
@@ -804,13 +899,14 @@ def test_provision_extends_trust_for_worktree(
 
     agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=temp_mng_ctx)
 
-    # Verify trust was extended to the worktree
-    config_path = Path.home() / ".claude.json"
-    config = json.loads(config_path.read_text())
-    assert str(worktree_path.resolve()) in config["projects"]
-    worktree_entry = config["projects"][str(worktree_path.resolve())]
+    # Verify trust was added to the per-agent config (not global)
+    per_agent_config_path = agent.get_claude_config_dir() / ".claude.json"
+    per_agent_config = json.loads(per_agent_config_path.read_text())
+    assert str(worktree_path.resolve()) in per_agent_config["projects"]
+    worktree_entry = per_agent_config["projects"][str(worktree_path.resolve())]
     assert worktree_entry["hasTrustDialogAccepted"] is True
-    assert worktree_entry["_mngCreated"] is True
+    # Source project config should also be present (copied from global config)
+    assert str(source_path.resolve()) in per_agent_config["projects"]
 
 
 def test_provision_does_not_extend_trust_for_non_worktree(
@@ -819,6 +915,7 @@ def test_provision_does_not_extend_trust_for_non_worktree(
     """provision should not extend trust when not using worktree mode."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
     _init_git_with_gitignore(agent.work_dir)
+    _write_all_dialogs_dismissed(agent.work_dir)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
@@ -827,9 +924,13 @@ def test_provision_does_not_extend_trust_for_non_worktree(
 
     agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
 
-    # Trust should NOT have been extended since we're using COPY mode
+    # Trust was written by _write_all_dialogs_dismissed, but the provision should NOT
+    # have extended trust from a source directory since we're using COPY mode.
+    # The global config should only contain what _write_all_dialogs_dismissed wrote.
     config_path = Path.home() / ".claude.json"
-    assert not config_path.exists()
+    config = json.loads(config_path.read_text())
+    # Only the work_dir trust entry from _write_all_dialogs_dismissed should exist
+    assert str(agent.work_dir.resolve()) in config["projects"]
 
 
 def test_provision_does_not_extend_trust_when_no_git_options(
@@ -838,14 +939,17 @@ def test_provision_does_not_extend_trust_when_no_git_options(
     """provision should not extend trust when git options are None."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
     _init_git_with_gitignore(agent.work_dir)
+    _write_all_dialogs_dismissed(agent.work_dir)
 
     options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
 
     agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
 
-    # Trust should NOT have been extended since no git options provided
+    # Trust should NOT have been extended since no git options provided.
+    # The global config should only contain what _write_all_dialogs_dismissed wrote.
     config_path = Path.home() / ".claude.json"
-    assert not config_path.exists()
+    config = json.loads(config_path.read_text())
+    assert str(agent.work_dir.resolve()) in config["projects"]
 
 
 def test_provision_skips_trust_when_git_common_dir_is_none(
@@ -854,13 +958,58 @@ def test_provision_skips_trust_when_git_common_dir_is_none(
     """provision should skip trust extension when find_git_common_dir returns None."""
     # Create agent with work_dir that is NOT a git repo
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
+    _write_all_dialogs_dismissed(agent.work_dir)
     # Don't init git - work_dir is not a git repo
 
     agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=temp_mng_ctx)
 
-    # Trust should NOT have been extended since there's no git common dir
+    # Trust should NOT have been extended from a source since there's no git common dir.
+    # The global config should only contain what _write_all_dialogs_dismissed wrote.
     config_path = Path.home() / ".claude.json"
-    assert not config_path.exists()
+    config = json.loads(config_path.read_text())
+    assert str(agent.work_dir.resolve()) in config["projects"]
+
+
+def test_provision_trusts_working_directory_when_enabled(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
+) -> None:
+    """provision should add trust for work_dir when trust_working_directory is True."""
+    config = ClaudeAgentConfig(check_installation=False, trust_working_directory=True)
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx, agent_config=config)
+
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+    agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
+
+    config_path = Path.home() / ".claude.json"
+    claude_config = json.loads(config_path.read_text())
+    assert str(agent.work_dir.resolve()) in claude_config["projects"]
+    assert claude_config["projects"][str(agent.work_dir.resolve())]["hasTrustDialogAccepted"] is True
+    assert claude_config["effortCalloutDismissed"] is True
+
+
+def test_provision_does_not_trust_working_directory_when_disabled(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
+) -> None:
+    """provision should not add trust when trust_working_directory is False (default)."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
+    _write_all_dialogs_dismissed(agent.work_dir)
+
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+    agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
+
+    # The global config should only contain what _write_all_dialogs_dismissed wrote.
+    # trust_working_directory=False (default) means no additional trust was added.
+    config_path = Path.home() / ".claude.json"
+    config = json.loads(config_path.read_text())
+    assert str(agent.work_dir.resolve()) in config["projects"]
+
+
+def test_trust_working_directory_defaults_to_false() -> None:
+    """Verify that trust_working_directory defaults to False for ClaudeAgentConfig."""
+    config = ClaudeAgentConfig()
+    assert config.trust_working_directory is False
 
 
 def test_on_before_provisioning_raises_for_worktree_on_remote_host(
@@ -924,6 +1073,7 @@ def test_on_before_provisioning_skips_trust_check_when_git_common_dir_is_none(
     """on_before_provisioning should skip trust check when find_git_common_dir returns None."""
     # Create agent with work_dir that is NOT a git repo
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
+    _write_all_dialogs_dismissed(agent.work_dir)
 
     # Should succeed without error because find_git_common_dir returns None
     agent.on_before_provisioning(host=host, options=_WORKTREE_OPTIONS, mng_ctx=temp_mng_ctx)
@@ -956,38 +1106,33 @@ def test_provision_prompts_for_all_dialogs_when_interactive(
     interactive_mng_ctx: MngContext,
     setup_git_config: None,
 ) -> None:
-    """provision should prompt for both trust and effort callout when neither is set."""
+    """provision should prompt for trust, effort callout, onboarding, and bypass permissions when none are set."""
     source_path, worktree_path, agent, host = _setup_worktree_agent(
         local_provider,
         tmp_path,
         interactive_mng_ctx,
     )
 
-    with (
-        patch(
-            "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_trust",
-            return_value=True,
-        ) as mock_trust_prompt,
-        patch(
-            "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_effort_callout_dismissal",
-            return_value=True,
-        ) as mock_effort_prompt,
-    ):
+    with _mock_all_dialog_prompts() as mocks:
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
-    # Verify both prompts fired
-    mock_trust_prompt.assert_called_once_with(source_path)
-    mock_effort_prompt.assert_called_once()
+    mocks["trust"].assert_called_once_with(source_path)
+    mocks["effort"].assert_called_once()
+    mocks["onboarding"].assert_called_once()
 
-    # Verify both dialogs were resolved in the config
+    # Verify dialogs were resolved in the global config (user intent)
     config_path = Path.home() / ".claude.json"
     config = json.loads(config_path.read_text())
     assert str(source_path.resolve()) in config["projects"]
-    assert str(worktree_path.resolve()) in config["projects"]
-    worktree_entry = config["projects"][str(worktree_path.resolve())]
-    assert worktree_entry["hasTrustDialogAccepted"] is True
-    assert worktree_entry["_mngCreated"] is True
     assert config["effortCalloutDismissed"] is True
+    assert config["hasCompletedOnboarding"] is True
+
+    # Verify worktree trust was added to the per-agent config
+    per_agent_config_path = agent.get_claude_config_dir() / ".claude.json"
+    per_agent_config = json.loads(per_agent_config_path.read_text())
+    assert str(worktree_path.resolve()) in per_agent_config["projects"]
+    worktree_entry = per_agent_config["projects"][str(worktree_path.resolve())]
+    assert worktree_entry["hasTrustDialogAccepted"] is True
 
 
 def test_provision_raises_when_non_interactive_and_untrusted(
@@ -1020,10 +1165,7 @@ def test_provision_raises_when_user_declines_trust(
         interactive_mng_ctx,
     )
 
-    with patch(
-        "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_trust",
-        return_value=False,
-    ):
+    with _mock_all_dialog_prompts(trust_accepted=False):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
             agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
@@ -1296,6 +1438,7 @@ def test_on_before_provisioning_does_not_raise_when_no_credentials(
         temp_mng_ctx,
         agent_config=ClaudeAgentConfig(check_installation=True),
     )
+    _write_all_dialogs_dismissed(agent.work_dir)
 
     # Should complete without raising (logs a warning instead)
     agent.on_before_provisioning(host=host, options=_DEFAULT_CREDENTIAL_CHECK_OPTIONS, mng_ctx=temp_mng_ctx)
@@ -1314,6 +1457,7 @@ def test_on_before_provisioning_succeeds_with_credentials(
         temp_mng_ctx,
         agent_config=ClaudeAgentConfig(check_installation=True),
     )
+    _write_all_dialogs_dismissed(agent.work_dir)
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
 
@@ -1402,22 +1546,21 @@ def test_provision_prompts_for_dialog_dismissal_when_interactive(
         interactive_mng_ctx,
     )
 
-    # Write trust but without effortCalloutDismissed
+    # Write trust but without effortCalloutDismissed or hasCompletedOnboarding
     _write_claude_trust_without_dialog_dismissed(source_path)
 
-    with patch(
-        "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_effort_callout_dismissal",
-        return_value=True,
-    ) as mock_prompt:
+    with _mock_all_dialog_prompts() as mocks:
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
-    # Verify user was prompted
-    mock_prompt.assert_called_once()
+    # Trust was already set, so trust prompt should not fire
+    mocks["trust"].assert_not_called()
+    mocks["effort"].assert_called_once()
+    mocks["onboarding"].assert_called_once()
 
-    # Verify effortCalloutDismissed was set
     config_path = Path.home() / ".claude.json"
     config = json.loads(config_path.read_text())
     assert config["effortCalloutDismissed"] is True
+    assert config["hasCompletedOnboarding"] is True
 
 
 def test_provision_raises_when_user_declines_dialog_dismissal(
@@ -1436,10 +1579,7 @@ def test_provision_raises_when_user_declines_dialog_dismissal(
     # Write trust but without effortCalloutDismissed
     _write_claude_trust_without_dialog_dismissed(source_path)
 
-    with patch(
-        "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_effort_callout_dismissal",
-        return_value=False,
-    ):
+    with _mock_all_dialog_prompts(effort_accepted=False):
         with pytest.raises(ClaudeEffortCalloutNotDismissedError):
             agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
@@ -1462,6 +1602,69 @@ def test_provision_raises_when_non_interactive_and_dialogs_not_dismissed(
 
     with pytest.raises(ClaudeEffortCalloutNotDismissedError):
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=temp_mng_ctx)
+
+
+# =============================================================================
+# Remote Trust Tests
+# =============================================================================
+
+
+def test_provision_adds_trust_for_remote_work_dir(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_work_dir: Path,
+    temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """provision should add hasTrustDialogAccepted for work_dir in the claude.json synced to remote hosts."""
+    monkeypatch.chdir(tmp_path)
+
+    agent, _ = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mng_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False, sync_claude_json=True),
+        work_dir=temp_work_dir,
+    )
+
+    _write_claude_trust(temp_work_dir)
+
+    host = cast(OnlineHostInterface, FakeHost(is_local=False, host_dir=tmp_path / "host_dir"))
+    agent.provision(host=host, options=CreateAgentOptions(agent_type=AgentTypeName("claude")), mng_ctx=temp_mng_ctx)
+
+    transferred_config = json.loads((tmp_path / ".claude.json").read_text())
+    assert transferred_config["projects"][str(temp_work_dir)]["hasTrustDialogAccepted"] is True
+
+
+def test_provision_preserves_existing_remote_project_config(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_work_dir: Path,
+    temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """provision should preserve existing project config when adding trust for remote work_dir."""
+    monkeypatch.chdir(tmp_path)
+
+    agent, _ = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mng_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False, sync_claude_json=True),
+        work_dir=temp_work_dir,
+    )
+
+    # Write trust with extra fields that should be preserved
+    _write_claude_trust(temp_work_dir)
+
+    host = cast(OnlineHostInterface, FakeHost(is_local=False, host_dir=tmp_path / "host_dir"))
+    agent.provision(host=host, options=CreateAgentOptions(agent_type=AgentTypeName("claude")), mng_ctx=temp_mng_ctx)
+
+    transferred_config = json.loads((tmp_path / ".claude.json").read_text())
+    project_entry = transferred_config["projects"][str(temp_work_dir)]
+    assert project_entry["hasTrustDialogAccepted"] is True
+    # Existing fields from _write_claude_trust should be preserved
+    assert project_entry["allowedTools"] == []
 
 
 # =============================================================================
@@ -1569,3 +1772,382 @@ def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabl
         )
         is False
     )
+
+
+# =============================================================================
+# get_files_for_deploy Tests
+# =============================================================================
+
+
+def test_get_files_for_deploy_returns_generated_defaults_when_no_claude_files(
+    temp_mng_ctx: MngContext, tmp_path: Path
+) -> None:
+    """get_files_for_deploy returns generated defaults when no local claude config files exist."""
+    # Exclude project settings since the test repo_root may contain .claude/ files
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    # Always ships generated defaults for settings.json and claude.json
+    assert Path("~/.claude/settings.json") in result
+    assert Path("~/.claude.json") in result
+    settings_content = result[Path("~/.claude/settings.json")]
+    assert isinstance(settings_content, str)
+    settings_data = json.loads(settings_content)
+    assert settings_data["skipDangerousModePermissionPrompt"] is True
+    claude_json_content = result[Path("~/.claude.json")]
+    assert isinstance(claude_json_content, str)
+    claude_json_data = json.loads(claude_json_content)
+    assert claude_json_data["hasCompletedOnboarding"] is True
+
+
+def test_get_files_for_deploy_includes_claude_json(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy always includes ~/.claude.json with generated defaults (not local content).
+
+    The deploy uses generated defaults with a fixed timestamp for better Docker
+    layer caching, rather than syncing the user's local ~/.claude.json content.
+    """
+    claude_json = Path.home() / ".claude.json"
+    claude_json.write_text('{"test": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude.json") in result
+    claude_json_content = result[Path("~/.claude.json")]
+    assert isinstance(claude_json_content, str)
+    claude_json_data = json.loads(claude_json_content)
+    # Local content is NOT preserved (generated defaults used for caching)
+    assert "test" not in claude_json_data
+    # Dialog-suppression fields are always present in the generated defaults
+    assert claude_json_data["bypassPermissionsModeAccepted"] is True
+    assert claude_json_data["effortCalloutDismissed"] is True
+
+
+def test_get_files_for_deploy_includes_claude_settings(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes ~/.claude/settings.json with skipDangerousModePermissionPrompt when it exists."""
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings = claude_dir / "settings.json"
+    settings.write_text('{"settings": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/settings.json") in result
+    settings_content = result[Path("~/.claude/settings.json")]
+    assert isinstance(settings_content, str)
+    settings_data = json.loads(settings_content)
+    assert settings_data["settings"] is True
+    assert settings_data["skipDangerousModePermissionPrompt"] is True
+
+
+def test_get_files_for_deploy_includes_claude_json_and_settings(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes both claude.json and settings.json when both exist."""
+    claude_json = Path.home() / ".claude.json"
+    claude_json.write_text('{"test": true}')
+
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings = claude_dir / "settings.json"
+    settings.write_text('{"settings": true}')
+
+    # Exclude project settings to avoid picking up .claude/*.local.* from the repo_root
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude.json") in result
+    assert Path("~/.claude/settings.json") in result
+
+
+def test_get_files_for_deploy_ships_defaults_when_user_settings_excluded(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+) -> None:
+    """get_files_for_deploy ships generated defaults even when include_user_settings is False."""
+    claude_json = Path.home() / ".claude.json"
+    claude_json.write_text('{"test": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=True, repo_root=tmp_path
+    )
+
+    # Generated defaults are always shipped
+    assert Path("~/.claude/settings.json") in result
+    assert Path("~/.claude.json") in result
+    # But the local ~/.claude.json should NOT be used (generated defaults instead)
+    claude_json_content = result[Path("~/.claude.json")]
+    assert isinstance(claude_json_content, str)
+    claude_json_data = json.loads(claude_json_content)
+    assert claude_json_data.get("test") is None
+    assert claude_json_data["hasCompletedOnboarding"] is True
+
+
+def test_get_files_for_deploy_includes_project_local_settings(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+) -> None:
+    """get_files_for_deploy includes .claude/settings.local.json from the repo root."""
+    project_claude_dir = tmp_path / ".claude"
+    project_claude_dir.mkdir(parents=True, exist_ok=True)
+    local_settings = project_claude_dir / "settings.local.json"
+    local_settings.write_text('{"local": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=True, repo_root=tmp_path
+    )
+
+    assert Path(".claude/settings.local.json") in result
+    assert result[Path(".claude/settings.local.json")] == local_settings
+
+
+def test_get_files_for_deploy_excludes_project_settings_when_flag_false(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+) -> None:
+    """get_files_for_deploy skips project local files when include_project_settings is False, but always ships defaults."""
+    project_claude_dir = tmp_path / ".claude"
+    project_claude_dir.mkdir(parents=True, exist_ok=True)
+    local_settings = project_claude_dir / "settings.local.json"
+    local_settings.write_text('{"local": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=False, repo_root=tmp_path
+    )
+
+    # Generated defaults are always shipped
+    assert Path("~/.claude/settings.json") in result
+    assert Path("~/.claude.json") in result
+    # But project local files should NOT be included
+    assert Path(".claude/settings.local.json") not in result
+
+
+def test_get_files_for_deploy_includes_skills_directory(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes files from ~/.claude/skills/ recursively."""
+    claude_dir = Path.home() / ".claude"
+    skills_dir = claude_dir / "skills" / "my-skill"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skills_dir / "SKILL.md"
+    skill_file.write_text("# My Skill")
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/skills/my-skill/SKILL.md") in result
+    assert result[Path("~/.claude/skills/my-skill/SKILL.md")] == skill_file
+
+
+def test_get_files_for_deploy_includes_commands_directory(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes files from ~/.claude/commands/ recursively."""
+    claude_dir = Path.home() / ".claude"
+    commands_dir = claude_dir / "commands"
+    commands_dir.mkdir(parents=True, exist_ok=True)
+    cmd_file = commands_dir / "my-command.md"
+    cmd_file.write_text("# Command")
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/commands/my-command.md") in result
+    assert result[Path("~/.claude/commands/my-command.md")] == cmd_file
+
+
+def test_get_files_for_deploy_includes_agents_directory(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes files from ~/.claude/agents/ recursively."""
+    claude_dir = Path.home() / ".claude"
+    agents_dir = claude_dir / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    agent_file = agents_dir / "my-agent.json"
+    agent_file.write_text('{"agent": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/agents/my-agent.json") in result
+    assert result[Path("~/.claude/agents/my-agent.json")] == agent_file
+
+
+def test_get_files_for_deploy_includes_credentials(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes ~/.claude/.credentials.json when it exists."""
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    credentials = claude_dir / ".credentials.json"
+    credentials.write_text('{"oauth_token": "test"}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/.credentials.json") in result
+    assert result[Path("~/.claude/.credentials.json")] == credentials
+
+
+# =============================================================================
+# Version Pinning Tests
+# =============================================================================
+
+
+def test_claude_agent_config_version_defaults_to_none() -> None:
+    """ClaudeAgentConfig.version should default to None."""
+    config = ClaudeAgentConfig()
+    assert config.version is None
+
+
+def test_claude_agent_config_version_can_be_set() -> None:
+    """ClaudeAgentConfig.version should accept a version string."""
+    config = ClaudeAgentConfig(version="2.1.50")
+    assert config.version == "2.1.50"
+
+
+def test_parse_claude_version_output_normal() -> None:
+    """_parse_claude_version_output should extract the version from standard output."""
+    assert _parse_claude_version_output("2.1.50 (Claude Code)") == "2.1.50"
+
+
+def test_parse_claude_version_output_version_only() -> None:
+    """_parse_claude_version_output should handle version-only output."""
+    assert _parse_claude_version_output("2.1.50") == "2.1.50"
+
+
+def test_parse_claude_version_output_with_whitespace() -> None:
+    """_parse_claude_version_output should handle leading/trailing whitespace."""
+    assert _parse_claude_version_output("  2.1.50 (Claude Code)\n") == "2.1.50"
+
+
+def test_parse_claude_version_output_empty() -> None:
+    """_parse_claude_version_output should return None for empty output."""
+    assert _parse_claude_version_output("") is None
+    assert _parse_claude_version_output("   ") is None
+
+
+def test_build_install_command_hint_no_version() -> None:
+    """_build_install_command_hint should return standard install command without version."""
+    assert _build_install_command_hint() == "curl -fsSL https://claude.ai/install.sh | bash"
+    assert _build_install_command_hint(None) == "curl -fsSL https://claude.ai/install.sh | bash"
+
+
+def test_build_install_command_hint_with_version() -> None:
+    """_build_install_command_hint should include version in install command."""
+    assert _build_install_command_hint("2.1.50") == "curl -fsSL https://claude.ai/install.sh | bash -s 2.1.50"
+
+
+def _make_command_tracking_host() -> tuple[OnlineHostInterface, list[str]]:
+    """Create a mock host that tracks executed commands.
+
+    Returns (host, executed_commands) where executed_commands is a list that
+    accumulates command strings passed to execute_command.
+    """
+    executed_commands: list[str] = []
+
+    def mock_execute_command(cmd: str, *args: object, **kwargs: object) -> SimpleNamespace:
+        executed_commands.append(cmd)
+        return SimpleNamespace(success=True, stdout="", stderr="")
+
+    host = cast(
+        OnlineHostInterface,
+        SimpleNamespace(
+            execute_command=mock_execute_command,
+        ),
+    )
+    return host, executed_commands
+
+
+def test_get_claude_version_returns_version_on_success() -> None:
+    """_get_claude_version should return the version string when claude --version succeeds."""
+    host = cast(
+        OnlineHostInterface,
+        SimpleNamespace(
+            execute_command=lambda cmd, *args, **kwargs: SimpleNamespace(
+                success=True,
+                stdout="2.1.50 (Claude Code)\n",
+                stderr="",
+            ),
+        ),
+    )
+
+    assert _get_claude_version(host) == "2.1.50"
+
+
+def test_get_claude_version_returns_none_on_failure() -> None:
+    """_get_claude_version should return None when claude --version fails."""
+    host = cast(
+        OnlineHostInterface,
+        SimpleNamespace(
+            execute_command=lambda cmd, *args, **kwargs: SimpleNamespace(
+                success=False,
+                stdout="",
+                stderr="command not found",
+            ),
+        ),
+    )
+
+    assert _get_claude_version(host) is None
+
+
+def test_provision_raises_on_version_mismatch(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_host_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: "pluggy.PluginManager",
+    mng_test_prefix: str,
+) -> None:
+    """provision should raise when installed claude version does not match pinned version."""
+    config = MngConfig(
+        prefix=mng_test_prefix,
+        default_host_dir=temp_host_dir,
+    )
+    with ConcurrencyGroup(name="test-version-mismatch") as cg:
+        ctx = make_mng_ctx(config, plugin_manager, temp_profile_dir, concurrency_group=cg)
+        agent, _ = make_claude_agent(
+            local_provider,
+            tmp_path,
+            ctx,
+            agent_config=ClaudeAgentConfig(check_installation=True, version="99.99.99"),
+        )
+
+        # Simulate a host where claude is installed but at a different version.
+        host_with_wrong_version = cast(
+            OnlineHostInterface,
+            SimpleNamespace(
+                is_local=True,
+                execute_command=lambda cmd, *args, **kwargs: SimpleNamespace(
+                    success=True,
+                    stdout="2.1.50 (Claude Code)\n",
+                    stderr="",
+                ),
+            ),
+        )
+
+        _write_all_dialogs_dismissed(agent.work_dir)
+        options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+        with pytest.raises(PluginMngError, match="Claude version mismatch"):
+            agent.provision(host=host_with_wrong_version, options=options, mng_ctx=ctx)
+
+
+def test_install_claude_passes_version_to_command() -> None:
+    """_install_claude should pass the version to the install script via bash -s."""
+    host, executed_commands = _make_command_tracking_host()
+
+    _install_claude(host, version="2.1.50")
+
+    assert len(executed_commands) == 1
+    assert "bash -s 2.1.50" in executed_commands[0]
+
+
+def test_install_claude_without_version() -> None:
+    """_install_claude should not pass -s flag when no version is specified."""
+    host, executed_commands = _make_command_tracking_host()
+
+    _install_claude(host, version=None)
+
+    assert len(executed_commands) == 1
+    assert "bash -s" not in executed_commands[0]
+    assert "install.sh | bash" in executed_commands[0]
