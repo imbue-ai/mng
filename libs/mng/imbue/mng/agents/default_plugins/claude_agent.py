@@ -108,6 +108,12 @@ def _resolve_adopt_session(adopt_session_arg: str) -> tuple[str, Path]:
             f"Session {adopt_session_arg} not found in {source_projects_dir}. "
             "Check that the session ID is correct, or pass a path to the .jsonl file."
         )
+    if len(matches) > 1:
+        match_list = "\n".join(f"  {m}" for m in matches)
+        raise UserInputError(
+            f"Session {adopt_session_arg} found in multiple project directories:\n{match_list}\n"
+            "Pass the full path to the .jsonl file to specify which one."
+        )
 
     return adopt_session_arg, matches[0].parent
 
@@ -1337,23 +1343,33 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mng_ctx: MngContext,
     ) -> None:
-        """Adopt a session when --adopt-session is used.
+        """Adopt sessions when --adopt-session is used.
 
-        Searches the user's Claude config directory for the session by ID,
-        copies the containing project directory into the per-agent config dir,
-        and writes the session ID so --resume picks it up.
+        For each specified session, searches the user's Claude config directory
+        by ID (or reads a .jsonl path directly), copies the containing project
+        directory into the per-agent config dir, and writes the last session ID
+        so --resume picks it up.
         """
-        adopt_session_arg = options.plugin_data.get("adopt_session")
-        if adopt_session_arg is None:
+        adopt_session_args: tuple[str, ...] = options.plugin_data.get("adopt_session", ())
+        if not adopt_session_args:
             return
 
-        session_id, source_project_dir = _resolve_adopt_session(adopt_session_arg)
-        dest_project_dir = self.get_claude_config_dir() / "projects" / source_project_dir.name
-        with log_span("Adopting session {}", session_id):
-            host.copy_directory(host, source_project_dir, dest_project_dir)
+        config_dir = self.get_claude_config_dir()
+        last_session_id: str | None = None
+        copied_project_dirs: set[str] = set()
 
-        host.write_text_file(self._get_agent_dir() / "claude_session_id", session_id)
-        logger.info("Adopted session {}", session_id)
+        for arg in adopt_session_args:
+            session_id, source_project_dir = _resolve_adopt_session(arg)
+            # Deduplicate project dir copies (multiple sessions may be in the same project)
+            if source_project_dir.name not in copied_project_dirs:
+                dest_project_dir = config_dir / "projects" / source_project_dir.name
+                with log_span("Adopting session {}", session_id):
+                    host.copy_directory(host, source_project_dir, dest_project_dir)
+                copied_project_dirs.add(source_project_dir.name)
+            last_session_id = session_id
+
+        host.write_text_file(self._get_agent_dir() / "claude_session_id", last_session_id)
+        logger.info("Adopted {} session(s), active session: {}", len(adopt_session_args), last_session_id)
 
     def _transfer_source_plugin_data(
         self,
@@ -1462,9 +1478,9 @@ def register_cli_options(command_name: str) -> Mapping[str, list[OptionStackItem
             "Behavior": [
                 OptionStackItem(
                     param_decls=("--adopt-session",),
-                    default=None,
+                    multiple=True,
                     help="Adopt an existing Claude Code session into this agent. "
-                    "Accepts a session ID or a path to a .jsonl session file.",
+                    "Accepts a session ID or a path to a .jsonl file [repeatable].",
                 ),
             ]
         }
@@ -1478,8 +1494,8 @@ def on_before_create(args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
     When plugin_data contains "adopt_session":
     - Validates the agent type is claude (or unset/default)
     """
-    adopt_session = args.agent_options.plugin_data.get("adopt_session")
-    if adopt_session is None:
+    adopt_session = args.agent_options.plugin_data.get("adopt_session", ())
+    if not adopt_session:
         return None
 
     agent_type = args.agent_options.agent_type

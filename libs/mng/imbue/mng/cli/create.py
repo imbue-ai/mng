@@ -461,9 +461,10 @@ def create(ctx: click.Context, **kwargs) -> None:
             to_update(mng_ctx.field_ref().is_auto_approve, True),
         )
 
-    # Collect plugin-registered CLI params so they can be merged into plugin_data
+    # Collect plugin-registered CLI params so they can be merged into plugin_data.
+    # Filter None (unset single options) and empty tuples (unset multiple options).
     plugin_cli_params: dict[str, Any] = {
-        k: v for k, v in ctx.meta.get("plugin_cli_params", {}).items() if v is not None
+        k: v for k, v in ctx.meta.get("plugin_cli_params", {}).items() if v is not None and v != ()
     }
 
     # Setup (validation, editor session, source resolution, etc.)

@@ -2200,7 +2200,7 @@ def test_on_before_create_passes_with_adopt_session() -> None:
     args = OnBeforeCreateArgs(
         agent_options=CreateAgentOptions(
             agent_type=AgentTypeName("claude"),
-            plugin_data={"adopt_session": "some-id"},
+            plugin_data={"adopt_session": ("some-id",)},
         ),
         target_host=NewHostOptions(provider=ProviderInstanceName("local")),
         create_work_dir=True,
@@ -2214,7 +2214,7 @@ def test_on_before_create_rejects_non_claude_agent_type() -> None:
     args = OnBeforeCreateArgs(
         agent_options=CreateAgentOptions(
             agent_type=AgentTypeName("generic"),
-            plugin_data={"adopt_session": "some-id"},
+            plugin_data={"adopt_session": ("some-id",)},
         ),
         target_host=NewHostOptions(provider=ProviderInstanceName("local")),
         create_work_dir=True,
@@ -2261,7 +2261,7 @@ def test_on_after_provisioning_adopts_session_by_id(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        plugin_data={"adopt_session": target_session_id},
+        plugin_data={"adopt_session": (target_session_id,)},
     )
 
     with patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": str(fake_claude_dir)}):
@@ -2291,7 +2291,7 @@ def test_on_after_provisioning_raises_when_session_not_found(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        plugin_data={"adopt_session": "nonexistent-session"},
+        plugin_data={"adopt_session": ("nonexistent-session",)},
     )
 
     with patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": str(fake_claude_dir)}):
@@ -2319,7 +2319,7 @@ def test_on_after_provisioning_adopts_session_from_jsonl_path(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        plugin_data={"adopt_session": str(session_file)},
+        plugin_data={"adopt_session": (str(session_file),)},
     )
 
     agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
