@@ -1355,8 +1355,8 @@ class ClaudeAgent(BaseAgent):
             return
 
         config_dir = self.get_claude_config_dir()
-        last_session_id: str | None = None
         copied_project_dirs: set[str] = set()
+        last_session_id: str = ""
 
         for arg in adopt_session_args:
             session_id, source_project_dir = _resolve_adopt_session(arg)
@@ -1368,7 +1368,6 @@ class ClaudeAgent(BaseAgent):
                 copied_project_dirs.add(source_project_dir.name)
             last_session_id = session_id
 
-        assert last_session_id is not None
         host.write_text_file(self._get_agent_dir() / "claude_session_id", last_session_id)
         logger.info("Adopted {} session(s), active session: {}", len(adopt_session_args), last_session_id)
 
