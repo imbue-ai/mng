@@ -37,7 +37,7 @@ For each issue, do the following in order:
 1. Read the relevant source files thoroughly.
 2. Understand the surrounding code, architecture, and any related abstractions.
 3. Determine the correct fix.
-4. Get the current HEAD hash: `git rev-parse --short HEAD`. Use the Write tool to create `.autofix/plans/<hash>_<issue_number>.md` describing the following. The Write tool creates parent directories automatically -- do NOT check if the directory exists or try to create it with mkdir:
+4. Get the current HEAD hash: `git rev-parse --short HEAD`. Use the Write tool, without checking if the directory exists, to create `.autofix/plans/<hash>_<issue_number>.md` describing:
    - What the issue is and where it is
    - Why it is a problem
    - The planned fix (specific changes to specific files)

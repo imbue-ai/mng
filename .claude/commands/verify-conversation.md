@@ -94,7 +94,7 @@ Spawn an Agent (`subagent_type: "general-purpose"`) with this combined prompt.
 
 After the agent finishes, update the progress file (`.reviews/conversation/progress.jsonl`).
 
-For each session file that was part of this review, get its current line count (`wc -l`). Then use the Write tool to update `.reviews/conversation/progress.jsonl`, appending a JSONL line per file:
+For each session file that was part of this review, get its current line count (`wc -l`). Then use the Write tool, without checking if the directory exists, to update `.reviews/conversation/progress.jsonl`, appending a JSONL line per file:
 
 ```json
 {"file": "<session_file_path>", "lines": <total_line_count>, "reviewed_at": "<ISO 8601 timestamp>"}
