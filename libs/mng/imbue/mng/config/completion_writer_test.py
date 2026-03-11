@@ -266,3 +266,78 @@ def test_flatten_dict_keys_nested() -> None:
 
 def test_flatten_dict_keys_empty() -> None:
     assert flatten_dict_keys({}) == []
+
+
+# =============================================================================
+# positional_nargs_by_command tests
+# =============================================================================
+
+
+def test_positional_nargs_fixed_args(completion_cache_dir: Path) -> None:
+    """Commands with fixed positional args should have their nargs summed."""
+    config_group = click.Group(
+        name="config",
+        commands={
+            "set": click.Command(
+                "set",
+                params=[
+                    click.Argument(["key"]),
+                    click.Argument(["value"]),
+                ],
+            ),
+            "get": click.Command(
+                "get",
+                params=[
+                    click.Argument(["key"]),
+                ],
+            ),
+            "list": click.Command("list"),
+        },
+    )
+    group = click.Group(name="test", commands={"config": config_group})
+
+    write_cli_completions_cache(cli_group=group)
+    data = _read_cache(completion_cache_dir)
+
+    nargs = data["positional_nargs_by_command"]
+    assert nargs["config.set"] == 2
+    assert nargs["config.get"] == 1
+    assert nargs["config.list"] == 0
+
+
+def test_positional_nargs_unlimited(completion_cache_dir: Path) -> None:
+    """Commands with nargs=-1 should have None in positional_nargs_by_command."""
+    group = click.Group(
+        name="test",
+        commands={
+            "destroy": click.Command(
+                "destroy",
+                params=[click.Argument(["agents"], nargs=-1)],
+            ),
+        },
+    )
+
+    write_cli_completions_cache(cli_group=group)
+    data = _read_cache(completion_cache_dir)
+
+    assert data["positional_nargs_by_command"]["destroy"] is None
+
+
+def test_positional_nargs_simple_command(completion_cache_dir: Path) -> None:
+    """Simple commands (not groups) should have nargs tracked."""
+    group = click.Group(
+        name="test",
+        commands={
+            "connect": click.Command(
+                "connect",
+                params=[click.Argument(["agent"])],
+            ),
+            "list": click.Command("list"),
+        },
+    )
+
+    write_cli_completions_cache(cli_group=group)
+    data = _read_cache(completion_cache_dir)
+
+    assert data["positional_nargs_by_command"]["connect"] == 1
+    assert data["positional_nargs_by_command"]["list"] == 0

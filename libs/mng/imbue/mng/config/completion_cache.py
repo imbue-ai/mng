@@ -48,3 +48,4 @@ class CompletionCacheData(NamedTuple):
     plugin_name_arguments: list[str] = []
     config_key_arguments: list[str] = []
     config_keys: list[str] = []
+    positional_nargs_by_command: dict[str, int | None] = {}

@@ -31,6 +31,7 @@ class _CompletionContext(NamedTuple):
     resolved_command: str | None
     is_group: bool
     cache: CompletionCacheData
+    positional_count: int = 0
 
 
 def _read_cache() -> CompletionCacheData:
@@ -94,6 +95,44 @@ def _is_flag_option(word: str, flag_options: list[str]) -> bool:
     return all(f"-{ch}" in flag_options for ch in word[1:])
 
 
+def _count_positional_words(
+    words: list[str],
+    start_index: int,
+    end_index: int,
+    flag_options: list[str],
+    all_options: list[str],
+) -> int:
+    """Count the number of positional words in words[start_index:end_index].
+
+    Walks the words, skipping option names and their values:
+    - Flag options (consume 1 word)
+    - Value-taking options (consume 2 words: the option name + its value)
+    Everything else is counted as a positional word.
+    """
+    all_options_set = set(all_options)
+    count = 0
+    i = start_index
+    while i < end_index:
+        word = words[i]
+        if word.startswith("-"):
+            if _is_flag_option(word, flag_options):
+                # Flag option: consumes only itself
+                i += 1
+            elif word in all_options_set:
+                # Known value-taking option: consumes itself and the next word
+                i += 2
+            else:
+                # Unknown option-like word: conservatively skip it alone.
+                # We cannot tell whether it takes a value, but skipping just
+                # the flag word avoids under-counting positional args (which
+                # would cause us to offer completions past the limit).
+                i += 1
+        else:
+            count += 1
+            i += 1
+    return count
+
+
 def _parse_completion_context() -> _CompletionContext | None:
     """Parse COMP_WORDS, COMP_CWORD, and the cache into a structured context.
 
@@ -134,6 +173,14 @@ def _parse_completion_context() -> _CompletionContext | None:
     else:
         command_key = ""
 
+    # Count positional words already typed (excluding the current incomplete word).
+    # Positional args start after the command word (index 2 for simple commands,
+    # index 3 for group subcommands).
+    arg_start = 3 if resolved_subcommand is not None else 2
+    flag_options = cache.flag_options_by_command.get(command_key, [])
+    all_options = cache.options_by_command.get(command_key, [])
+    positional_count = _count_positional_words(words, arg_start, comp_cword, flag_options, all_options)
+
     return _CompletionContext(
         incomplete=incomplete,
         comp_cword=comp_cword,
@@ -142,7 +189,20 @@ def _parse_completion_context() -> _CompletionContext | None:
         resolved_command=resolved_command,
         is_group=is_group,
         cache=cache,
+        positional_count=positional_count,
     )
+
+
+def _get_positional_candidates_with_nargs_limit(ctx: _CompletionContext) -> list[str]:
+    """Return positional candidates, respecting the positional nargs limit.
+
+    Returns an empty list if the number of positional words already typed
+    has reached the command's positional argument limit.
+    """
+    nargs_limit = ctx.cache.positional_nargs_by_command.get(ctx.command_key)
+    if nargs_limit is not None and ctx.positional_count >= nargs_limit:
+        return []
+    return _get_positional_candidates(ctx.command_key, ctx.cache)
 
 
 def _get_completions() -> list[str]:
@@ -165,7 +225,7 @@ def _get_completions() -> list[str]:
             if ctx.incomplete.startswith("--"):
                 candidates = c.options_by_command.get(ctx.command_key, [])
             else:
-                candidates = _get_positional_candidates(ctx.command_key, c)
+                candidates = _get_positional_candidates_with_nargs_limit(ctx)
         elif ctx.incomplete.startswith("--"):
             candidates = c.options_by_command.get(ctx.command_key, [])
         else:
@@ -174,7 +234,7 @@ def _get_completions() -> list[str]:
     elif ctx.incomplete.startswith("--"):
         candidates = c.options_by_command.get(ctx.command_key, [])
     else:
-        candidates = _get_positional_candidates(ctx.command_key, c)
+        candidates = _get_positional_candidates_with_nargs_limit(ctx)
 
     return [c for c in candidates if c.startswith(ctx.incomplete)]
 

@@ -946,3 +946,143 @@ def test_get_completions_provider_option(
     result = _get_completions()
 
     assert result == ["docker", "local", "modal"]
+
+
+# =============================================================================
+# Positional nargs limiting tests
+# =============================================================================
+
+
+def test_get_completions_nargs_limit_reached(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """After all positional args are filled, no more positional candidates are offered."""
+    data = CompletionCacheData(
+        commands=["config"],
+        subcommand_by_command={"config": ["get", "set", "unset", "list"]},
+        config_key_arguments=["config.set"],
+        config_keys=["prefix", "logging.console_level"],
+        positional_nargs_by_command={"config.set": 2},
+    )
+    _write_command_cache(completion_cache_dir, data)
+    # "mng config set KEY VALUE <TAB>" -- 2 positional args already typed
+    set_comp_env("mng config set prefix myval ", "5")
+
+    result = _get_completions()
+
+    assert result == []
+
+
+def test_get_completions_nargs_limit_not_reached(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Before the nargs limit is reached, positional candidates are offered."""
+    data = CompletionCacheData(
+        commands=["config"],
+        subcommand_by_command={"config": ["set"]},
+        config_key_arguments=["config.set"],
+        config_keys=["prefix", "logging.console_level"],
+        positional_nargs_by_command={"config.set": 2},
+    )
+    _write_command_cache(completion_cache_dir, data)
+    # "mng config set <TAB>" -- 0 positional args typed
+    set_comp_env("mng config set ", "3")
+
+    result = _get_completions()
+
+    assert "prefix" in result
+    assert "logging.console_level" in result
+
+
+def test_get_completions_nargs_interleaved_options(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Interleaved options should not count toward the positional nargs limit."""
+    data = CompletionCacheData(
+        commands=["config"],
+        subcommand_by_command={"config": ["set"]},
+        options_by_command={"config.set": ["--scope"]},
+        flag_options_by_command={},
+        config_key_arguments=["config.set"],
+        config_keys=["prefix", "logging.console_level"],
+        positional_nargs_by_command={"config.set": 2},
+    )
+    _write_command_cache(completion_cache_dir, data)
+    # "mng config set --scope user KEY <TAB>" -- only 1 positional (KEY), room for VALUE
+    set_comp_env("mng config set --scope user prefix ", "6")
+
+    result = _get_completions()
+
+    # Still under the limit (1 positional < 2), so candidates should be offered.
+    # The user has typed "prefix" as KEY and is now completing VALUE.
+    assert sorted(result) == ["logging.console_level", "prefix"]
+
+
+def test_get_completions_nargs_unlimited(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Commands with unlimited nargs (None) should always offer positional candidates."""
+    data = CompletionCacheData(
+        commands=["destroy"],
+        agent_name_arguments=["destroy"],
+        positional_nargs_by_command={"destroy": None},
+    )
+    _write_command_cache(completion_cache_dir, data)
+    _write_discovery_events(completion_cache_dir, ["agent1", "agent2", "agent3"])
+    # "mng destroy agent1 agent2 <TAB>" -- 2 positional args, but unlimited
+    set_comp_env("mng destroy agent1 agent2 ", "4")
+
+    result = _get_completions()
+
+    assert "agent1" in result
+    assert "agent2" in result
+    assert "agent3" in result
+
+
+def test_get_completions_nargs_missing_entry(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """Commands not in positional_nargs_by_command should be treated as unlimited."""
+    data = CompletionCacheData(
+        commands=["destroy"],
+        agent_name_arguments=["destroy"],
+        positional_nargs_by_command={},
+    )
+    _write_command_cache(completion_cache_dir, data)
+    _write_discovery_events(completion_cache_dir, ["agent1", "agent2"])
+    # "mng destroy agent1 <TAB>" -- command not in nargs dict -> unlimited
+    set_comp_env("mng destroy agent1 ", "3")
+
+    result = _get_completions()
+
+    assert "agent1" in result
+    assert "agent2" in result
+
+
+def test_get_completions_nargs_limit_after_flag(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """The nargs limit should be enforced even when prev_word is a flag."""
+    data = CompletionCacheData(
+        commands=["config"],
+        subcommand_by_command={"config": ["set"]},
+        options_by_command={"config.set": ["--verbose"]},
+        flag_options_by_command={"config.set": ["--verbose"]},
+        config_key_arguments=["config.set"],
+        config_keys=["prefix"],
+        positional_nargs_by_command={"config.set": 2},
+    )
+    _write_command_cache(completion_cache_dir, data)
+    # "mng config set KEY VALUE --verbose <TAB>" -- 2 positional args + a flag
+    set_comp_env("mng config set prefix myval --verbose ", "6")
+
+    result = _get_completions()
+
+    # All 2 positional args consumed, so no more positional candidates
+    assert result == []

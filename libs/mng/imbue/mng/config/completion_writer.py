@@ -162,6 +162,22 @@ def _filter_keys_by_registered_commands(
     return {key for key in dotted_keys if key.split(".")[0] in canonical_names}
 
 
+def _extract_positional_nargs(cmd: click.Command) -> int | None:
+    """Extract the total positional argument count from a click command.
+
+    Returns the sum of nargs for all click.Argument params, or None if any
+    argument has nargs=-1 (unlimited). Returns 0 if there are no positional
+    arguments.
+    """
+    total = 0
+    for param in cmd.params:
+        if isinstance(param, click.Argument):
+            if param.nargs == -1:
+                return None
+            total += param.nargs
+    return total
+
+
 def _extract_plugin_name_options_for_command(cmd: click.Command, key_prefix: str) -> list[str]:
     """Extract option names that should complete against plugin names.
 
@@ -245,6 +261,7 @@ def write_cli_completions_cache(
         flag_options_by_command: dict[str, list[str]] = {}
         option_choices: dict[str, list[str]] = {}
         plugin_name_opts: list[str] = []
+        positional_nargs_by_command: dict[str, int | None] = {}
 
         canonical_names: set[str] = set()
         for name, cmd in cli_group.commands.items():
@@ -259,7 +276,7 @@ def write_cli_completions_cache(
                 if canonical_name not in subcommand_by_command:
                     subcommand_by_command[canonical_name] = sorted(cmd.commands.keys())
 
-                # Extract options, flags, and choices for subcommands
+                # Extract options, flags, choices, and positional nargs for subcommands
                 for sub_name, sub_cmd in cmd.commands.items():
                     sub_key = f"{canonical_name}.{sub_name}"
                     sub_options = _extract_options_for_command(sub_cmd)
@@ -270,6 +287,7 @@ def write_cli_completions_cache(
                         flag_options_by_command[sub_key] = sub_flags
                     option_choices.update(_extract_choices_for_command(sub_cmd, sub_key))
                     plugin_name_opts.extend(_extract_plugin_name_options_for_command(sub_cmd, sub_key))
+                    positional_nargs_by_command[sub_key] = _extract_positional_nargs(sub_cmd)
 
                 # Also extract options and flags for the group command itself
                 group_options = _extract_options_for_command(cmd)
@@ -290,6 +308,7 @@ def write_cli_completions_cache(
                     flag_options_by_command[canonical_name] = cmd_flags
                 option_choices.update(_extract_choices_for_command(cmd, canonical_name))
                 plugin_name_opts.extend(_extract_plugin_name_options_for_command(cmd, canonical_name))
+                positional_nargs_by_command[canonical_name] = _extract_positional_nargs(cmd)
 
         # Include both top-level commands and group subcommands that take agent names
         agent_name_args = (_AGENT_NAME_COMMANDS & canonical_names) | _filter_keys_by_registered_commands(
@@ -326,6 +345,7 @@ def write_cli_completions_cache(
             plugin_name_arguments=sorted(plugin_name_args),
             config_key_arguments=sorted(config_key_args),
             config_keys=dynamic.get("config_keys", []) if dynamic else [],
+            positional_nargs_by_command=positional_nargs_by_command,
         )
 
         cache_path = get_completion_cache_dir() / COMPLETION_CACHE_FILENAME

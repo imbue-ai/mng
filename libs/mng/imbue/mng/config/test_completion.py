@@ -84,3 +84,68 @@ def test_plugin_name_options_reference_real_options(completion_cache_dir: Path) 
 
     for key in cache.plugin_name_options:
         _assert_option_exists_on_cli(key, "plugin_name_options")
+
+
+def _collect_all_options_from_cli() -> dict[str, set[str]]:
+    """Walk the real CLI tree and collect all --long options keyed by dotted command path.
+
+    Returns a dict mapping command key (e.g. "create", "config.set") to the set
+    of --long option names on that command.
+    """
+    result: dict[str, set[str]] = {}
+    assert isinstance(cli, click.Group)
+    for name, cmd in cli.commands.items():
+        if isinstance(cmd, click.Group) and cmd.commands:
+            for sub_name, sub_cmd in cmd.commands.items():
+                key = f"{cmd.name or name}.{sub_name}"
+                opts: set[str] = set()
+                for param in sub_cmd.params:
+                    if isinstance(param, click.Option):
+                        for opt in param.opts + param.secondary_opts:
+                            if opt.startswith("--"):
+                                opts.add(opt)
+                if opts:
+                    result[key] = opts
+            # Also collect group-level options
+            group_opts: set[str] = set()
+            for param in cmd.params:
+                if isinstance(param, click.Option):
+                    for opt in param.opts + param.secondary_opts:
+                        if opt.startswith("--"):
+                            group_opts.add(opt)
+            if group_opts:
+                result[cmd.name or name] = group_opts
+        else:
+            key = cmd.name or name
+            opts = set()
+            for param in cmd.params:
+                if isinstance(param, click.Option):
+                    for opt in param.opts + param.secondary_opts:
+                        if opt.startswith("--"):
+                            opts.add(opt)
+            if opts:
+                result[key] = opts
+    return result
+
+
+def test_every_option_is_classified(completion_cache_dir: Path) -> None:
+    """Every CLI --long option must appear in options_by_command in the cache.
+
+    This catches options added to commands without updating the cache writer,
+    and renames (e.g. --agent-type -> --type) that would go undetected.
+    """
+    write_cli_completions_cache(cli_group=cli)
+    cache = _read_cache(completion_cache_dir)
+
+    cli_options = _collect_all_options_from_cli()
+    missing: list[str] = []
+
+    for command_key, option_names in cli_options.items():
+        cached_options = set(cache.options_by_command.get(command_key, []))
+        for opt in sorted(option_names):
+            if opt not in cached_options:
+                missing.append(f"{command_key}.{opt}")
+
+    assert not missing, "The following CLI options are not in options_by_command in the cache:\n" + "\n".join(
+        f"  {m}" for m in missing
+    )
