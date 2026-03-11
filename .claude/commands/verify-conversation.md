@@ -1,7 +1,7 @@
 ---
 argument-hint: [options...]
 description: Review the conversation transcript for behavioral issues (misleading behavior, disobeyed instructions, instructions worth saving).
-allowed-tools: Bash:*, Read, Write, Agent, AskUserQuestion
+allowed-tools: Bash(bash ./scripts/export_transcript_paths.sh*), Bash(python3 scripts/filter_transcript.py *), Bash(git rev-parse *), Bash(mkdir *), Bash(wc *), Read, Write(.reviews/conversation/*), Agent, AskUserQuestion
 ---
 
 # Verify Conversation
@@ -96,7 +96,7 @@ Spawn an Agent (`subagent_type: "general-purpose"`) with this combined prompt.
 
 After the agent finishes, update the progress file (`.reviews/conversation/progress.jsonl`).
 
-For each session file that was part of this review, get its current line count (`wc -l`). Then append a JSONL line:
+For each session file that was part of this review, get its current line count (`wc -l`). Then use the Write tool to update `.reviews/conversation/progress.jsonl`, appending a JSONL line per file:
 
 ```json
 {"file": "<session_file_path>", "lines": <total_line_count>, "reviewed_at": "<ISO 8601 timestamp>"}

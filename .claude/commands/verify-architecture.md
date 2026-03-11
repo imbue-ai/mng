@@ -1,6 +1,6 @@
 ---
 description: Assess whether the approach taken on a branch is the right way to solve the problem.
-allowed-tools: Bash:*, Read, Agent, AskUserQuestion
+allowed-tools: Bash(git *), Bash(head *), Bash(xxd *), Read, Agent, AskUserQuestion
 ---
 
 # Architecture Verification

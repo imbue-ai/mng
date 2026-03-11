@@ -1,6 +1,6 @@
 ---
 description: Automatically find and fix code issues in the current branch. Iteratively verifies, plans fixes, and implements them with separate commits. Defers all review to the end.
-allowed-tools: Bash:*, Read, Write, Agent, AskUserQuestion
+allowed-tools: Bash(git *), Bash(mkdir *), Bash(echo *), Read, Agent, AskUserQuestion
 ---
 
 # Autofix
