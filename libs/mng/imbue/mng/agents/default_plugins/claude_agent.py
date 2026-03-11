@@ -1368,6 +1368,7 @@ class ClaudeAgent(BaseAgent):
                 copied_project_dirs.add(source_project_dir.name)
             last_session_id = session_id
 
+        assert last_session_id is not None  # guaranteed: adopt_session_args is non-empty
         host.write_text_file(self._get_agent_dir() / "claude_session_id", last_session_id)
         logger.info("Adopted {} session(s), active session: {}", len(adopt_session_args), last_session_id)
 
