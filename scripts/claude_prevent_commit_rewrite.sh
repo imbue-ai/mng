@@ -22,7 +22,7 @@ fi
 # Check if command is "git pull" with --rebase or -r flag
 if [[ "$command" =~ ^git[[:space:]]+pull ]]; then
     if [[ "$command" == *"--rebase"* ]] || [[ "$command" =~ (^|[[:space:]])-r([[:space:]]|$) ]]; then
-        echo "Blocked: git pull --rebase commands are not allowed (use git pull --ff-only instead)" >&2
+        echo "Blocked: git pull --rebase commands are not allowed (use git pull --merge instead)" >&2
         exit 2
     fi
 fi
