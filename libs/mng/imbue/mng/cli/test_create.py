@@ -10,10 +10,10 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.imbue_common.model_update import to_update
-from imbue.mng.cli.create import CreateCliOptions
 from imbue.mng.cli.create import _create_agent
 from imbue.mng.cli.create import _setup_create
 from imbue.mng.cli.create import create
+from imbue.mng.config.data_types import CreateCliOptions
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.utils.logging import LoggingConfig

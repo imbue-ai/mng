@@ -7,11 +7,11 @@ from imbue.mng.api.observe import AgentObserver
 from imbue.mng.api.observe import ObserveLockError
 from imbue.mng.api.observe import acquire_observe_lock
 from imbue.mng.api.observe import release_observe_lock
-from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.config.data_types import CommonCliOptions
 
 
 class ObserveCliOptions(CommonCliOptions):

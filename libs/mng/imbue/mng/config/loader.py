@@ -18,6 +18,7 @@ from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.consts import ROOT_CONFIG_FILENAME
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import CommandDefaults
+from imbue.mng.config.data_types import CreateCliOptions
 from imbue.mng.config.data_types import CreateTemplate
 from imbue.mng.config.data_types import CreateTemplateName
 from imbue.mng.config.data_types import MngConfig

@@ -262,14 +262,16 @@ To add a new top-level command to `mng`, implement `register_cli_commands` and f
 ```python
 # cli.py
 import click
-from imbue.mng.cli.common_opts import CommonCliOptions
+from imbue.mng.config.data_types import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 
+
 class MyCommandOptions(CommonCliOptions):
     my_arg: str | None
+
 
 @click.command()
 @click.argument("my_arg", default=None, required=False)
@@ -281,6 +283,7 @@ def my_command(ctx, **kwargs):
     )
     # opts.my_arg is now typed and available
     ...
+
 
 CommandHelpMetadata(
     key="my-command",
