@@ -38,6 +38,20 @@ class TmrCliOptions(CommonCliOptions):
     source: str | None
 
 
+def _split_pytest_args(raw_args: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Split raw pytest args into (positional, flags) at the first '--'.
+
+    Everything before '--' is treated as positional args (test paths/patterns).
+    Everything after '--' is treated as flags shared between pytest discovery
+    and individual test invocations. If there is no '--', all args are positional.
+    """
+    args_list = list(raw_args)
+    if "--" in args_list:
+        sep_idx = args_list.index("--")
+        return tuple(args_list[:sep_idx]), tuple(args_list[sep_idx + 1 :])
+    return tuple(args_list), ()
+
+
 def _emit_test_count(count: int, output_opts: OutputOptions) -> None:
     """Emit the number of tests collected."""
     match output_opts.output_format:
@@ -110,9 +124,12 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
     source_dir = Path(opts.source) if opts.source is not None else Path.cwd()
     agent_type = AgentTypeName(opts.agent_type)
 
-    # Step 1: Collect tests
+    # Split args: positional paths before --, pytest flags after --
+    pos_args, pytest_flags = _split_pytest_args(opts.pytest_args)
+
+    # Step 1: Collect tests (both positional args and flags go to discovery)
     test_node_ids = collect_tests(
-        pytest_args=opts.pytest_args,
+        pytest_args=pos_args + pytest_flags,
         source_dir=source_dir,
         cg=mng_ctx.concurrency_group,
     )
@@ -123,13 +140,14 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
     host = provider.get_host(HostName("localhost"))
     local_host, _ = ensure_host_started(host, is_start_desired=True, provider=provider)
 
-    # Step 3: Launch agents
+    # Step 3: Launch agents (flags are passed to individual pytest invocations)
     agent_infos = launch_all_test_agents(
         test_node_ids=test_node_ids,
         source_dir=source_dir,
         local_host=local_host,
         mng_ctx=mng_ctx,
         agent_type=agent_type,
+        pytest_flags=pytest_flags,
     )
     _emit_agents_launched(len(agent_infos), output_opts)
 
@@ -138,6 +156,7 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         agents=agent_infos,
         mng_ctx=mng_ctx,
         poll_interval_seconds=opts.poll_interval,
+        host=local_host,
     )
 
     # Step 5: Gather results (read result.json, pull branches for fixes)
@@ -175,23 +194,31 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
 CommandHelpMetadata(
     key="tmr",
     one_line_description="Run and fix tests in parallel using agents (test map-reduce)",
-    synopsis="mng tmr [PYTEST_ARGS...] [--agent-type <TYPE>] [--poll-interval <SECS>]",
+    synopsis="mng tmr [TEST_PATHS...] [-- PYTEST_FLAGS...] [--agent-type <TYPE>] [--poll-interval <SECS>]",
     description="""This command implements a map-reduce pattern for tests:
 
-1. Collects tests using pytest --collect-only, passing through any arguments.
+1. Collects tests using pytest --collect-only, passing through all arguments.
 2. Launches one agent per test. Each agent runs the test and, if it fails,
    attempts to diagnose and fix either the test code or the implementation.
-3. Polls agents until all finish, then collects results.
+3. Polls agents until all finish (stops agents when they enter WAITING state).
 4. For successful fixes, pulls the agent's code changes into branches
    named mng-tmr/*.
-5. Generates an HTML report summarizing all outcomes.
+5. Generates an HTML report summarizing all outcomes with markdown summaries.
+
+Arguments before -- are test paths/patterns (positional). Arguments after -- are
+pytest flags shared between discovery and individual test runs. For example:
+
+  mng tmr tests/e2e -- -m release
+
+This discovers tests with `pytest --collect-only tests/e2e -m release` and runs
+each test with `pytest tests/e2e/test_foo.py::test_bar -m release`.
 
 Each agent writes its result to $MNG_AGENT_STATE_DIR/plugin/test-map-reduce/result.json
-with an outcome enum and a short summary.""",
+with an outcome enum and a markdown summary.""",
     examples=(
         ("Run all tests in current directory", "mng tmr"),
         ("Run tests in a specific file", "mng tmr tests/test_foo.py"),
-        ("Run a specific test", "mng tmr tests/test_foo.py::test_bar"),
+        ("Run tests with a marker", "mng tmr tests/e2e -- -m release"),
         ("Custom poll interval", "mng tmr --poll-interval 30"),
         ("Specify output location", "mng tmr --output-html report.html"),
     ),

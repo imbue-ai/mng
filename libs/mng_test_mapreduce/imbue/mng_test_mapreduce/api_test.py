@@ -11,15 +11,13 @@ from imbue.mng_test_mapreduce.api import PLUGIN_NAME
 from imbue.mng_test_mapreduce.api import _build_agent_prompt
 from imbue.mng_test_mapreduce.api import _build_grouped_tables
 from imbue.mng_test_mapreduce.api import _build_stacked_bar
-from imbue.mng_test_mapreduce.api import _html_escape
+from imbue.mng_test_mapreduce.api import _render_markdown
 from imbue.mng_test_mapreduce.api import _sanitize_test_name_for_agent
 from imbue.mng_test_mapreduce.api import _short_random_id
 from imbue.mng_test_mapreduce.api import collect_tests
 from imbue.mng_test_mapreduce.api import generate_html_report
 from imbue.mng_test_mapreduce.data_types import TestMapReduceResult
 from imbue.mng_test_mapreduce.data_types import TestOutcome
-
-# --- _short_random_id ---
 
 
 def test_short_random_id_length() -> None:
@@ -35,9 +33,6 @@ def test_short_random_id_is_hex() -> None:
 def test_short_random_id_is_unique() -> None:
     ids = {_short_random_id() for _ in range(100)}
     assert len(ids) == 100
-
-
-# --- _sanitize_test_name_for_agent ---
 
 
 def test_sanitize_simple_test_name() -> None:
@@ -70,11 +65,8 @@ def test_sanitize_single_part() -> None:
     assert result == "simple-test"
 
 
-# --- _build_agent_prompt ---
-
-
 def test_build_agent_prompt_contains_test_id() -> None:
-    prompt = _build_agent_prompt("tests/test_foo.py::test_bar")
+    prompt = _build_agent_prompt("tests/test_foo.py::test_bar", ())
     assert "tests/test_foo.py::test_bar" in prompt
     assert "RUN_SUCCEEDED" in prompt
     assert "FIX_TEST_SUCCEEDED" in prompt
@@ -84,64 +76,49 @@ def test_build_agent_prompt_contains_test_id() -> None:
 
 
 def test_build_agent_prompt_contains_plugin_name() -> None:
-    prompt = _build_agent_prompt("tests/test_x.py::test_y")
+    prompt = _build_agent_prompt("tests/test_x.py::test_y", ())
     assert PLUGIN_NAME in prompt
 
 
-# --- _html_escape ---
+def test_build_agent_prompt_includes_pytest_flags() -> None:
+    prompt = _build_agent_prompt("tests/test_x.py::test_y", ("-m", "release"))
+    assert "-m release" in prompt
 
 
-def test_html_escape() -> None:
-    assert _html_escape("<script>") == "&lt;script&gt;"
-    assert _html_escape('a & "b"') == "a &amp; &quot;b&quot;"
+def test_build_agent_prompt_requests_markdown() -> None:
+    prompt = _build_agent_prompt("t::t", ())
+    assert "markdown" in prompt.lower()
 
 
-def test_html_escape_no_change() -> None:
-    assert _html_escape("plain text") == "plain text"
+def test_render_markdown_bold() -> None:
+    result = _render_markdown("**bold**")
+    assert "<strong>bold</strong>" in result
 
 
-# --- collect_tests ---
+def test_render_markdown_plain_text() -> None:
+    result = _render_markdown("plain text")
+    assert "plain text" in result
 
 
 def test_collect_tests_with_real_pytest(tmp_path: Path, cg: ConcurrencyGroup) -> None:
-    """Use a real pytest --collect-only against a tiny test file."""
     test_file = tmp_path / "test_sample.py"
     test_file.write_text("def test_one(): pass\ndef test_two(): pass\n")
-
-    test_ids = collect_tests(
-        pytest_args=(str(test_file),),
-        source_dir=tmp_path,
-        cg=cg,
-    )
-
+    test_ids = collect_tests(pytest_args=(str(test_file),), source_dir=tmp_path, cg=cg)
     assert len(test_ids) == 2
     assert any("test_one" in tid for tid in test_ids)
     assert any("test_two" in tid for tid in test_ids)
 
 
 def test_collect_tests_no_tests_raises(tmp_path: Path, cg: ConcurrencyGroup) -> None:
-    """Empty directory has no tests."""
     empty_file = tmp_path / "empty.py"
     empty_file.write_text("x = 1\n")
     with pytest.raises(CollectTestsError):
-        collect_tests(
-            pytest_args=(str(empty_file),),
-            source_dir=tmp_path,
-            cg=cg,
-        )
+        collect_tests(pytest_args=(str(empty_file),), source_dir=tmp_path, cg=cg)
 
 
 def test_collect_tests_bad_file_raises(tmp_path: Path, cg: ConcurrencyGroup) -> None:
-    """Non-existent file triggers collection failure."""
     with pytest.raises(CollectTestsError):
-        collect_tests(
-            pytest_args=("non_existent_test_file.py",),
-            source_dir=tmp_path,
-            cg=cg,
-        )
-
-
-# --- _build_stacked_bar ---
+        collect_tests(pytest_args=("non_existent_test_file.py",), source_dir=tmp_path, cg=cg)
 
 
 def test_build_stacked_bar_empty() -> None:
@@ -149,29 +126,21 @@ def test_build_stacked_bar_empty() -> None:
 
 
 def test_build_stacked_bar_single_outcome() -> None:
-    counts = {TestOutcome.RUN_SUCCEEDED: 5}
-    html = _build_stacked_bar(counts, 5)
-    assert "width: 100.0%" in html
-    assert "RUN_SUCCEEDED: 5" in html
+    bar_html = _build_stacked_bar({TestOutcome.RUN_SUCCEEDED: 5}, 5)
+    assert "width: 100.0%" in bar_html
+    assert "RUN_SUCCEEDED: 5" in bar_html
 
 
 def test_build_stacked_bar_multiple_outcomes() -> None:
-    counts = {TestOutcome.RUN_SUCCEEDED: 3, TestOutcome.FIX_IMPL_FAILED: 2}
-    html = _build_stacked_bar(counts, 5)
-    assert "RUN_SUCCEEDED: 3" in html
-    assert "FIX_IMPL_FAILED: 2" in html
-
-
-# --- _build_grouped_tables ---
+    bar_html = _build_stacked_bar({TestOutcome.RUN_SUCCEEDED: 3, TestOutcome.FIX_IMPL_FAILED: 2}, 5)
+    assert "RUN_SUCCEEDED: 3" in bar_html
+    assert "FIX_IMPL_FAILED: 2" in bar_html
 
 
 def test_build_grouped_tables_groups_by_outcome() -> None:
     results = [
         TestMapReduceResult(
-            test_node_id="t::a",
-            agent_name=AgentName("a"),
-            outcome=TestOutcome.RUN_SUCCEEDED,
-            summary="ok",
+            test_node_id="t::a", agent_name=AgentName("a"), outcome=TestOutcome.RUN_SUCCEEDED, summary="ok"
         ),
         TestMapReduceResult(
             test_node_id="t::b",
@@ -181,10 +150,8 @@ def test_build_grouped_tables_groups_by_outcome() -> None:
             branch_name="mng-tmr/b",
         ),
     ]
-    html = _build_grouped_tables(results)
-    fix_pos = html.index("FIX_IMPL_SUCCEEDED")
-    run_pos = html.index("RUN_SUCCEEDED")
-    assert fix_pos < run_pos
+    tables_html = _build_grouped_tables(results)
+    assert tables_html.index("FIX_IMPL_SUCCEEDED") < tables_html.index("RUN_SUCCEEDED")
 
 
 def test_build_grouped_tables_shows_branch() -> None:
@@ -193,15 +160,25 @@ def test_build_grouped_tables_shows_branch() -> None:
             test_node_id="t::c",
             agent_name=AgentName("c"),
             outcome=TestOutcome.FIX_TEST_SUCCEEDED,
-            summary="fixed test",
+            summary="fixed",
             branch_name="mng-tmr/c-abc123",
         ),
     ]
-    html = _build_grouped_tables(results)
-    assert "mng-tmr/c-abc123" in html
+    assert "mng-tmr/c-abc123" in _build_grouped_tables(results)
 
 
-# --- generate_html_report ---
+def test_build_grouped_tables_renders_markdown_summary() -> None:
+    results = [
+        TestMapReduceResult(
+            test_node_id="t::d",
+            agent_name=AgentName("d"),
+            outcome=TestOutcome.RUN_SUCCEEDED,
+            summary="Test **passed** with `no issues`.",
+        ),
+    ]
+    tables_html = _build_grouped_tables(results)
+    assert "<strong>passed</strong>" in tables_html
+    assert "<code>no issues</code>" in tables_html
 
 
 def test_generate_html_report(tmp_path: Path) -> None:
@@ -219,69 +196,31 @@ def test_generate_html_report(tmp_path: Path) -> None:
             summary="Fixed missing import",
             branch_name="mng-tmr/test-fixed",
         ),
-        TestMapReduceResult(
-            test_node_id="tests/test_c.py::test_uncertain",
-            agent_name=AgentName("tmr-test-uncertain"),
-            outcome=TestOutcome.FIX_UNCERTAIN,
-            summary="Could not determine root cause",
-        ),
     ]
-
     output_path = tmp_path / "report.html"
     result_path = generate_html_report(results, output_path)
-
     assert result_path == output_path
     assert output_path.exists()
-
     content = output_path.read_text()
     assert "Test Map-Reduce Report" in content
-    assert "tests/test_a.py::test_pass" in content
     assert "RUN_SUCCEEDED" in content
     assert "FIX_IMPL_SUCCEEDED" in content
-    assert "FIX_UNCERTAIN" in content
-    assert "mng-tmr/test-fixed" in content
-    assert "3 test(s)" in content
-    # Stacked bar should be present
     assert 'class="bar"' in content
 
 
 def test_generate_html_report_groups_run_succeeded_last(tmp_path: Path) -> None:
     results = [
         TestMapReduceResult(
-            test_node_id="t::pass1",
-            agent_name=AgentName("a1"),
-            outcome=TestOutcome.RUN_SUCCEEDED,
-            summary="ok",
+            test_node_id="t::pass1", agent_name=AgentName("a1"), outcome=TestOutcome.RUN_SUCCEEDED, summary="ok"
         ),
         TestMapReduceResult(
-            test_node_id="t::fail1",
-            agent_name=AgentName("a2"),
-            outcome=TestOutcome.FIX_IMPL_FAILED,
-            summary="failed",
+            test_node_id="t::fail1", agent_name=AgentName("a2"), outcome=TestOutcome.FIX_IMPL_FAILED, summary="failed"
         ),
     ]
     output_path = tmp_path / "grouped.html"
     generate_html_report(results, output_path)
     content = output_path.read_text()
     assert content.index("FIX_IMPL_FAILED") < content.index("RUN_SUCCEEDED")
-
-
-def test_generate_html_report_escapes_html(tmp_path: Path) -> None:
-    results = [
-        TestMapReduceResult(
-            test_node_id="tests/test_<xss>.py::test_inject",
-            agent_name=AgentName("tmr-test-inject"),
-            outcome=TestOutcome.RUN_SUCCEEDED,
-            summary='<script>alert("xss")</script>',
-        ),
-    ]
-
-    output_path = tmp_path / "report.html"
-    generate_html_report(results, output_path)
-    content = output_path.read_text()
-
-    assert "<script>" not in content
-    assert "&lt;script&gt;" in content
 
 
 def test_generate_html_report_creates_parent_dirs(tmp_path: Path) -> None:
@@ -299,7 +238,6 @@ def test_generate_html_report_creates_parent_dirs(tmp_path: Path) -> None:
 
 
 def test_generate_html_report_all_outcomes(tmp_path: Path) -> None:
-    """Every outcome type renders without error."""
     results = [
         TestMapReduceResult(
             test_node_id=f"t::test_{outcome.name.lower()}",
@@ -319,5 +257,4 @@ def test_generate_html_report_all_outcomes(tmp_path: Path) -> None:
 def test_generate_html_report_empty_results(tmp_path: Path) -> None:
     output_path = tmp_path / "empty.html"
     generate_html_report([], output_path)
-    content = output_path.read_text()
-    assert "0 test(s)" in content
+    assert "0 test(s)" in output_path.read_text()

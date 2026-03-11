@@ -2008,11 +2008,15 @@ name = "mng-test-mapreduce"
 version = "0.1.0"
 source = { editable = "libs/mng_test_mapreduce" }
 dependencies = [
+    { name = "markdown-it-py" },
     { name = "mng" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mng", editable = "libs/mng" }]
+requires-dist = [
+    { name = "markdown-it-py", specifier = ">=3.0.0" },
+    { name = "mng", editable = "libs/mng" },
+]
 
 [[package]]
 name = "mng-ttyd"

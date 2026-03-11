@@ -5,17 +5,17 @@ test, poll for completion, gather results, pull code changes, and generate an
 HTML report.
 """
 
+import html
 import json
 import secrets
 import time
 from pathlib import Path
 
 from loguru import logger
-from pydantic import Field
+from markdown_it import MarkdownIt
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.api.create import create as api_create
 from imbue.mng.api.data_types import CreateAgentResult
 from imbue.mng.api.list import list_agents
@@ -75,40 +75,15 @@ _OUTCOME_GROUP_ORDER: list[TestOutcome] = [
 
 _SHORT_ID_LENGTH = 6
 
+_MISSING_AGENT_MAX_ROUNDS = 30
+
+_md = MarkdownIt()
+
 
 class CollectTestsError(MngError, RuntimeError):
     """Raised when pytest test collection fails."""
 
     ...
-
-
-class ReadResultError(MngError, RuntimeError):
-    """Raised when reading a test result from an agent fails."""
-
-    ...
-
-
-class TestMapReduceParams(FrozenModel):
-    """Parameters for a test-mapreduce run."""
-
-    pytest_args: tuple[str, ...] = Field(description="Arguments to pass through to pytest --collect-only")
-    source_dir: Path = Field(description="Directory to run pytest collection from and to use as agent source")
-    agent_type: AgentTypeName = Field(
-        default=AgentTypeName("claude"),
-        description="Type of agent to launch for each test",
-    )
-    poll_interval_seconds: float = Field(
-        default=10.0,
-        description="Seconds between polling cycles",
-    )
-    provider: str = Field(
-        default=str(LOCAL_PROVIDER_NAME),
-        description="Provider to use for agent hosts",
-    )
-    output_html_path: Path | None = Field(
-        default=None,
-        description="Where to write the HTML report (None means auto-generated name)",
-    )
 
 
 def _short_random_id() -> str:
@@ -141,9 +116,14 @@ def collect_tests(
     return test_ids
 
 
-def _build_agent_prompt(test_node_id: str) -> str:
+def _build_agent_prompt(test_node_id: str, pytest_flags: tuple[str, ...]) -> str:
     """Build the prompt/initial message for a test-running agent."""
-    return f"""Run the test: {test_node_id}
+    flags_str = " ".join(pytest_flags)
+    run_cmd = f"pytest {test_node_id}"
+    if flags_str:
+        run_cmd += f" {flags_str}"
+
+    return f"""Run the test with: {run_cmd}
 
 If the test succeeds, there is nothing more to do (outcome = RUN_SUCCEEDED).
 
@@ -160,8 +140,9 @@ If the test fails:
 - If you are not certain which one is the case, do not try to fix anything. The
   outcome is FIX_UNCERTAIN.
 
-In all cases, also generate a short summary, and write the result to a JSON file
-at $MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json, with content like:
+In all cases, also generate a short summary in **markdown** format, and write the
+result to a JSON file at $MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json,
+with content like:
 {{"outcome": "RUN_SUCCEEDED", "summary": "Test passed on first run."}}
 
 Valid outcome values: RUN_SUCCEEDED, FIX_TEST_SUCCEEDED, FIX_TEST_FAILED,
@@ -197,12 +178,13 @@ def launch_test_agent(
     local_host: OnlineHostInterface,
     mng_ctx: MngContext,
     agent_type: AgentTypeName,
+    pytest_flags: tuple[str, ...],
 ) -> TestAgentInfo:
     """Launch a single agent to run and optionally fix one test."""
     agent_name_suffix = _sanitize_test_name_for_agent(test_node_id)
     short_id = _short_random_id()
     agent_name = AgentName(f"tmr-{agent_name_suffix}-{short_id}")
-    prompt = _build_agent_prompt(test_node_id)
+    prompt = _build_agent_prompt(test_node_id, pytest_flags)
 
     agent_options = CreateAgentOptions(
         agent_type=agent_type,
@@ -238,6 +220,7 @@ def launch_all_test_agents(
     local_host: OnlineHostInterface,
     mng_ctx: MngContext,
     agent_type: AgentTypeName,
+    pytest_flags: tuple[str, ...],
 ) -> list[TestAgentInfo]:
     """Launch agents for all collected tests, returning tracking info for each."""
     agents: list[TestAgentInfo] = []
@@ -254,6 +237,7 @@ def launch_all_test_agents(
                 local_host,
                 mng_ctx,
                 agent_type,
+                pytest_flags,
             )
             for test_node_id in test_node_ids
         ]
@@ -267,13 +251,17 @@ def poll_until_all_done(
     agents: list[TestAgentInfo],
     mng_ctx: MngContext,
     poll_interval_seconds: float,
+    host: OnlineHostInterface,
 ) -> dict[str, AgentDetails]:
     """Poll agents until all have reached a terminal state.
 
     Returns a mapping from agent_id (as string) to AgentDetails.
+    Agents that disappear from listings are treated as errors after a grace period.
+    Agents entering WAITING state are stopped after being recorded.
     """
     pending_ids = {str(info.agent_id) for info in agents}
     final_details: dict[str, AgentDetails] = {}
+    missing_rounds: dict[str, int] = {}
 
     while pending_ids:
         logger.info("Polling {} pending agent(s)...", len(pending_ids))
@@ -283,21 +271,49 @@ def poll_until_all_done(
             error_behavior=ErrorBehavior.CONTINUE,
         )
 
+        seen_ids: set[str] = set()
         for agent_detail in list_result.agents:
             agent_id_str = str(agent_detail.id)
-            if agent_id_str in pending_ids and agent_detail.state in _TERMINAL_STATES:
-                logger.info(
-                    "Agent '{}' finished (state={})",
-                    agent_detail.name,
-                    agent_detail.state,
-                )
-                final_details[agent_id_str] = agent_detail
-                pending_ids.discard(agent_id_str)
+            seen_ids.add(agent_id_str)
+            if agent_id_str not in pending_ids:
+                continue
+            if agent_detail.state not in _TERMINAL_STATES:
+                continue
+
+            logger.info(
+                "Agent '{}' finished (state={})",
+                agent_detail.name,
+                agent_detail.state,
+            )
+            final_details[agent_id_str] = agent_detail
+            pending_ids.discard(agent_id_str)
+            missing_rounds.pop(agent_id_str, None)
+
+            if agent_detail.state == AgentLifecycleState.WAITING:
+                _stop_agent_on_host(host, agent_detail.id, agent_detail.name)
+
+        # Track agents that were not seen in this polling round
+        for agent_id_str in list(pending_ids):
+            if agent_id_str not in seen_ids:
+                rounds = missing_rounds.get(agent_id_str, 0) + 1
+                missing_rounds[agent_id_str] = rounds
+                if rounds >= _MISSING_AGENT_MAX_ROUNDS:
+                    logger.warning("Agent {} disappeared after {} rounds, treating as error", agent_id_str, rounds)
+                    pending_ids.discard(agent_id_str)
 
         if pending_ids:
             time.sleep(poll_interval_seconds)
 
     return final_details
+
+
+def _stop_agent_on_host(host: OnlineHostInterface, agent_id: AgentId, agent_name: AgentName) -> None:
+    """Stop a single agent on the host."""
+    try:
+        host.stop_agents([agent_id])
+        logger.info("Stopped agent '{}'", agent_name)
+    except MngError as exc:
+        logger.warning("Failed to stop agent '{}': {}", agent_name, exc)
 
 
 def read_agent_result(
@@ -429,7 +445,7 @@ def generate_html_report(results: list[TestMapReduceResult], output_path: Path) 
     tables_html = _build_grouped_tables(results)
 
     css = _html_report_css()
-    html = f"""<!DOCTYPE html>
+    report_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -447,7 +463,7 @@ def generate_html_report(results: list[TestMapReduceResult], output_path: Path) 
 </html>
 """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(html)
+    output_path.write_text(report_html)
     logger.info("HTML report written to {}", output_path)
     return output_path
 
@@ -469,6 +485,11 @@ def _build_stacked_bar(counts: dict[TestOutcome, int], total: int) -> str:
     return f'  <div class="bar">\n{segments}  </div>'
 
 
+def _render_markdown(text: str) -> str:
+    """Render markdown text to HTML."""
+    return _md.render(text)
+
+
 def _build_grouped_tables(results: list[TestMapReduceResult]) -> str:
     """Build HTML tables grouped by outcome, with RUN_SUCCEEDED last."""
     grouped: dict[TestOutcome, list[TestMapReduceResult]] = {}
@@ -487,11 +508,12 @@ def _build_grouped_tables(results: list[TestMapReduceResult]) -> str:
         sections += "</tr>\n    </thead>\n    <tbody>\n"
         for r in group:
             branch_cell = r.branch_name if r.branch_name else "-"
+            summary_html = _render_markdown(r.summary)
             sections += f"""      <tr>
-        <td>{_html_escape(r.test_node_id)}</td>
-        <td>{_html_escape(r.summary)}</td>
-        <td><code>{_html_escape(str(r.agent_name))}</code></td>
-        <td><code>{_html_escape(branch_cell)}</code></td>
+        <td>{html.escape(r.test_node_id)}</td>
+        <td class="md">{summary_html}</td>
+        <td><code>{html.escape(str(r.agent_name))}</code></td>
+        <td><code>{html.escape(branch_cell)}</code></td>
       </tr>
 """
         sections += "    </tbody>\n  </table>\n"
@@ -516,10 +538,8 @@ def _html_report_css() -> str:
         "    th, td { border: 1px solid rgb(221, 221, 221); padding: 8px 12px; text-align: left; }\n"
         "    th { background: rgb(245, 245, 245); font-weight: 600; }\n"
         "    tr:hover { background: rgb(250, 250, 250); }\n"
+        "    td.md p { margin: 0.25em 0; }\n"
+        "    td.md p:first-child { margin-top: 0; }\n"
+        "    td.md p:last-child { margin-bottom: 0; }\n"
         "    code { background: rgb(240, 240, 240); padding: 2px 4px; border-radius: 3px; font-size: 0.9em; }"
     )
-
-
-def _html_escape(text: str) -> str:
-    """Escape HTML special characters."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
