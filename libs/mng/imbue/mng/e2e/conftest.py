@@ -23,11 +23,11 @@ MngRunFn = Callable[..., CommandResult]
 
 @pytest.fixture
 def e2e(
-    tmp_path: Path,
     temp_host_dir: Path,
     mng_test_prefix: str,
     mng_test_root_name: str,
     temp_git_repo: Path,
+    project_config_dir: Path,
     request: pytest.FixtureRequest,
 ) -> Generator[Session, None, None]:
     """Provide an isolated skitwright Session for running mng CLI commands.
@@ -55,9 +55,7 @@ def e2e(
     env.pop("TMUX", None)
 
     # Disable remote providers so tests don't attempt Modal/Docker operations
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = config_dir / "settings.local.toml"
+    settings_path = project_config_dir / "settings.local.toml"
     settings_path.write_text("[providers.modal]\nis_enabled = false\n\n[providers.docker]\nis_enabled = false\n")
 
     session = Session(env=env, cwd=temp_git_repo)
