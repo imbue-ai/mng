@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Print paths to Claude Code session JSONL files for all sessions.
 # Outputs one line per file: "<source>\t<path>"
 # where source is one of: mng_tracked, current, mng_agent_dir,
