@@ -82,6 +82,15 @@ _PLUGIN_NAME_OPTION_NAMES: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Config key prefixes to exclude from tab completion. These are derived or
+# computed fields that are not meaningful to set directly via `mng config set`.
+_EXCLUDED_CONFIG_KEY_PREFIXES: Final[frozenset[str]] = frozenset(
+    {
+        "disabled_plugins",
+        "enabled_backends",
+    }
+)
+
 # Options that receive dynamic choice values from runtime context (config,
 # registries). Maps "command.--option" to the key in dynamic_completions.
 _DYNAMIC_CHOICE_OPTIONS: Final[dict[str, str]] = {
@@ -283,6 +292,11 @@ class _DynamicCompletions(NamedTuple):
     config_value_choices: dict[str, list[str]]
 
 
+def _is_excluded_config_key(key: str) -> bool:
+    """Return True if *key* matches any excluded config key prefix."""
+    return any(key == prefix or key.startswith(f"{prefix}.") for prefix in _EXCLUDED_CONFIG_KEY_PREFIXES)
+
+
 def _build_dynamic_completions(mng_ctx: MngContext) -> _DynamicCompletions:
     """Build dynamic completion data from the runtime context.
 
@@ -300,13 +314,17 @@ def _build_dynamic_completions(mng_ctx: MngContext) -> _DynamicCompletions:
     template_names = sorted(str(k) for k in config.create_templates.keys())
     provider_names = sorted(set(["local"] + [str(k) for k in config.providers.keys()]))
     plugin_names = sorted({name for name, _ in mng_ctx.pm.list_name_plugin() if name and not name.startswith("_")})
-    config_keys = flatten_dict_keys(config.model_dump(mode="json"))
+    config_keys = [k for k in flatten_dict_keys(config.model_dump(mode="json")) if not _is_excluded_config_key(k)]
 
     dynamic_values = {
         "agent_type_names": agent_type_names,
         "provider_backend_names": provider_backend_names,
     }
-    config_value_choices = _extract_config_value_choices(config, dynamic_values)
+    config_value_choices = {
+        k: v
+        for k, v in _extract_config_value_choices(config, dynamic_values).items()
+        if not _is_excluded_config_key(k)
+    }
 
     return _DynamicCompletions(
         agent_type_names=agent_type_names,

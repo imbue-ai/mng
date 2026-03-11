@@ -8,7 +8,9 @@ import pytest
 
 from imbue.mng.config.completion_cache import COMPLETION_CACHE_FILENAME
 from imbue.mng.config.completion_cache import get_completion_cache_dir
+from imbue.mng.config.completion_writer import _EXCLUDED_CONFIG_KEY_PREFIXES
 from imbue.mng.config.completion_writer import _extract_config_value_choices
+from imbue.mng.config.completion_writer import _is_excluded_config_key
 from imbue.mng.config.completion_writer import flatten_dict_keys
 from imbue.mng.config.completion_writer import write_cli_completions_cache
 from imbue.mng.config.data_types import AgentTypeConfig
@@ -518,3 +520,53 @@ def test_extract_config_value_choices_no_dynamic_values_skips_typed_fields() -> 
 
     assert "agent_types.coder.parent_type" not in choices
     assert "providers.modal.backend" not in choices
+
+
+# =============================================================================
+# _EXCLUDED_CONFIG_KEY_PREFIXES / _is_excluded_config_key tests
+# =============================================================================
+
+
+def test_is_excluded_config_key_exact_match() -> None:
+    """Exact matches against excluded prefixes should be excluded."""
+    for prefix in _EXCLUDED_CONFIG_KEY_PREFIXES:
+        assert _is_excluded_config_key(prefix)
+
+
+def test_is_excluded_config_key_prefix_match() -> None:
+    """Dotted sub-keys of excluded prefixes should also be excluded."""
+    assert _is_excluded_config_key("disabled_plugins.something")
+    assert _is_excluded_config_key("enabled_backends.local")
+
+
+def test_is_excluded_config_key_non_match() -> None:
+    """Unrelated keys should not be excluded."""
+    assert not _is_excluded_config_key("prefix")
+    assert not _is_excluded_config_key("headless")
+    assert not _is_excluded_config_key("logging.console_level")
+
+
+def test_excluded_config_keys_not_in_dynamic_completions(
+    completion_cache_dir: Path,
+    temp_mng_ctx: MngContext,
+) -> None:
+    """Excluded config keys should not appear in config_keys or config_value_choices."""
+    group = click.Group(
+        name="test",
+        commands={
+            "create": click.Command("create", params=[click.Option(["--type"])]),
+            "list": click.Command("list"),
+        },
+    )
+
+    write_cli_completions_cache(cli_group=group, mng_ctx=temp_mng_ctx)
+    data = _read_cache(completion_cache_dir)
+
+    for prefix in _EXCLUDED_CONFIG_KEY_PREFIXES:
+        matching_keys = [k for k in data["config_keys"] if k == prefix or k.startswith(f"{prefix}.")]
+        assert matching_keys == [], f"excluded prefix {prefix!r} found in config_keys: {matching_keys}"
+
+        matching_choice_keys = [k for k in data["config_value_choices"] if k == prefix or k.startswith(f"{prefix}.")]
+        assert matching_choice_keys == [], (
+            f"excluded prefix {prefix!r} found in config_value_choices: {matching_choice_keys}"
+        )
