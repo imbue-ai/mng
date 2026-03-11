@@ -672,37 +672,37 @@ def test_agent_field_generators_returns_correct_structure() -> None:
     assert callable(generators["waiting_reason"])
 
 
-def test_agent_field_generators_waiting_reason_returns_permissions_when_file_exists(tmp_path: Path) -> None:
+def test_agent_field_generators_waiting_reason_returns_permissions_when_file_exists(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
+) -> None:
     """waiting_reason generator returns 'permissions' when permissions_waiting file exists."""
     result = agent_field_generators()
     assert result is not None
     _, generators = result
     waiting_reason = generators["waiting_reason"]
 
-    agent_id = AgentId.generate()
-    agent = SimpleNamespace(id=agent_id)
-    host = FakeHost(host_dir=tmp_path)
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
 
-    agent_dir = tmp_path / "agents" / str(agent_id)
-    agent_dir.mkdir(parents=True)
+    agent_dir = host.host_dir / "agents" / str(agent.id)
+    agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "permissions_waiting").touch()
 
     assert waiting_reason(agent, host) == "permissions"
 
 
-def test_agent_field_generators_waiting_reason_returns_none_when_file_absent(tmp_path: Path) -> None:
+def test_agent_field_generators_waiting_reason_returns_none_when_file_absent(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
+) -> None:
     """waiting_reason generator returns None when permissions_waiting file does not exist."""
     result = agent_field_generators()
     assert result is not None
     _, generators = result
     waiting_reason = generators["waiting_reason"]
 
-    agent_id = AgentId.generate()
-    agent = SimpleNamespace(id=agent_id)
-    host = FakeHost(host_dir=tmp_path)
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
 
-    agent_dir = tmp_path / "agents" / str(agent_id)
-    agent_dir.mkdir(parents=True)
+    agent_dir = host.host_dir / "agents" / str(agent.id)
+    agent_dir.mkdir(parents=True, exist_ok=True)
 
     assert waiting_reason(agent, host) is None
 
