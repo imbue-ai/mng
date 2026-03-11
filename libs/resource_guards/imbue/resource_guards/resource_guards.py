@@ -7,22 +7,21 @@ Two guard mechanisms are provided:
    based on whether the test has the corresponding mark.
 
 2. SDK monkeypatches intercept Python SDK chokepoints. SDK-specific guards
-   are registered via register_sdk_guard() before session start, then
-   installed by create_sdk_resource_guards(). The monkeypatches call
-   enforce_sdk_guard, which mirrors the wrapper logic: block unmarked
-   usage and track marked usage.
+   are registered via register_sdk_guard() or create_sdk_method_guard()
+   before session start, then installed during start_resource_guards().
+   The monkeypatches call enforce_sdk_guard, which mirrors the wrapper
+   logic: block unmarked usage and track marked usage.
 
 Both mechanisms use per-test tracking files so that makereport can fail tests
 that invoke a resource without the mark or carry a mark without invoking it.
 
 Usage:
-    Register SDK guards via register_sdk_guard(name, install, cleanup) before
-    pytest_sessionstart. Call create_resource_guard_wrappers(resources) and
-    create_sdk_resource_guards() during pytest_sessionstart.
-    Call cleanup_sdk_resource_guards() and cleanup_resource_guard_wrappers()
-    during pytest_sessionfinish. Register the three runtest hooks
-    (pytest_runtest_setup, pytest_runtest_teardown, pytest_runtest_makereport)
-    into the conftest namespace.
+    Register binary guards via register_resource_guard(name) and SDK guards
+    via register_sdk_guard(name, install, cleanup) or
+    create_sdk_method_guard(name, methods) before pytest_sessionstart.
+    Call start_resource_guards(session) during pytest_sessionstart and
+    stop_resource_guards() during pytest_sessionfinish. The per-test hooks
+    are registered automatically as a pytest plugin by start_resource_guards().
 """
 
 import dataclasses
