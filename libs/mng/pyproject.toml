@@ -63,6 +63,7 @@ exclude = ["*_test.py", "test_*.py", "**/conftest.py", "**/utils/testing.py", "*
 [tool.uv.sources]
 imbue-common = { workspace = true }
 concurrency-group = { workspace = true }
+# skitwright is used by e2e tests (not a runtime dependency); resolved via workspace
 
 # Shared pytest settings (markers, filterwarnings, coverage report config)
 # are centralized in:
