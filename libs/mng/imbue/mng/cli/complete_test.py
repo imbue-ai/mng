@@ -898,14 +898,14 @@ def test_get_completions_agent_type_option(
     completion_cache_dir: Path,
     set_comp_env: Callable[[str, str], None],
 ) -> None:
-    """Completing --agent-type should offer agent type names from option_choices."""
+    """Completing --type should offer agent type names from option_choices."""
     data = CompletionCacheData(
         commands=["create"],
-        options_by_command={"create": ["--agent-type", "--name"]},
-        option_choices={"create.--agent-type": ["claude", "codex", "my-custom"]},
+        options_by_command={"create": ["--type", "--name"]},
+        option_choices={"create.--type": ["claude", "codex", "my-custom"]},
     )
     _write_command_cache(completion_cache_dir, data)
-    set_comp_env("mng create --agent-type ", "3")
+    set_comp_env("mng create --type ", "3")
 
     result = _get_completions()
 

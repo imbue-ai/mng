@@ -205,7 +205,7 @@ def test_write_cli_completions_cache_with_mng_ctx(
             "create": click.Command(
                 "create",
                 params=[
-                    click.Option(["--agent-type"]),
+                    click.Option(["--type"]),
                     click.Option(["--template"]),
                     click.Option(["--in"]),
                 ],
@@ -223,8 +223,8 @@ def test_write_cli_completions_cache_with_mng_ctx(
     data = _read_cache(completion_cache_dir)
 
     # Agent types include at least the built-in registered types
-    assert "create.--agent-type" in data["option_choices"]
-    assert len(data["option_choices"]["create.--agent-type"]) > 0
+    assert "create.--type" in data["option_choices"]
+    assert len(data["option_choices"]["create.--type"]) > 0
     # Provider names always include "local"
     assert "local" in data["option_choices"]["create.--in"]
     assert "local" in data["option_choices"]["list.--provider"]

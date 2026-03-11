@@ -100,7 +100,7 @@ _CONFIG_KEY_SUBCOMMANDS: Final[frozenset[str]] = frozenset(
 # Options that receive dynamic choice values from runtime context (config,
 # registries). Maps "command.--option" to the key in dynamic_completions.
 _DYNAMIC_CHOICE_OPTIONS: Final[dict[str, str]] = {
-    "create.--agent-type": "agent_type_names",
+    "create.--type": "agent_type_names",
     "create.--template": "template_names",
     "create.--in": "provider_names",
     "create.--new-host": "provider_names",
