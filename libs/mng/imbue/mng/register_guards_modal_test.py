@@ -6,8 +6,8 @@ from modal._grpc_client import UnaryStreamWrapper
 from modal._grpc_client import UnaryUnaryWrapper
 
 import imbue.resource_guards.resource_guards as resource_guards
+from imbue.mng.register_guards_modal import register_modal_guard
 from imbue.resource_guards.resource_guards import ResourceGuardViolation
-from imbue.resource_guards_modal.guards import register_modal_guard
 
 
 def test_register_modal_guard_adds_modal(
@@ -61,7 +61,9 @@ def test_modal_guard_enforces_on_unary_call(
     monkeypatch.setenv("_PYTEST_GUARD_TRACKING_DIR", str(tmp_path))
 
     with pytest.raises(ResourceGuardViolation, match="without @pytest.mark.modal"):
-        asyncio.get_event_loop().run_until_complete(UnaryUnaryWrapper.__call__(None))
+        asyncio.get_event_loop().run_until_complete(
+            UnaryUnaryWrapper.__call__(None)  # ty: ignore[no-matching-overload]
+        )
 
     resource_guards.cleanup_sdk_resource_guards()
 
@@ -79,11 +81,13 @@ def test_modal_guard_delegates_unary_call(
         return sentinel
 
     # Set the fake before installing so the guard captures it as the "original"
-    UnaryUnaryWrapper.__call__ = fake_call
+    UnaryUnaryWrapper.__call__ = fake_call  # ty: ignore[invalid-assignment]
     register_modal_guard()
     resource_guards.create_sdk_resource_guards()
 
-    result = asyncio.get_event_loop().run_until_complete(UnaryUnaryWrapper.__call__(None))
+    result = asyncio.get_event_loop().run_until_complete(
+        UnaryUnaryWrapper.__call__(None)  # ty: ignore[no-matching-overload]
+    )
     assert result is sentinel
 
     resource_guards.cleanup_sdk_resource_guards()
@@ -101,13 +105,13 @@ def test_modal_guard_delegates_unary_stream(
         yield "b"
 
     # Set the fake before installing so the guard captures it as the "original"
-    UnaryStreamWrapper.unary_stream = fake_stream
+    UnaryStreamWrapper.unary_stream = fake_stream  # ty: ignore[invalid-assignment]
     register_modal_guard()
     resource_guards.create_sdk_resource_guards()
 
     async def collect():
         results = []
-        async for item in UnaryStreamWrapper.unary_stream(None):
+        async for item in UnaryStreamWrapper.unary_stream(None):  # ty: ignore[missing-argument,invalid-argument-type]
             results.append(item)
         return results
 

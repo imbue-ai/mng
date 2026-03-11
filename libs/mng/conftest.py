@@ -10,11 +10,11 @@ and this file's register_conftest_hooks() call is a no-op (guarded by a module-l
 
 from imbue.imbue_common.conftest_hooks import register_conftest_hooks
 from imbue.imbue_common.conftest_hooks import register_marker
+from imbue.mng.register_guards_docker import register_docker_cli_guard
+from imbue.mng.register_guards_docker import register_docker_sdk_guard
+from imbue.mng.register_guards_modal import register_modal_guard
 from imbue.mng.utils.logging import suppress_warnings
 from imbue.resource_guards.resource_guards import register_resource_guard
-from imbue.resource_guards_docker.guards import register_docker_cli_guard
-from imbue.resource_guards_docker.guards import register_docker_sdk_guard
-from imbue.resource_guards_modal.guards import register_modal_guard
 
 suppress_warnings()
 

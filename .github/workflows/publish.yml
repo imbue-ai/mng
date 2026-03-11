@@ -55,12 +55,6 @@ jobs:
       - name: Build resource-guards
         run: pyproject-build libs/resource_guards -o dist/
 
-      - name: Build resource-guards-modal
-        run: pyproject-build libs/resource_guards_modal -o dist/
-
-      - name: Build resource-guards-docker
-        run: pyproject-build libs/resource_guards_docker -o dist/
-
       - name: Build imbue-common
         run: pyproject-build libs/imbue_common -o dist/
 

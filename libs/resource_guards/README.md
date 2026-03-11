@@ -17,12 +17,9 @@ There are two guard mechanisms, covering CLI binaries and Python SDKs respective
 
 Both mechanisms use per-test tracking files so the `makereport` hook can detect violations even when the test swallows errors or handles non-zero exit codes.
 
-## Packages
+## Built-in guards
 
-This is the core package. Extension packages provide guards for specific SDKs:
-
-- **`resource-guards-modal`** -- guards for Modal gRPC calls
-- **`resource-guards-docker`** -- guards for Docker CLI and Docker SDK
+mng provides Modal and Docker guards out of the box (in `imbue.mng.register_guards_modal` and `imbue.mng.register_guards_docker`). These are registered automatically in mng's conftest.py.
 
 ## Setup
 

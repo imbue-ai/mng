@@ -9,11 +9,11 @@ are discovered (e.g., when running from the monorepo root).
 
 from imbue.imbue_common.conftest_hooks import register_conftest_hooks
 from imbue.imbue_common.conftest_hooks import register_marker
+from imbue.mng.register_guards_docker import register_docker_cli_guard
+from imbue.mng.register_guards_docker import register_docker_sdk_guard
+from imbue.mng.register_guards_modal import register_modal_guard
 from imbue.mng.utils.logging import suppress_warnings
 from imbue.resource_guards.resource_guards import register_resource_guard
-from imbue.resource_guards_docker.guards import register_docker_cli_guard
-from imbue.resource_guards_docker.guards import register_docker_sdk_guard
-from imbue.resource_guards_modal.guards import register_modal_guard
 
 # Suppress some pointless warnings from other library's loggers
 suppress_warnings()

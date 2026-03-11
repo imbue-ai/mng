@@ -4,9 +4,9 @@ import pytest
 from docker.api.client import APIClient
 
 import imbue.resource_guards.resource_guards as resource_guards
+from imbue.mng.register_guards_docker import register_docker_cli_guard
+from imbue.mng.register_guards_docker import register_docker_sdk_guard
 from imbue.resource_guards.resource_guards import ResourceGuardViolation
-from imbue.resource_guards_docker.guards import register_docker_cli_guard
-from imbue.resource_guards_docker.guards import register_docker_sdk_guard
 
 
 def test_register_docker_sdk_guard_adds_docker_sdk(
@@ -54,7 +54,7 @@ def test_docker_sdk_guard_enforces_guard(
     monkeypatch.setenv("_PYTEST_GUARD_TRACKING_DIR", str(tmp_path))
 
     with pytest.raises(ResourceGuardViolation, match="without @pytest.mark.docker_sdk"):
-        APIClient.send(None)  # ty: ignore[invalid-argument-type]
+        APIClient.send(None)  # ty: ignore[missing-argument,invalid-argument-type]
 
     resource_guards.cleanup_sdk_resource_guards()
 
