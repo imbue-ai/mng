@@ -25,6 +25,7 @@ from imbue.mng.agents.default_plugins.claude_agent import _has_api_credentials_a
 from imbue.mng.agents.default_plugins.claude_agent import _install_claude
 from imbue.mng.agents.default_plugins.claude_agent import _parse_claude_version_output
 from imbue.mng.agents.default_plugins.claude_agent import _read_macos_keychain_credential
+from imbue.mng.agents.default_plugins.claude_agent import agent_field_generators
 from imbue.mng.agents.default_plugins.claude_agent import get_files_for_deploy
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
@@ -659,6 +660,51 @@ def test_get_lifecycle_state_returns_waiting_when_permissions_waiting(
     ):
         with patch.object(BaseAgent, "get_lifecycle_state", return_value=state):
             assert agent.get_lifecycle_state() == state
+
+
+def test_agent_field_generators_returns_correct_structure() -> None:
+    """agent_field_generators returns ('claude', {waiting_reason: <callable>})."""
+    result = agent_field_generators()
+    assert result is not None
+    plugin_name, generators = result
+    assert plugin_name == "claude"
+    assert "waiting_reason" in generators
+    assert callable(generators["waiting_reason"])
+
+
+def test_agent_field_generators_waiting_reason_returns_permissions_when_file_exists(tmp_path: Path) -> None:
+    """waiting_reason generator returns 'permissions' when permissions_waiting file exists."""
+    result = agent_field_generators()
+    assert result is not None
+    _, generators = result
+    waiting_reason = generators["waiting_reason"]
+
+    agent_id = AgentId.generate()
+    agent = SimpleNamespace(id=agent_id)
+    host = FakeHost(host_dir=tmp_path)
+
+    agent_dir = tmp_path / "agents" / str(agent_id)
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "permissions_waiting").touch()
+
+    assert waiting_reason(agent, host) == "permissions"
+
+
+def test_agent_field_generators_waiting_reason_returns_none_when_file_absent(tmp_path: Path) -> None:
+    """waiting_reason generator returns None when permissions_waiting file does not exist."""
+    result = agent_field_generators()
+    assert result is not None
+    _, generators = result
+    waiting_reason = generators["waiting_reason"]
+
+    agent_id = AgentId.generate()
+    agent = SimpleNamespace(id=agent_id)
+    host = FakeHost(host_dir=tmp_path)
+
+    agent_dir = tmp_path / "agents" / str(agent_id)
+    agent_dir.mkdir(parents=True)
+
+    assert waiting_reason(agent, host) is None
 
 
 def test_get_expected_process_name_returns_claude(

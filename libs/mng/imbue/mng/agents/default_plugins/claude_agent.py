@@ -1368,6 +1368,22 @@ def register_agent_type() -> tuple[str, type[AgentInterface] | None, type[AgentT
     return ("claude", ClaudeAgent, ClaudeAgentConfig)
 
 
+def _waiting_reason(agent: AgentInterface, host: OnlineHostInterface) -> str | None:
+    """Return "permissions" when the agent is blocked on a permission dialog, None otherwise."""
+    agent_dir = host.host_dir / "agents" / str(agent.id)
+    try:
+        host.read_text_file(agent_dir / "permissions_waiting")
+        return "permissions"
+    except FileNotFoundError:
+        return None
+
+
+@hookimpl
+def agent_field_generators() -> tuple[str, dict[str, Callable[[AgentInterface, OnlineHostInterface], Any]]] | None:
+    """Expose Claude-specific agent fields for listing."""
+    return ("claude", {"waiting_reason": _waiting_reason})
+
+
 @hookimpl
 def get_files_for_deploy(
     mng_ctx: MngContext,
