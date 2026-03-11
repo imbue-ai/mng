@@ -84,6 +84,7 @@ def default_create_cli_opts() -> CreateCliOptions:
         env=(),
         env_file=(),
         pass_env=(),
+        provider=None,
         new_host=False,
         host_name_style="astronomy",
         host_label=(),

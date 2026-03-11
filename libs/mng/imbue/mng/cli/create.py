@@ -217,6 +217,7 @@ class CreateCliOptions(CommonCliOptions):
     env: tuple[str, ...]
     env_file: tuple[str, ...]
     pass_env: tuple[str, ...]
+    provider: str | None
     new_host: bool
     host_name_style: str
     host_label: tuple[str, ...]
@@ -290,10 +291,14 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--label", multiple=True, help="Agent label KEY=VALUE [repeatable] [experimental]")
 @optgroup.group("Host Options")
 @optgroup.option(
+    "--provider",
+    help="Provider for the host (alternative to .PROVIDER in the address, e.g. --provider docker)",
+)
+@optgroup.option(
     "--new-host",
     is_flag=True,
     default=False,
-    help="Force creating a new host (provider must be in the agent address, e.g. NAME@HOST.PROVIDER --new-host)",
+    help="Force creating a new host (requires a provider via address or --provider)",
 )
 @optgroup.option(
     "--project",
@@ -493,6 +498,19 @@ def create(ctx: click.Context, **kwargs) -> None:
     if opts.positional_name and opts.name:
         raise UserInputError("Cannot specify both a positional agent address and --name. Use one or the other.")
     address = _parse_agent_address(opts.positional_name or opts.name or "")
+
+    # Merge --provider flag into the address (alternative to .PROVIDER in the address).
+    if opts.provider:
+        flag_provider = ProviderInstanceName(opts.provider)
+        if address.provider_name is not None and address.provider_name != flag_provider:
+            raise UserInputError(
+                f"Conflicting providers: address has '{address.provider_name}' "
+                f"but --provider is '{flag_provider}'. Use one or the other."
+            )
+        if address.provider_name is None:
+            address = address.model_copy_update(
+                to_update(address.field_ref().provider_name, flag_provider),
+            )
 
     # Apply --yes flag to auto-approve prompts (e.g., skill installation)
     if opts.yes:

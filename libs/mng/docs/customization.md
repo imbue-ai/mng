@@ -107,18 +107,18 @@ Templates provide named presets of create command arguments that can be quickly 
 
 # Template for running agents in Modal
 [create_templates.modal]
-new_host = "modal"
+provider = "modal"
 target_path = "/root/workspace"
 idle_timeout = 3600
 
 # Template for running agents in Docker
 [create_templates.docker]
-new_host = "docker"
+provider = "docker"
 target_path = "/workspace"
 
 # Template with extra commands for development
 [create_templates.dev]
-new_host = "modal"
+provider = "modal"
 add_command = ["server=npm run dev", "logs=tail -f /var/log/app.log"]
 ```
 

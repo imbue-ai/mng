@@ -73,7 +73,8 @@ By default, `mng create` uses the local host. Use the agent address to specify a
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--new-host` | boolean | Force creating a new host (provider must be in the agent address, e.g. NAME@HOST.PROVIDER --new-host) | `False` |
+| `--provider` | text | Provider for the host (alternative to .PROVIDER in the address, e.g. --provider docker) | None |
+| `--new-host` | boolean | Force creating a new host (requires a provider via address or --provider) | `False` |
 | `--project` | text | Project name for the agent (sets the 'project' label) [default: derived from git remote origin or folder name] | None |
 | `--host-label` | text | Host metadata label KEY=VALUE [repeatable] | None |
 | `--host-name-style` | choice (`astronomy` &#x7C; `places` &#x7C; `cities` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `scientists`) | Auto-generated host name style | `astronomy` |
