@@ -791,8 +791,27 @@ def test_build_agent_details_multiple_plugins() -> None:
     assert result.plugin == {"plugin_a": {"version": "1.0"}, "plugin_b": {"count": 5}}
 
 
+def test_build_agent_details_continues_when_generator_raises() -> None:
+    """_build_agent_details_from_online_agent should skip a failing generator and continue."""
+
+    def _raise(_a: object, _h: object) -> str:
+        raise RuntimeError("generator exploded")
+
+    result = _build_details_with_stubs(
+        {
+            "my_plugin": {
+                "good": lambda a, h: "ok",
+                "bad": _raise,
+                "also_good": lambda a, h: 99,
+            },
+        }
+    )
+
+    assert result.plugin == {"my_plugin": {"good": "ok", "also_good": 99}}
+
+
 # =============================================================================
-# discover_all_hosts_and_agents Tests
+# discover_all_hosts_and_agents Tests (continued)
 # =============================================================================
 
 

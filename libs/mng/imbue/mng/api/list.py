@@ -483,7 +483,17 @@ def _build_agent_details_from_online_agent(
     for plugin_name, generators in field_generators.items():
         plugin_fields: dict[str, Any] = {}
         for field_name, generator in generators.items():
-            value = generator(agent, host)
+            try:
+                value = generator(agent, host)
+            except Exception:
+                logger.warning(
+                    "Field generator {}.{} failed for agent {}",
+                    plugin_name,
+                    field_name,
+                    agent.name,
+                    exc_info=True,
+                )
+                continue
             if value is not None:
                 plugin_fields[field_name] = value
         if plugin_fields:
