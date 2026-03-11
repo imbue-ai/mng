@@ -1328,3 +1328,56 @@ def test_get_completions_config_set_dynamic_plugin_key(
     result = _get_completions()
 
     assert result == ["true", "false"]
+
+
+def test_get_completions_config_set_agent_type_parent_type(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """config set agent_types.coder.parent_type <TAB> should offer agent type names."""
+    data = CompletionCacheData(
+        commands=["config"],
+        subcommand_by_command={"config": ["set"]},
+        config_keys=["agent_types.coder.parent_type", "headless"],
+        positional_nargs_by_command={"config.set": 2},
+        positional_completions={"config.set": [["config_keys"], ["config_value_for_key"]]},
+        config_value_choices={
+            "agent_types.coder.parent_type": ["claude", "codex", "coder"],
+            "headless": ["true", "false"],
+        },
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng config set agent_types.coder.parent_type ", "4")
+
+    result = _get_completions()
+
+    assert "claude" in result
+    assert "codex" in result
+    assert "coder" in result
+
+
+def test_get_completions_config_set_provider_backend(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """config set providers.modal.backend <TAB> should offer provider backend names."""
+    data = CompletionCacheData(
+        commands=["config"],
+        subcommand_by_command={"config": ["set"]},
+        config_keys=["providers.modal.backend", "headless"],
+        positional_nargs_by_command={"config.set": 2},
+        positional_completions={"config.set": [["config_keys"], ["config_value_for_key"]]},
+        config_value_choices={
+            "providers.modal.backend": ["docker", "local", "modal", "ssh"],
+            "headless": ["true", "false"],
+        },
+    )
+    _write_command_cache(completion_cache_dir, data)
+    set_comp_env("mng config set providers.modal.backend ", "4")
+
+    result = _get_completions()
+
+    assert "docker" in result
+    assert "local" in result
+    assert "modal" in result
+    assert "ssh" in result

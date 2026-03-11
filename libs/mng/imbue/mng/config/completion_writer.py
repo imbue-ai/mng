@@ -15,6 +15,9 @@ from imbue.mng.config.completion_cache import COMPLETION_CACHE_FILENAME
 from imbue.mng.config.completion_cache import CompletionCacheData
 from imbue.mng.config.completion_cache import get_completion_cache_dir
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.config.provider_config_registry import list_registered_provider_backend_names
+from imbue.mng.primitives import AgentTypeName
+from imbue.mng.primitives import ProviderBackendName
 from imbue.mng.utils.click_utils import detect_alias_to_canonical
 from imbue.mng.utils.file_utils import atomic_write
 
@@ -87,6 +90,14 @@ _DYNAMIC_CHOICE_OPTIONS: Final[dict[str, str]] = {
     "create.--in": "provider_names",
     "create.--new-host": "provider_names",
     "list.--provider": "provider_names",
+}
+
+# Maps field annotation types (from config models) to completion source names.
+# When _walk_model_for_choices encounters a field with one of these types, it
+# uses the corresponding source name to look up dynamic completion values.
+_FIELD_TYPE_COMPLETION_SOURCES: Final[dict[type, str]] = {
+    AgentTypeName: "agent_type_names",
+    ProviderBackendName: "provider_backend_names",
 }
 
 
@@ -206,22 +217,33 @@ def _unwrap_optional(annotation: Any) -> Any:
     return annotation
 
 
-def _extract_config_value_choices(config: BaseModel) -> dict[str, list[str]]:
+def _extract_config_value_choices(
+    config: BaseModel,
+    dynamic_values: dict[str, list[str]] | None = None,
+) -> dict[str, list[str]]:
     """Walk a config instance to find all fields with constrained-value types.
 
     For bool fields, returns ["true", "false"].
     For Enum subclass fields, returns the string values of the enum members.
+    For fields whose annotation type is in _FIELD_TYPE_COMPLETION_SOURCES,
+    returns the corresponding dynamic completion values.
     For nested BaseModel fields, recurses with a dotted prefix.
     For dict fields whose values are BaseModel instances, iterates the
     concrete keys from the instance and recurses into each value.
     Handles Optional[T] / T | None annotations by unwrapping to the inner type.
     """
+    resolved = dynamic_values if dynamic_values is not None else {}
     result: dict[str, list[str]] = {}
-    _walk_model_for_choices(config, "", result)
+    _walk_model_for_choices(config, "", result, resolved)
     return result
 
 
-def _walk_model_for_choices(obj: BaseModel, prefix: str, result: dict[str, list[str]]) -> None:
+def _walk_model_for_choices(
+    obj: BaseModel,
+    prefix: str,
+    result: dict[str, list[str]],
+    dynamic_values: dict[str, list[str]],
+) -> None:
     """Recursively walk a pydantic model instance, collecting constrained-value fields."""
     field_values = obj.__dict__
     for field_name, field_info in type(obj).model_fields.items():
@@ -233,12 +255,17 @@ def _walk_model_for_choices(obj: BaseModel, prefix: str, result: dict[str, list[
             result[key] = ["true", "false"]
         elif isinstance(annotation, type) and issubclass(annotation, Enum):
             result[key] = [str(e.value) for e in annotation]
+        elif annotation in _FIELD_TYPE_COMPLETION_SOURCES:
+            source_name = _FIELD_TYPE_COMPLETION_SOURCES[annotation]
+            values = dynamic_values.get(source_name, [])
+            if values:
+                result[key] = values
         elif isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            _walk_model_for_choices(value, f"{key}.", result)
+            _walk_model_for_choices(value, f"{key}.", result, dynamic_values)
         elif isinstance(value, dict):
             for dict_key, dict_value in value.items():
                 if isinstance(dict_value, BaseModel):
-                    _walk_model_for_choices(dict_value, f"{key}.{dict_key}.", result)
+                    _walk_model_for_choices(dict_value, f"{key}.{dict_key}.", result, dynamic_values)
         else:
             # Other types (str, int, Path, list, etc.) have no constrained
             # value set -- skip them.
@@ -268,11 +295,18 @@ def _build_dynamic_completions(mng_ctx: MngContext) -> _DynamicCompletions:
     custom = [str(k) for k in config.agent_types.keys()]
     agent_type_names = sorted(set(registered + custom))
 
+    provider_backend_names = list_registered_provider_backend_names()
+
     template_names = sorted(str(k) for k in config.create_templates.keys())
     provider_names = sorted(set(["local"] + [str(k) for k in config.providers.keys()]))
     plugin_names = sorted({name for name, _ in mng_ctx.pm.list_name_plugin() if name and not name.startswith("_")})
     config_keys = flatten_dict_keys(config.model_dump(mode="json"))
-    config_value_choices = _extract_config_value_choices(config)
+
+    dynamic_values = {
+        "agent_type_names": agent_type_names,
+        "provider_backend_names": provider_backend_names,
+    }
+    config_value_choices = _extract_config_value_choices(config, dynamic_values)
 
     return _DynamicCompletions(
         agent_type_names=agent_type_names,

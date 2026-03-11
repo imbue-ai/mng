@@ -11,10 +11,12 @@ from imbue.mng.config.completion_cache import get_completion_cache_dir
 from imbue.mng.config.completion_writer import _extract_config_value_choices
 from imbue.mng.config.completion_writer import flatten_dict_keys
 from imbue.mng.config.completion_writer import write_cli_completions_cache
+from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import ProviderInstanceConfig
+from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderBackendName
 from imbue.mng.primitives import ProviderInstanceName
@@ -465,3 +467,54 @@ def test_write_cli_completions_cache_no_mng_ctx_empty_config_value_choices(
     data = _read_cache(completion_cache_dir)
 
     assert data["config_value_choices"] == {}
+
+
+# =============================================================================
+# _FIELD_TYPE_COMPLETION_SOURCES tests
+# =============================================================================
+
+
+def test_extract_config_value_choices_agent_type_name_field_with_dynamic_values() -> None:
+    """AgentTypeName fields should produce completions from dynamic agent_type_names."""
+    config = MngConfig(
+        agent_types={
+            AgentTypeName("coder"): AgentTypeConfig(parent_type=AgentTypeName("claude")),
+        }
+    )
+    dynamic_values = {"agent_type_names": ["claude", "codex", "coder"]}
+    choices = _extract_config_value_choices(config, dynamic_values)
+
+    assert choices["agent_types.coder.parent_type"] == ["claude", "codex", "coder"]
+
+
+def test_extract_config_value_choices_provider_backend_name_field_with_dynamic_values() -> None:
+    """ProviderBackendName fields should produce completions from dynamic provider_backend_names."""
+    config = MngConfig(
+        providers={
+            ProviderInstanceName("modal"): ProviderInstanceConfig(
+                backend=ProviderBackendName("modal"), is_enabled=True
+            ),
+        }
+    )
+    dynamic_values = {"provider_backend_names": ["docker", "local", "modal", "ssh"]}
+    choices = _extract_config_value_choices(config, dynamic_values)
+
+    assert choices["providers.modal.backend"] == ["docker", "local", "modal", "ssh"]
+
+
+def test_extract_config_value_choices_no_dynamic_values_skips_typed_fields() -> None:
+    """Without dynamic values, AgentTypeName and ProviderBackendName fields are omitted."""
+    config = MngConfig(
+        agent_types={
+            AgentTypeName("coder"): AgentTypeConfig(parent_type=AgentTypeName("claude")),
+        },
+        providers={
+            ProviderInstanceName("modal"): ProviderInstanceConfig(
+                backend=ProviderBackendName("modal"),
+            ),
+        },
+    )
+    choices = _extract_config_value_choices(config)
+
+    assert "agent_types.coder.parent_type" not in choices
+    assert "providers.modal.backend" not in choices
