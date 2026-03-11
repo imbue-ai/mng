@@ -224,7 +224,6 @@ _EXECUTE_QUERY_PREFIX: Final[str] = (
 )
 
 
-_READ_ONLY_TOOLS: Final[str] = "Read,Glob,Grep"
 _MNG_REPO_URL: Final[str] = "https://github.com/imbue-ai/mng"
 
 
@@ -298,12 +297,54 @@ def _destroy_on_exit(host: OnlineHostInterface, agent: AgentInterface) -> Iterat
             logger.debug("Failed to destroy ask agent {}", agent.name)
 
 
+def _build_read_only_tools_and_permissions(
+    source_directory: Path | None,
+    *,
+    allow_web: bool,
+) -> tuple[str, tuple[str, ...]]:
+    """Build the --tools value and --allowedTools args for the ask agent.
+
+    When source_directory is provided, Read/Glob/Grep are included and
+    path-scoped to that directory. When None, only WebFetch (if enabled)
+    is available.
+
+    Returns (tools_csv, allowed_tools_args).
+    """
+    tools_parts: list[str] = []
+    allowed_tools_args: tuple[str, ...] = ()
+
+    if source_directory is not None:
+        tools_parts.append("Read,Glob,Grep")
+        scope = f"//{source_directory}/**"
+        allowed_tools_args += (
+            "--allowedTools",
+            f"Read({scope})",
+            "--allowedTools",
+            f"Glob({scope})",
+            "--allowedTools",
+            f"Grep({scope})",
+        )
+
+    if allow_web:
+        tools_parts.append("WebFetch")
+        allowed_tools_args += (
+            "--allowedTools",
+            "WebFetch(domain:github.com)",
+            "--allowedTools",
+            "WebFetch(domain:raw.githubusercontent.com)",
+        )
+
+    tools_csv = ",".join(tools_parts)
+    return tools_csv, allowed_tools_args
+
+
 @contextmanager
 def _headless_claude_output(
     mng_ctx: MngContext,
     prompt: str,
     system_prompt: str,
     *,
+    source_directory: Path | None = None,
     allow_web: bool = False,
 ) -> Iterator[StreamingHeadlessAgentMixin]:
     """Create a HeadlessClaude agent, yield it, and destroy it on exit.
@@ -312,8 +353,8 @@ def _headless_claude_output(
     and passes claude args for headless operation (--system-prompt, --output-format
     stream-json, --tools, --no-session-persistence).
 
-    When allow_web is True, the WebFetch tool is added to the tool list and
-    restricted to GitHub domains via --allowedTools.
+    When source_directory is provided, Read/Glob/Grep tools are path-scoped to
+    that directory. When allow_web is True, WebFetch is restricted to GitHub domains.
     """
     provider = get_provider_instance(LOCAL_PROVIDER_NAME, mng_ctx)
     host_interface = provider.get_host(HostName("localhost"))
@@ -329,19 +370,9 @@ def _headless_claude_output(
         (work_path / ".mng-system-prompt").write_text(system_prompt)
         (work_path / ".mng-prompt").write_text(prompt)
 
-        tools = _READ_ONLY_TOOLS + (",WebFetch" if allow_web else "")
-
-        allowed_tools_args: tuple[str, ...] = (
-            "--allowedTools",
-            _READ_ONLY_TOOLS,
+        tools, allowed_tools_args = _build_read_only_tools_and_permissions(
+            source_directory, allow_web=allow_web,
         )
-        if allow_web:
-            allowed_tools_args += (
-                "--allowedTools",
-                "WebFetch(domain:github.com)",
-                "--allowedTools",
-                "WebFetch(domain:raw.githubusercontent.com)",
-            )
 
         agent_args = (
             "--system-prompt",
@@ -387,11 +418,16 @@ class HeadlessClaudeBackend(ClaudeBackendInterface):
     """Runs claude via a HeadlessClaude agent for proper agent lifecycle management."""
 
     mng_ctx: MngContext
+    source_directory: Path | None = None
     allow_web: bool = False
 
     def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
         with _headless_claude_output(
-            self.mng_ctx, prompt, system_prompt, allow_web=self.allow_web
+            self.mng_ctx,
+            prompt,
+            system_prompt,
+            source_directory=self.source_directory,
+            allow_web=self.allow_web,
         ) as agent:
             yield from agent.stream_output()
 
@@ -487,15 +523,15 @@ def _run_ask_query(
     backend: ClaudeBackendInterface,
     query_string: str,
     *,
+    source_directory: Path | None,
     execute: bool,
     allow_web: bool,
     output_format: OutputFormat,
 ) -> None:
     """Run a query against the claude backend and handle the response."""
     system_prompt = _build_ask_context()
-    source_dir = _find_mng_source_directory()
-    if source_dir is not None:
-        system_prompt += _build_source_access_context(source_dir)
+    if source_directory is not None:
+        system_prompt += _build_source_access_context(source_directory)
     if allow_web:
         system_prompt += _build_web_access_context()
     chunks = backend.query(prompt=query_string, system_prompt=system_prompt)
@@ -525,10 +561,14 @@ def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     emit_info("Thinking...", output_opts.output_format)
 
-    backend = HeadlessClaudeBackend(mng_ctx=mng_ctx, allow_web=opts.allow_web)
+    source_dir = _find_mng_source_directory()
+    backend = HeadlessClaudeBackend(
+        mng_ctx=mng_ctx, source_directory=source_dir, allow_web=opts.allow_web,
+    )
     _run_ask_query(
         backend=backend,
         query_string=query_string,
+        source_directory=source_dir,
         execute=opts.execute,
         allow_web=opts.allow_web,
         output_format=output_opts.output_format,

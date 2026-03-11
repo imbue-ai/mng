@@ -10,6 +10,7 @@ import imbue.mng.cli.ask as ask_module
 from imbue.mng.cli.ask import ClaudeBackendInterface
 from imbue.mng.cli.ask import _accumulate_chunks
 from imbue.mng.cli.ask import _build_ask_context
+from imbue.mng.cli.ask import _build_read_only_tools_and_permissions
 from imbue.mng.cli.ask import _build_source_access_context
 from imbue.mng.cli.ask import _build_web_access_context
 from imbue.mng.cli.ask import _execute_response
@@ -307,16 +308,57 @@ def test_build_web_access_context_contains_github_info() -> None:
 
 
 # =============================================================================
+# Tests for _build_read_only_tools_and_permissions
+# =============================================================================
+
+
+def test_build_tools_with_source_directory_scopes_read_tools(tmp_path: Path) -> None:
+    """Read/Glob/Grep should be included and path-scoped to source_directory."""
+    tools, args = _build_read_only_tools_and_permissions(tmp_path, allow_web=False)
+    assert tools == "Read,Glob,Grep"
+    assert f"Read(//{tmp_path}/**)" in args
+    assert f"Glob(//{tmp_path}/**)" in args
+    assert f"Grep(//{tmp_path}/**)" in args
+
+
+def test_build_tools_without_source_directory_excludes_read_tools() -> None:
+    """When source_directory is None, no Read/Glob/Grep tools should be included."""
+    tools, args = _build_read_only_tools_and_permissions(None, allow_web=False)
+    assert tools == ""
+    assert args == ()
+
+
+def test_build_tools_with_web_includes_webfetch() -> None:
+    """WebFetch should be included and domain-scoped when allow_web is True."""
+    tools, args = _build_read_only_tools_and_permissions(None, allow_web=True)
+    assert tools == "WebFetch"
+    assert "WebFetch(domain:github.com)" in args
+    assert "WebFetch(domain:raw.githubusercontent.com)" in args
+
+
+def test_build_tools_with_source_and_web_includes_all(tmp_path: Path) -> None:
+    """Both read tools and WebFetch should be included when both are enabled."""
+    tools, args = _build_read_only_tools_and_permissions(tmp_path, allow_web=True)
+    assert "Read,Glob,Grep" in tools
+    assert "WebFetch" in tools
+    assert f"Read(//{tmp_path}/**)" in args
+    assert "WebFetch(domain:github.com)" in args
+
+
+# =============================================================================
 # Tests for _run_ask_query
 # =============================================================================
 
 
 def test_run_ask_query_includes_source_context() -> None:
     """System prompt should include source access context when source directory exists."""
+    source_dir = _find_mng_source_directory()
+    assert source_dir is not None
     backend = FakeClaude(responses=["mng list"])
     _run_ask_query(
         backend=backend,
         query_string="test query",
+        source_directory=source_dir,
         execute=False,
         allow_web=False,
         output_format=OutputFormat.HUMAN,
@@ -325,12 +367,28 @@ def test_run_ask_query_includes_source_context() -> None:
     assert "Source Code Access" in backend.system_prompts[0]
 
 
+def test_run_ask_query_excludes_source_context_when_none() -> None:
+    """System prompt should not include source access context when source_directory is None."""
+    backend = FakeClaude(responses=["mng list"])
+    _run_ask_query(
+        backend=backend,
+        query_string="test query",
+        source_directory=None,
+        execute=False,
+        allow_web=False,
+        output_format=OutputFormat.HUMAN,
+    )
+    assert len(backend.system_prompts) == 1
+    assert "Source Code Access" not in backend.system_prompts[0]
+
+
 def test_run_ask_query_includes_web_context_when_enabled() -> None:
     """System prompt should include web access context when allow_web is True."""
     backend = FakeClaude(responses=["mng list"])
     _run_ask_query(
         backend=backend,
         query_string="test query",
+        source_directory=None,
         execute=False,
         allow_web=True,
         output_format=OutputFormat.HUMAN,
@@ -345,6 +403,7 @@ def test_run_ask_query_excludes_web_context_when_disabled() -> None:
     _run_ask_query(
         backend=backend,
         query_string="test query",
+        source_directory=None,
         execute=False,
         allow_web=False,
         output_format=OutputFormat.HUMAN,
