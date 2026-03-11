@@ -485,6 +485,11 @@ class AgentObserver(MutableModel):
                 except (MngError, OSError) as e:
                     logger.warning("Failed to fetch agent state for host {}: {}", hid, e)
 
+    @staticmethod
+    def _serialize_agent(agent: AgentDetails) -> str:
+        """Serialize an agent to a deterministic JSON string for change comparison."""
+        return json.dumps(agent.model_dump(mode="json"), sort_keys=True)
+
     def _fetch_and_emit_agent_state_for_host(self, host_id_str: str) -> None:
         """Fetch current agent state for a host and emit events for changed agents."""
         with self._lock:
@@ -501,7 +506,7 @@ class AgentObserver(MutableModel):
             )
 
         for agent in result.agents:
-            agent_json = json.dumps(agent.model_dump(mode="json"), sort_keys=True)
+            agent_json = self._serialize_agent(agent)
             with self._lock:
                 has_changed = agent_json != self._last_agent_json_by_id.get(str(agent.id))
             if has_changed:
@@ -519,25 +524,27 @@ class AgentObserver(MutableModel):
             for error in result.errors:
                 logger.warning("Error during full state snapshot: {} - {}", error.exception_type, error.message)
 
-        # Check for state field changes and update tracking under the lock
+        self._process_snapshot_agents(result.agents)
+
+    def _process_snapshot_agents(self, agents: Sequence[AgentDetails]) -> None:
+        """Process agents from a full snapshot: detect state changes, emit events, update tracking."""
         state_changes: list[tuple[AgentDetails, str | None]] = []
         with self._lock:
-            for agent in result.agents:
+            for agent in agents:
                 agent_id_str = str(agent.id)
                 new_state = agent.state.value
                 old_state = self._last_agent_state_by_id.get(agent_id_str)
                 if old_state != new_state:
                     state_changes.append((agent, old_state))
                     self._last_agent_state_by_id[agent_id_str] = new_state
-                agent_json = json.dumps(agent.model_dump(mode="json"), sort_keys=True)
-                self._last_agent_json_by_id[agent_id_str] = agent_json
+                self._last_agent_json_by_id[agent_id_str] = self._serialize_agent(agent)
 
         # Emit the full state event (includes all agents regardless of change)
-        event = make_full_agent_state_event(result.agents)
+        event = make_full_agent_state_event(agents)
         append_observe_event(self.mng_ctx.config, event)
         logger.debug(
             "Emitted full agent state event with {} agent(s)",
-            len(result.agents),
+            len(agents),
         )
 
         # Emit state change events to the agent_states stream
@@ -551,12 +558,11 @@ class AgentObserver(MutableModel):
         logger.debug("Emitted agent state event for {} (state={})", agent.name, agent.state.value)
 
         agent_id_str = str(agent.id)
-        agent_json = json.dumps(agent.model_dump(mode="json"), sort_keys=True)
         new_state = agent.state.value
 
         with self._lock:
             old_state = self._last_agent_state_by_id.get(agent_id_str)
-            self._last_agent_json_by_id[agent_id_str] = agent_json
+            self._last_agent_json_by_id[agent_id_str] = self._serialize_agent(agent)
             self._last_agent_state_by_id[agent_id_str] = new_state
 
         if old_state != new_state:

@@ -508,6 +508,54 @@ def test_agent_observer_do_full_state_snapshot_writes_event(temp_mng_ctx: MngCon
     assert data["type"] == "AGENTS_FULL_STATE"
 
 
+def test_agent_observer_process_snapshot_agents_emits_state_changes(temp_mng_ctx: MngContext) -> None:
+    """Verify that _process_snapshot_agents detects state field changes and emits to agent_states."""
+    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary="/bin/true")
+    agent = make_test_agent_details(name="snapshot-agent", state=AgentLifecycleState.STOPPED)
+
+    # Pre-populate with a different state to simulate a transition
+    observer._last_agent_state_by_id[str(agent.id)] = "RUNNING"
+
+    observer._process_snapshot_agents([agent])
+
+    # Should have written a full state event
+    events_path = get_observe_events_path(temp_mng_ctx.config)
+    agents_lines = events_path.read_text().strip().splitlines()
+    assert len(agents_lines) == 1
+    assert json.loads(agents_lines[0])["type"] == "AGENTS_FULL_STATE"
+
+    # Should have emitted a state change event (RUNNING -> STOPPED)
+    states_path = get_agent_states_events_path(temp_mng_ctx.config)
+    assert states_path.exists()
+    states_lines = states_path.read_text().strip().splitlines()
+    assert len(states_lines) == 1
+    data = json.loads(states_lines[0])
+    assert data["type"] == "AGENT_STATE_CHANGE"
+    assert data["old_state"] == "RUNNING"
+    assert data["new_state"] == "STOPPED"
+    assert data["agent_name"] == "snapshot-agent"
+
+
+def test_agent_observer_process_snapshot_agents_no_change_when_same_state(temp_mng_ctx: MngContext) -> None:
+    """Verify that _process_snapshot_agents does not emit a state change when state is unchanged."""
+    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary="/bin/true")
+    agent = make_test_agent_details(name="stable-agent", state=AgentLifecycleState.RUNNING)
+
+    # Pre-populate with the same state
+    observer._last_agent_state_by_id[str(agent.id)] = "RUNNING"
+
+    observer._process_snapshot_agents([agent])
+
+    # Full state event should still be written
+    events_path = get_observe_events_path(temp_mng_ctx.config)
+    agents_lines = events_path.read_text().strip().splitlines()
+    assert len(agents_lines) == 1
+
+    # No state change event should be written
+    states_path = get_agent_states_events_path(temp_mng_ctx.config)
+    assert not states_path.exists()
+
+
 def test_agent_observer_emit_state_change_writes_to_agent_states_stream(temp_mng_ctx: MngContext) -> None:
     """Verify that _emit_state_change writes an AGENT_STATE_CHANGE event to the agent_states file."""
     observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary="/bin/true")
