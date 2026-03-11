@@ -10,8 +10,8 @@ from imbue.mng.cli.complete import _read_cache
 from imbue.mng.cli.complete import _read_discovery_names
 from imbue.mng.cli.complete import _read_git_branches
 from imbue.mng.cli.complete import _read_host_names
-from imbue.mng.config.completion_types import COMPLETION_CACHE_FILENAME
-from imbue.mng.config.completion_types import CompletionCacheData
+from imbue.mng.config.completion_cache import COMPLETION_CACHE_FILENAME
+from imbue.mng.config.completion_cache import CompletionCacheData
 from imbue.mng.utils.testing import run_git_command
 from imbue.mng.utils.testing import write_discovery_snapshot_to_path
 

@@ -16,9 +16,9 @@ import sys
 from typing import NamedTuple
 
 from imbue.mng.cli.complete_names import resolve_names_from_discovery_stream
-from imbue.mng.config.completion_types import COMPLETION_CACHE_FILENAME
-from imbue.mng.config.completion_types import CompletionCacheData
-from imbue.mng.config.completion_types import get_completion_cache_dir
+from imbue.mng.config.completion_cache import COMPLETION_CACHE_FILENAME
+from imbue.mng.config.completion_cache import CompletionCacheData
+from imbue.mng.config.completion_cache import get_completion_cache_dir
 
 
 class _CompletionContext(NamedTuple):

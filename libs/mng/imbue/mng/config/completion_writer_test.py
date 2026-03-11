@@ -6,8 +6,8 @@ from pathlib import Path
 import click
 import pytest
 
-from imbue.mng.config.completion_types import COMPLETION_CACHE_FILENAME
-from imbue.mng.config.completion_types import get_completion_cache_dir
+from imbue.mng.config.completion_cache import COMPLETION_CACHE_FILENAME
+from imbue.mng.config.completion_cache import get_completion_cache_dir
 from imbue.mng.config.completion_writer import flatten_dict_keys
 from imbue.mng.config.completion_writer import write_cli_completions_cache
 from imbue.mng.config.data_types import MngContext

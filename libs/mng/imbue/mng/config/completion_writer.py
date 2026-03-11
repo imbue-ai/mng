@@ -6,9 +6,9 @@ import click
 from loguru import logger
 
 from imbue.mng.agents.agent_registry import list_registered_agent_types
-from imbue.mng.config.completion_types import COMPLETION_CACHE_FILENAME
-from imbue.mng.config.completion_types import CompletionCacheData
-from imbue.mng.config.completion_types import get_completion_cache_dir
+from imbue.mng.config.completion_cache import COMPLETION_CACHE_FILENAME
+from imbue.mng.config.completion_cache import CompletionCacheData
+from imbue.mng.config.completion_cache import get_completion_cache_dir
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.utils.click_utils import detect_alias_to_canonical
 from imbue.mng.utils.file_utils import atomic_write
