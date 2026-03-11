@@ -169,9 +169,9 @@ def list_agents(
         results_lock = Lock()
 
         field_generators: dict[str, dict[str, Callable[[AgentInterface, OnlineHostInterface], Any]]] = {}
-        for result in mng_ctx.pm.hook.agent_field_generators():
-            if result is not None:
-                plugin_name, generators = result
+        for hook_result in mng_ctx.pm.hook.agent_field_generators():
+            if hook_result is not None:
+                plugin_name, generators = hook_result
                 field_generators[plugin_name] = generators
 
         params = _ListAgentsParams(
