@@ -83,7 +83,7 @@ from imbue.mng.primitives import OutputFormat
 from imbue.mng.primitives import Permission
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotName
-from imbue.mng.primitives import WorkDirCopyMode
+from imbue.mng.primitives import TransferMode
 from imbue.mng.utils.duration import parse_duration_to_seconds
 from imbue.mng.utils.editor import EditorSession
 from imbue.mng.utils.git_utils import derive_project_name_from_path
@@ -135,6 +135,12 @@ def _make_idle_mode_choices() -> list[str]:
 
 
 @pure
+def _make_transfer_mode_choices() -> list[str]:
+    """Get kebab-case transfer mode choices for the --transfer CLI flag."""
+    return [m.value.lower().replace("_", "-") for m in TransferMode]
+
+
+@pure
 def _make_output_format_choices() -> list[str]:
     """Get lowercase output format choices."""
     return [f.value.lower() for f in OutputFormat]
@@ -173,17 +179,12 @@ class CreateCliOptions(CommonCliOptions):
     target: str | None
     target_path: str | None
     in_place: bool
-    copy_source: bool
-    clone: bool
-    worktree: bool
-    rsync: bool | None
+    transfer: str | None
     rsync_args: str | None
     include_git: bool
     include_unclean: bool | None
     include_gitignored: bool
     branch: str
-    depth: int | None
-    shallow_since: str | None
     env: tuple[str, ...]
     env_file: tuple[str, ...]
     pass_env: tuple[str, ...]
@@ -298,11 +299,10 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--source-host", help="Source host")
 @optgroup.option("--source-path", help="Source path")
 @optgroup.option(
-    "--rsync/--no-rsync",
-    default=None,
-    help="Use rsync for file transfer [default: yes if rsync-args are present or if git is disabled]",
+    "--extra-rsync-pass-args",
+    "rsync_args",
+    help="Additional arguments to pass to rsync during the supplementary rsync pass",
 )
-@optgroup.option("--rsync-args", help="Additional arguments to pass to rsync")
 @optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
 @optgroup.group("Agent Target (where to put the new agent)")
 @optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
@@ -311,20 +311,10 @@ class CreateCliOptions(CommonCliOptions):
     "--in-place", "in_place", is_flag=True, help="Run directly in source directory. Incompatible with --target-path"
 )
 @optgroup.option(
-    "--copy",
-    "copy_source",
-    is_flag=True,
-    help="Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo]",
-)
-@optgroup.option(
-    "--clone",
-    is_flag=True,
-    help="Create a git clone that shares objects with original repo (only works for local agents)",
-)
-@optgroup.option(
-    "--worktree",
-    is_flag=True,
-    help="Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires a new branch in --branch (which is the default)",
+    "--transfer",
+    type=click.Choice(_make_transfer_mode_choices(), case_sensitive=False),
+    default=None,
+    help="How to transfer source code: rsync (direct file copy), git-push (git push --mirror), git-worktree (shared worktree) [default: git-worktree for local git repos, git-push for remote git repos, rsync for non-git]",
 )
 @optgroup.group("Agent Git Configuration")
 @optgroup.option(
@@ -337,8 +327,6 @@ class CreateCliOptions(CommonCliOptions):
     "Omit :NEW to use BASE directly without creating a branch. "
     f"Empty NEW (e.g. 'main:') defaults to {_DEFAULT_NEW_BRANCH_PATTERN}.",
 )
-@optgroup.option("--depth", type=int, help="Shallow clone depth [default: full]")
-@optgroup.option("--shallow-since", help="Shallow clone since date")
 @optgroup.option(
     "--ensure-clean/--no-ensure-clean", default=True, show_default=True, help="Abort if working tree is dirty"
 )
@@ -610,7 +598,7 @@ def _create_agent(
     # agent will be created from that branch and uncommitted changes in the current
     # working tree are irrelevant.
     is_worktree_from_other_branch = (
-        agent_opts.git is not None and agent_opts.git.copy_mode == WorkDirCopyMode.WORKTREE and has_explicit_base
+        agent_opts.git is not None and agent_opts.git.transfer_mode == TransferMode.GIT_WORKTREE and has_explicit_base
     )
     if opts.ensure_clean and not is_worktree_from_other_branch:
         _ensure_clean_work_dir(setup.source_location)
@@ -1005,41 +993,40 @@ def _parse_agent_opts(
         parsed_name_style = AgentNameStyle(opts.name_style.upper())
         parsed_agent_name = generate_agent_name(parsed_name_style)
 
-    # Determine copy_mode from CLI flags
-    # Priority: explicit flags > default behavior
-    # Default: worktree for local git repos, copy for non-git repos or remote hosts
-    copy_mode: WorkDirCopyMode | None
-    # None means "in-place" (no copy/clone/worktree)
+    # Determine transfer_mode from CLI flags
+    # Priority: explicit --transfer flag > --in-place > default behavior
+    # Default: git-worktree for local git repos, git-push for remote git repos, rsync for non-git
+    transfer_mode: TransferMode | None
+    # None means "in-place" (no transfer)
     if opts.in_place:
-        copy_mode = None
-    elif opts.worktree:
-        copy_mode = WorkDirCopyMode.WORKTREE
-    elif opts.clone:
-        copy_mode = WorkDirCopyMode.CLONE
-    elif opts.copy_source:
-        copy_mode = WorkDirCopyMode.COPY
+        transfer_mode = None
+    elif opts.transfer is not None:
+        transfer_mode = TransferMode(opts.transfer.upper().replace("-", "_"))
     else:
-        # No explicit flag, apply defaults based on context
-        # When creating a new remote host (--in/--new-host), always use COPY
-        # since WORKTREE only works when source and target are on the same host
+        # No explicit flag, apply defaults based on context:
+        # - GIT_WORKTREE for local git repos (fast, shares objects)
+        # - GIT_PUSH for remote git repos (transfers only git objects via git push --mirror)
+        # - RSYNC for non-git sources (rsync everything)
         is_creating_remote_host = opts.new_host is not None and opts.new_host.lower() != LOCAL_PROVIDER_NAME
+        is_git_repo = source_location.host.is_local and _is_git_repo(source_location.path, mng_ctx.concurrency_group)
         if is_creating_remote_host:
-            copy_mode = WorkDirCopyMode.COPY
+            transfer_mode = TransferMode.GIT_PUSH if is_git_repo else TransferMode.RSYNC
         elif source_location.host.is_local:
-            is_git_repo = _is_git_repo(source_location.path, mng_ctx.concurrency_group)
             if is_git_repo:
-                copy_mode = WorkDirCopyMode.WORKTREE
+                transfer_mode = TransferMode.GIT_WORKTREE
             else:
-                copy_mode = WorkDirCopyMode.COPY
+                transfer_mode = TransferMode.RSYNC
         else:
-            copy_mode = WorkDirCopyMode.COPY
+            transfer_mode = TransferMode.RSYNC
 
     # Parse --branch flag: [BASE_BRANCH][:NEW_BRANCH]
     base_branch, new_branch_name, has_explicit_base = _parse_branch_flag(opts.branch, parsed_agent_name)
 
-    # --worktree requires a new branch
-    if copy_mode == WorkDirCopyMode.WORKTREE and new_branch_name is None:
-        raise UserInputError("--worktree requires a new branch. Use --branch BASE:NEW instead of --branch BASE.")
+    # --transfer=git-worktree requires a new branch
+    if transfer_mode == TransferMode.GIT_WORKTREE and new_branch_name is None:
+        raise UserInputError(
+            "--transfer=git-worktree requires a new branch. Use --branch BASE:NEW instead of --branch BASE."
+        )
 
     # if the user didn't specify whether to include unclean, then infer from ensure_clean
     if opts.include_unclean is None:
@@ -1047,17 +1034,15 @@ def _parse_agent_opts(
     else:
         is_include_unclean = opts.include_unclean
 
-    # Build git options (None if copy_mode is None, meaning --in-place)
+    # Build git options (None if transfer_mode is None, meaning --in-place)
     git: AgentGitOptions | None
-    if copy_mode is None:
+    if transfer_mode is None:
         git = None
     else:
         git = AgentGitOptions(
-            copy_mode=copy_mode,
+            transfer_mode=transfer_mode,
             base_branch=base_branch or _get_current_git_branch(source_location, mng_ctx),
             new_branch_name=new_branch_name,
-            depth=opts.depth,
-            shallow_since=opts.shallow_since,
             is_git_synced=opts.include_git,
             is_include_unclean=is_include_unclean,
             is_include_gitignored=opts.include_gitignored,
@@ -1065,7 +1050,6 @@ def _parse_agent_opts(
 
     # parse source data options
     data_options = AgentDataOptions(
-        is_rsync_enabled=bool(opts.rsync or opts.rsync_args or git is None),
         rsync_args=opts.rsync_args or "",
     )
 
@@ -1367,8 +1351,8 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     key="create",
     one_line_description="Create and run an agent",
     synopsis="""mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [-w WINDOW_NAME=COMMAND]
-    [--label KEY=VALUE] [--host-label KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
-    [--[no-]rsync] [--rsync-args <ARGS>] [--branch [BASE][:NEW]] [--[no-]ensure-clean]
+    [--label KEY=VALUE] [--host-label KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--transfer <MODE>]
+    [--extra-rsync-pass-args <ARGS>] [--branch [BASE][:NEW]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]

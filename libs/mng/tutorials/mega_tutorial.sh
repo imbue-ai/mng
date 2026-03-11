@@ -98,26 +98,22 @@ mng create my-task --branch "main:mng/*"
 # or set the new branch name explicitly:
 mng create my-task --branch ":feature/my-task"
 
-# you can create a copy instead of a worktree:
-mng create my-task --copy
+# you can create a direct file copy instead of a worktree:
+mng create my-task --transfer=rsync
 # that is used by default if you're not in a git repo
 
-# you can disable new branch creation entirely by omitting the :NEW part (requires --in-place or --copy due to how worktrees work, and --in-place implies no new branch):
-mng create my-task --copy --branch main
+# you can disable new branch creation entirely by omitting the :NEW part (requires --in-place or --transfer=rsync due to how worktrees work, and --in-place implies no new branch):
+mng create my-task --transfer=rsync --branch main
 
-# you can create a "clone" instead of worktree or copy, which is a lightweight copy that shares git objects with the original repo but has its own separate working directory:
-mng create my-task --clone
-
-# you can make a shallow clone for faster setup:
-mng create my-task --depth 1
-# (--shallow-since clones since a specific date instead)
+# you can use git-push mode, which uses "git push --mirror" to transfer only git objects (faster for large repos with many non-tracked files):
+mng create my-task --transfer=git-push
 
 # you can clone from an existing agent's work directory:
 mng create my-task --from other-agent
 # (--source, --source-agent, and --source-host are alternative forms for more specific control)
 
-# you can use rsync to transfer extra data as well, beyond just the git data:
-mng create my-task --in modal --rsync --rsync-args "--exclude=node_modules"
+# you can pass extra arguments to the supplementary rsync pass (e.g., to exclude files):
+mng create my-task --in modal --extra-rsync-pass-args "--exclude=node_modules"
 
 ## CREATING AGENTS REMOTELY
 

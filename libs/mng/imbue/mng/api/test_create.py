@@ -34,7 +34,7 @@ from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.primitives import WorkDirCopyMode
+from imbue.mng.primitives import TransferMode
 from imbue.mng.utils.testing import tmux_session_cleanup
 from imbue.mng.utils.testing import tmux_session_exists
 
@@ -292,7 +292,7 @@ def test_create_agent_with_worktree(
                 name=agent_name,
                 command=CommandString("sleep 527146"),
                 git=AgentGitOptions(
-                    copy_mode=WorkDirCopyMode.WORKTREE,
+                    transfer_mode=TransferMode.GIT_WORKTREE,
                     new_branch_name=f"mng/{agent_name}",
                 ),
             )
@@ -364,7 +364,7 @@ def test_worktree_with_custom_branch_name(
                 name=agent_name,
                 command=CommandString("sleep 60"),
                 git=AgentGitOptions(
-                    copy_mode=WorkDirCopyMode.WORKTREE,
+                    transfer_mode=TransferMode.GIT_WORKTREE,
                     base_branch=current_branch,
                     new_branch_name=custom_branch,
                 ),
@@ -521,7 +521,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
                 name=agent_name,
                 command=CommandString("sleep 60"),
                 git=AgentGitOptions(
-                    copy_mode=WorkDirCopyMode.WORKTREE,
+                    transfer_mode=TransferMode.GIT_WORKTREE,
                     new_branch_name=f"mng/{agent_name}",
                 ),
             )

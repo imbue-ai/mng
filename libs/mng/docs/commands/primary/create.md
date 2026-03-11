@@ -7,8 +7,8 @@
 
 ```text
 mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [-w WINDOW_NAME=COMMAND]
-    [--label KEY=VALUE] [--host-label KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
-    [--[no-]rsync] [--rsync-args <ARGS>] [--branch [BASE][:NEW]] [--[no-]ensure-clean]
+    [--label KEY=VALUE] [--host-label KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--transfer <MODE>]
+    [--extra-rsync-pass-args <ARGS>] [--branch [BASE][:NEW]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]
@@ -90,8 +90,7 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--source-agent`, `--from-agent` | text | Source agent for cloning work_dir | None |
 | `--source-host` | text | Source host | None |
 | `--source-path` | text | Source path | None |
-| `--rsync`, `--no-rsync` | boolean | Use rsync for file transfer [default: yes if rsync-args are present or if git is disabled] | None |
-| `--rsync-args` | text | Additional arguments to pass to rsync | None |
+| `--extra-rsync-pass-args` | text | Additional arguments to pass to rsync during the supplementary rsync pass | None |
 | `--include-git`, `--no-include-git` | boolean | Include .git directory | `True` |
 
 ## Agent Target (where to put the new agent)
@@ -101,17 +100,13 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--target` | text | Target [HOST][:PATH]. Defaults to current dir if no other target args are given | None |
 | `--target-path` | text | Directory to mount source inside agent host. Incompatible with --in-place | None |
 | `--in-place` | boolean | Run directly in source directory. Incompatible with --target-path | `False` |
-| `--copy` | boolean | Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo] | `False` |
-| `--clone` | boolean | Create a git clone that shares objects with original repo (only works for local agents) | `False` |
-| `--worktree` | boolean | Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires a new branch in --branch (which is the default) | `False` |
+| `--transfer` | choice (`rsync` &#x7C; `git-push` &#x7C; `git-worktree`) | How to transfer source code: rsync (direct file copy), git-push (git push --mirror), git-worktree (shared worktree) [default: git-worktree for local git repos, git-push for remote git repos, rsync for non-git] | None |
 
 ## Agent Git Configuration
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--branch` | text | Branch spec as [BASE][:NEW]. BASE defaults to current branch. NEW creates a fresh branch (* is replaced by agent name). Omit :NEW to use BASE directly without creating a branch. Empty NEW (e.g. 'main:') defaults to mng/*. | `:mng/*` |
-| `--depth` | integer | Shallow clone depth [default: full] | None |
-| `--shallow-since` | text | Shallow clone since date | None |
 | `--ensure-clean`, `--no-ensure-clean` | boolean | Abort if working tree is dirty | `True` |
 | `--include-unclean`, `--exclude-unclean` | boolean | Include uncommitted files [default: include if --no-ensure-clean] | None |
 | `--include-gitignored`, `--no-include-gitignored` | boolean | Include gitignored files | `False` |

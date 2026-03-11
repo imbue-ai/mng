@@ -39,7 +39,7 @@ from imbue.mng.primitives import HostState
 from imbue.mng.primitives import Permission
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotName
-from imbue.mng.primitives import WorkDirCopyMode
+from imbue.mng.primitives import TransferMode
 
 # Default timeout for waiting for agent readiness before sending messages.
 # With hook-based polling, we return early when the agent signals readiness,
@@ -490,9 +490,9 @@ class AgentGitOptions(FrozenModel):
         default=True,
         description="Whether to sync git data from the source repository",
     )
-    copy_mode: WorkDirCopyMode = Field(
-        default=WorkDirCopyMode.COPY,
-        description="How to set up the work_dir: copy, clone, or worktree",
+    transfer_mode: TransferMode = Field(
+        default=TransferMode.RSYNC,
+        description="How to transfer source code to the work_dir: rsync (direct file copy), git-push (git push --mirror), or git-worktree",
     )
     base_branch: str | None = Field(
         default=None,
@@ -501,14 +501,6 @@ class AgentGitOptions(FrozenModel):
     new_branch_name: str | None = Field(
         default=None,
         description="Fully resolved name for the new branch, or None to use base_branch directly",
-    )
-    depth: int | None = Field(
-        default=None,
-        description="Shallow clone depth (None for full clone)",
-    )
-    shallow_since: str | None = Field(
-        default=None,
-        description="Shallow clone since date",
     )
     is_include_unclean: bool = Field(
         # the default is true because we should not assume that git is even being used
@@ -682,10 +674,6 @@ class NamedCommand(FrozenModel):
 class AgentDataOptions(FrozenModel):
     """Options for what data to include from the source."""
 
-    is_rsync_enabled: bool = Field(
-        default=True,
-        description="Whether to use rsync for file transfer",
-    )
     rsync_args: str = Field(
         default="",
         description="Additional arguments to pass to rsync",

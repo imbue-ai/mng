@@ -2322,7 +2322,6 @@ def test_rsync_extra_args_parsing(host_with_temp_dir: tuple[Host, Path]) -> None
         command=CommandString("sleep 1"),
         target_path=target_path,
         data_options=AgentDataOptions(
-            is_rsync_enabled=True,
             rsync_args="--exclude exclude_me.txt",
         ),
     )
@@ -2356,7 +2355,6 @@ def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> 
         command=CommandString("sleep 1"),
         target_path=target_path,
         data_options=AgentDataOptions(
-            is_rsync_enabled=True,
             rsync_args='--exclude "file with spaces.txt"',
         ),
     )
@@ -2535,11 +2533,11 @@ def test_rsync_files_remote_to_remote_with_files_from(
 
 
 @pytest.mark.rsync
-def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test that rsync without --delete preserves existing files in target.
+def test_file_copy_deletes_extra_files_in_target(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that file copy mode (default) uses --delete to make an exact mirror.
 
-    This is intentional behavior: rsync is designed for adding extra files
-    (e.g., data files not in git), not for full directory sync.
+    When using COPY transfer mode (the default when no git options are specified),
+    pre-existing files in the target that don't exist in the source are removed.
     """
     host, temp_dir = host_with_temp_dir
 
@@ -2557,7 +2555,7 @@ def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tup
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        data_options=AgentDataOptions(is_rsync_enabled=True),
+        data_options=AgentDataOptions(),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options).path
@@ -2565,8 +2563,8 @@ def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tup
     assert work_dir == target_path
     # New file should be copied
     assert (work_dir / "new_file.txt").read_text() == "new content"
-    # Existing file should NOT be deleted (rsync doesn't use --delete by default)
-    assert (work_dir / "existing_file.txt").read_text() == "existing content"
+    # Existing file IS deleted (file copy mode produces an exact mirror)
+    assert not (work_dir / "existing_file.txt").exists()
 
 
 @pytest.mark.rsync
@@ -2592,7 +2590,6 @@ def test_rsync_with_delete_removes_extra_files(host_with_temp_dir: tuple[Host, P
         command=CommandString("sleep 1"),
         target_path=target_path,
         data_options=AgentDataOptions(
-            is_rsync_enabled=True,
             rsync_args="--delete",
         ),
     )
@@ -2657,7 +2654,7 @@ def test_create_work_dir_cross_host_generates_unique_paths(
         name=AgentName("agent-one"),
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
-        data_options=AgentDataOptions(is_rsync_enabled=True),
+        data_options=AgentDataOptions(),
     )
 
     work_dir_1 = target_host.create_agent_work_dir(source_host, source_path, options).path
@@ -2671,7 +2668,7 @@ def test_create_work_dir_cross_host_generates_unique_paths(
         name=AgentName("agent-two"),
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
-        data_options=AgentDataOptions(is_rsync_enabled=True),
+        data_options=AgentDataOptions(),
     )
 
     work_dir_2 = target_host.create_agent_work_dir(source_host, source_path, options_2).path

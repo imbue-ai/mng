@@ -60,7 +60,7 @@ from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import CommandString
-from imbue.mng.primitives import WorkDirCopyMode
+from imbue.mng.primitives import TransferMode
 from imbue.mng.providers.ssh_host_setup import load_resource_script
 from imbue.mng.utils.git_utils import find_git_common_dir
 from imbue.mng.utils.polling import poll_until
@@ -875,12 +875,12 @@ class ClaudeAgent(BaseAgent):
         Interactive and auto-approve runs skip these checks because
         provision() will handle them.
         """
-        if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
+        if options.git and options.git.transfer_mode == TransferMode.GIT_WORKTREE:
             if not host.is_local:
                 raise PluginMngError(
                     "Worktree mode is not supported on remote hosts.\n"
                     "Claude trust extension requires local filesystem access. "
-                    "Use --copy or --clone instead."
+                    "Use --transfer=rsync or --transfer=git-push instead."
                 )
 
         config = self._get_claude_config()
@@ -894,8 +894,8 @@ class ClaudeAgent(BaseAgent):
             and not mng_ctx.is_auto_approve
             and not config.trust_working_directory
         ):
-            copy_mode = options.git.copy_mode if options.git else None
-            if copy_mode in (WorkDirCopyMode.WORKTREE, WorkDirCopyMode.COPY):
+            transfer_mode = options.git.transfer_mode if options.git else None
+            if transfer_mode in (TransferMode.GIT_WORKTREE, TransferMode.RSYNC):
                 source_path = self._find_git_source_path(mng_ctx.concurrency_group)
                 trust_path = source_path if source_path is not None else self.work_dir
             else:
@@ -1176,10 +1176,10 @@ class ClaudeAgent(BaseAgent):
             data = _generate_claude_json(config.version)
 
         projects = data.setdefault("projects", {})
-        copy_mode = options.git.copy_mode if options.git else None
+        transfer_mode = options.git.transfer_mode if options.git else None
 
         # For worktree/copy mode, extend trust from the source to the work_dir
-        if copy_mode in (WorkDirCopyMode.WORKTREE, WorkDirCopyMode.COPY):
+        if transfer_mode in (TransferMode.GIT_WORKTREE, TransferMode.RSYNC):
             source_path = self._find_git_source_path(self.mng_ctx.concurrency_group)
             if source_path is not None:
                 source_path = source_path.resolve()
@@ -1220,8 +1220,8 @@ class ClaudeAgent(BaseAgent):
         if host.is_local:
             # Determine the source path for trust extension
             source_path: Path | None = None
-            copy_mode = options.git.copy_mode if options.git else None
-            if copy_mode in (WorkDirCopyMode.WORKTREE, WorkDirCopyMode.COPY):
+            transfer_mode = options.git.transfer_mode if options.git else None
+            if transfer_mode in (TransferMode.GIT_WORKTREE, TransferMode.RSYNC):
                 source_path = self._find_git_source_path(mng_ctx.concurrency_group)
 
             if config.trust_working_directory:

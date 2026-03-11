@@ -47,7 +47,7 @@ from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostName
-from imbue.mng.primitives import WorkDirCopyMode
+from imbue.mng.primitives import TransferMode
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.utils.testing import init_git_repo
 from imbue.mng.utils.testing import make_mng_ctx
@@ -217,7 +217,7 @@ def _mock_all_dialog_prompts(
 
 _WORKTREE_OPTIONS = CreateAgentOptions(
     agent_type=AgentTypeName("claude"),
-    git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    git=AgentGitOptions(transfer_mode=TransferMode.GIT_WORKTREE),
 )
 
 
@@ -919,7 +919,7 @@ def test_provision_does_not_extend_trust_for_non_worktree(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(copy_mode=WorkDirCopyMode.COPY),
+        git=AgentGitOptions(transfer_mode=TransferMode.RSYNC),
     )
 
     agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
@@ -1025,7 +1025,7 @@ def test_on_before_provisioning_raises_for_worktree_on_remote_host(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+        git=AgentGitOptions(transfer_mode=TransferMode.GIT_WORKTREE),
     )
 
     with pytest.raises(PluginMngError, match="Worktree mode is not supported on remote hosts"):
