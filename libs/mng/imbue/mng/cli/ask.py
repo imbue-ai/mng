@@ -224,6 +224,56 @@ _EXECUTE_QUERY_PREFIX: Final[str] = (
 )
 
 
+_READ_ONLY_TOOLS: Final[str] = "Read,Glob,Grep"
+_MNG_REPO_URL: Final[str] = "https://github.com/imbue-ai/mng"
+
+
+def _find_mng_source_directory() -> Path | None:
+    """Find the mng project directory by walking up from this file.
+
+    Returns the project root (containing imbue/mng/) or None if not found.
+    Only requires the Python source tree to exist; docs/ may or may not be
+    present (the CLI docs are already injected from the help metadata registry).
+    """
+    candidate = Path(__file__).resolve().parents[3]
+    if (candidate / "imbue" / "mng").is_dir():
+        return candidate
+    return None
+
+
+def _build_source_access_context(source_directory: Path) -> str:
+    """Build system prompt section describing available source code access."""
+    parts = [
+        "\n\n# Source Code Access\n\n",
+        f"The mng source code is available on disk at: {source_directory}\n",
+        "You can use the Read, Glob, and Grep tools to explore it when answering questions.\n\n",
+        "Key directories:\n",
+    ]
+    is_docs_present = (source_directory / "docs").is_dir()
+    if is_docs_present:
+        parts.append(f"- {source_directory}/docs/ - User-facing documentation (markdown)\n")
+    parts += [
+        f"- {source_directory}/imbue/mng/ - Python source code\n",
+        f"- {source_directory}/imbue/mng/cli/ - CLI command implementations\n",
+        f"- {source_directory}/imbue/mng/agents/ - Agent type implementations\n",
+        f"- {source_directory}/imbue/mng/providers/ - Provider backends (docker, modal, local)\n",
+        f"- {source_directory}/imbue/mng/plugins/ - Plugin system\n",
+        f"- {source_directory}/imbue/mng/config/ - Configuration handling\n",
+    ]
+    return "".join(parts)
+
+
+def _build_web_access_context() -> str:
+    """Build system prompt section describing available web access."""
+    return (
+        "\n\n# Web Access\n\n"
+        "You have access to the WebFetch tool, restricted to the mng GitHub repository.\n"
+        f"The repository is at: {_MNG_REPO_URL}\n"
+        "Use WebFetch to read source files, documentation, issues, or pull requests\n"
+        "from the repository when the information is not available locally.\n"
+    )
+
+
 class ClaudeBackendInterface(MutableModel, ABC):
     """Abstraction over the claude backend for testability."""
 
@@ -250,13 +300,20 @@ def _destroy_on_exit(host: OnlineHostInterface, agent: AgentInterface) -> Iterat
 
 @contextmanager
 def _headless_claude_output(
-    mng_ctx: MngContext, prompt: str, system_prompt: str
+    mng_ctx: MngContext,
+    prompt: str,
+    system_prompt: str,
+    *,
+    allow_web: bool = False,
 ) -> Iterator[StreamingHeadlessAgentMixin]:
     """Create a HeadlessClaude agent, yield it, and destroy it on exit.
 
     Creates a temporary directory as the work path (no git branch creation),
     and passes claude args for headless operation (--system-prompt, --output-format
-    stream-json, --tools "", --no-session-persistence).
+    stream-json, --tools, --no-session-persistence).
+
+    When allow_web is True, the WebFetch tool is added to the tool list and
+    restricted to GitHub domains via --allowedTools.
     """
     provider = get_provider_instance(LOCAL_PROVIDER_NAME, mng_ctx)
     host_interface = provider.get_host(HostName("localhost"))
@@ -272,6 +329,20 @@ def _headless_claude_output(
         (work_path / ".mng-system-prompt").write_text(system_prompt)
         (work_path / ".mng-prompt").write_text(prompt)
 
+        tools = _READ_ONLY_TOOLS + (",WebFetch" if allow_web else "")
+
+        allowed_tools_args: tuple[str, ...] = (
+            "--allowedTools",
+            _READ_ONLY_TOOLS,
+        )
+        if allow_web:
+            allowed_tools_args += (
+                "--allowedTools",
+                "WebFetch(domain:github.com)",
+                "--allowedTools",
+                "WebFetch(domain:raw.githubusercontent.com)",
+            )
+
         agent_args = (
             "--system-prompt",
             '"$(cat "$MNG_AGENT_WORK_DIR/.mng-system-prompt")"',
@@ -280,7 +351,10 @@ def _headless_claude_output(
             "--verbose",
             "--include-partial-messages",
             "--tools",
-            '""',
+            f'"{tools}"',
+            *allowed_tools_args,
+            "--permission-mode",
+            "dontAsk",
             "--no-session-persistence",
             '"$(cat "$MNG_AGENT_WORK_DIR/.mng-prompt")"',
         )
@@ -313,9 +387,12 @@ class HeadlessClaudeBackend(ClaudeBackendInterface):
     """Runs claude via a HeadlessClaude agent for proper agent lifecycle management."""
 
     mng_ctx: MngContext
+    allow_web: bool = False
 
     def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
-        with _headless_claude_output(self.mng_ctx, prompt, system_prompt) as agent:
+        with _headless_claude_output(
+            self.mng_ctx, prompt, system_prompt, allow_web=self.allow_web
+        ) as agent:
             yield from agent.stream_output()
 
 
@@ -380,6 +457,7 @@ class AskCliOptions(CommonCliOptions):
 
     query: tuple[str, ...]
     execute: bool
+    allow_web: bool
 
 
 @click.command(name="ask")
@@ -390,6 +468,11 @@ class AskCliOptions(CommonCliOptions):
     is_flag=True,
     help="Execute the generated CLI command instead of just printing it",
 )
+@optgroup.option(
+    "--allow-web",
+    is_flag=True,
+    help="Allow fetching content from the mng GitHub repository",
+)
 @add_common_options
 @click.pass_context
 def ask(ctx: click.Context, **kwargs: Any) -> None:
@@ -398,6 +481,30 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
+
+
+def _run_ask_query(
+    backend: ClaudeBackendInterface,
+    query_string: str,
+    *,
+    execute: bool,
+    allow_web: bool,
+    output_format: OutputFormat,
+) -> None:
+    """Run a query against the claude backend and handle the response."""
+    system_prompt = _build_ask_context()
+    source_dir = _find_mng_source_directory()
+    if source_dir is not None:
+        system_prompt += _build_source_access_context(source_dir)
+    if allow_web:
+        system_prompt += _build_web_access_context()
+    chunks = backend.query(prompt=query_string, system_prompt=system_prompt)
+
+    if execute:
+        response = _accumulate_chunks(chunks)
+        _execute_response(response=response, output_format=output_format)
+    else:
+        _stream_or_accumulate_response(chunks=chunks, output_format=output_format)
 
 
 def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
@@ -418,16 +525,14 @@ def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     emit_info("Thinking...", output_opts.output_format)
 
-    backend = HeadlessClaudeBackend(mng_ctx=mng_ctx)
-    system_prompt = _build_ask_context()
-    chunks = backend.query(prompt=query_string, system_prompt=system_prompt)
-
-    if opts.execute:
-        # Accumulate all chunks for execute mode (don't stream to user)
-        response = _accumulate_chunks(chunks)
-        _execute_response(response=response, output_format=output_opts.output_format)
-    else:
-        _stream_or_accumulate_response(chunks=chunks, output_format=output_opts.output_format)
+    backend = HeadlessClaudeBackend(mng_ctx=mng_ctx, allow_web=opts.allow_web)
+    _run_ask_query(
+        backend=backend,
+        query_string=query_string,
+        execute=opts.execute,
+        allow_web=opts.allow_web,
+        output_format=output_opts.output_format,
+    )
 
 
 def _stream_or_accumulate_response(chunks: Iterator[str], output_format: OutputFormat) -> None:
@@ -474,7 +579,7 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
 CommandHelpMetadata(
     key="ask",
     one_line_description="Chat with mng for help [experimental]",
-    synopsis="mng ask [--execute] QUERY...",
+    synopsis="mng ask [--execute] [--allow-web] QUERY...",
     description="""Ask a question and mng will generate the appropriate CLI command.
 If no query is provided, shows general help about available commands
 and common workflows.

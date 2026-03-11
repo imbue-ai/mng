@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterator
+from pathlib import Path
 
 import pluggy
 import pytest
@@ -9,7 +10,11 @@ import imbue.mng.cli.ask as ask_module
 from imbue.mng.cli.ask import ClaudeBackendInterface
 from imbue.mng.cli.ask import _accumulate_chunks
 from imbue.mng.cli.ask import _build_ask_context
+from imbue.mng.cli.ask import _build_source_access_context
+from imbue.mng.cli.ask import _build_web_access_context
 from imbue.mng.cli.ask import _execute_response
+from imbue.mng.cli.ask import _find_mng_source_directory
+from imbue.mng.cli.ask import _run_ask_query
 from imbue.mng.cli.ask import _show_command_summary
 from imbue.mng.cli.ask import ask
 from imbue.mng.errors import MngError
@@ -239,3 +244,124 @@ def test_show_command_summary_jsonl(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     data = json.loads(captured.out.strip())
     assert data["event"] == "commands"
+
+
+# =============================================================================
+# Tests for _find_mng_source_directory
+# =============================================================================
+
+
+def test_find_mng_source_directory_returns_path() -> None:
+    """Should find the mng source directory when running from the source tree."""
+    result = _find_mng_source_directory()
+    assert result is not None
+    assert (result / "imbue" / "mng").is_dir()
+
+
+def test_find_mng_source_directory_returns_none_when_not_found(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Should return None when the source tree is not found."""
+    fake_file = tmp_path / "a" / "b" / "c" / "ask.py"
+    fake_file.parent.mkdir(parents=True)
+    fake_file.touch()
+    monkeypatch.setattr(ask_module, "__file__", str(fake_file))
+    result = _find_mng_source_directory()
+    assert result is None
+
+
+# =============================================================================
+# Tests for _build_source_access_context
+# =============================================================================
+
+
+def test_build_source_access_context_contains_key_info(tmp_path: Path) -> None:
+    """Should include the source directory path and key directories."""
+    (tmp_path / "imbue" / "mng" / "cli").mkdir(parents=True)
+    (tmp_path / "docs").mkdir()
+    context = _build_source_access_context(tmp_path)
+    assert str(tmp_path) in context
+    assert "Source Code Access" in context
+    assert "docs/" in context
+    assert "imbue/mng/" in context
+
+
+def test_build_source_access_context_omits_docs_when_missing(tmp_path: Path) -> None:
+    """Should omit docs directory reference when docs/ does not exist."""
+    (tmp_path / "imbue" / "mng").mkdir(parents=True)
+    context = _build_source_access_context(tmp_path)
+    assert "docs/" not in context
+
+
+# =============================================================================
+# Tests for _build_web_access_context
+# =============================================================================
+
+
+def test_build_web_access_context_contains_github_info() -> None:
+    """Should include GitHub repository reference."""
+    context = _build_web_access_context()
+    assert "Web Access" in context
+    assert "github.com/imbue-ai/mng" in context
+    assert "WebFetch" in context
+
+
+# =============================================================================
+# Tests for _run_ask_query
+# =============================================================================
+
+
+def test_run_ask_query_includes_source_context() -> None:
+    """System prompt should include source access context when source directory exists."""
+    backend = FakeClaude(responses=["mng list"])
+    _run_ask_query(
+        backend=backend,
+        query_string="test query",
+        execute=False,
+        allow_web=False,
+        output_format=OutputFormat.HUMAN,
+    )
+    assert len(backend.system_prompts) == 1
+    assert "Source Code Access" in backend.system_prompts[0]
+
+
+def test_run_ask_query_includes_web_context_when_enabled() -> None:
+    """System prompt should include web access context when allow_web is True."""
+    backend = FakeClaude(responses=["mng list"])
+    _run_ask_query(
+        backend=backend,
+        query_string="test query",
+        execute=False,
+        allow_web=True,
+        output_format=OutputFormat.HUMAN,
+    )
+    assert len(backend.system_prompts) == 1
+    assert "Web Access" in backend.system_prompts[0]
+
+
+def test_run_ask_query_excludes_web_context_when_disabled() -> None:
+    """System prompt should not include web access context when allow_web is False."""
+    backend = FakeClaude(responses=["mng list"])
+    _run_ask_query(
+        backend=backend,
+        query_string="test query",
+        execute=False,
+        allow_web=False,
+        output_format=OutputFormat.HUMAN,
+    )
+    assert len(backend.system_prompts) == 1
+    assert "Web Access" not in backend.system_prompts[0]
+
+
+def test_ask_with_allow_web_flag(
+    fake_claude: FakeClaude,
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """The --allow-web flag should be accepted without error."""
+    fake_claude.responses.append("mng list")
+    result = cli_runner.invoke(
+        ask, ["--allow-web", "how", "to", "list?"], obj=plugin_manager, catch_exceptions=False
+    )
+    assert result.exit_code == 0
+    assert "mng list" in result.output
