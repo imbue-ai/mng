@@ -37,8 +37,6 @@ Based on the agent's response:
 
 ### Phase 3: Fix Loop
 
-Create the .autofix/plans directory if it does not already exist.
-
 Repeat up to 10 times:
 
 1. Record the current HEAD as `pre_iteration_head`.
