@@ -288,6 +288,38 @@ class MethodKind(StrEnum):
     ASYNC_GEN = auto()
 
 
+def _make_sync_wrapper(name: str, originals: dict[str, Any], key: str) -> Callable[..., Any]:
+    def guarded(self, *args, **kwargs):  # ty: ignore[invalid-type-form]
+        enforce_sdk_guard(name)
+        return originals[key](self, *args, **kwargs)
+
+    return guarded
+
+
+def _make_async_wrapper(name: str, originals: dict[str, Any], key: str) -> Callable[..., Any]:
+    async def guarded(self, *args, **kwargs):  # ty: ignore[invalid-type-form]
+        enforce_sdk_guard(name)
+        return await originals[key](self, *args, **kwargs)
+
+    return guarded
+
+
+def _make_async_gen_wrapper(name: str, originals: dict[str, Any], key: str) -> Callable[..., Any]:
+    async def guarded(self, *args, **kwargs):  # ty: ignore[invalid-type-form]
+        enforce_sdk_guard(name)
+        async for item in originals[key](self, *args, **kwargs):
+            yield item
+
+    return guarded
+
+
+_WRAPPER_FACTORIES: dict[str, Callable[[str, dict[str, Any], str], Callable[..., Any]]] = {
+    MethodKind.SYNC: _make_sync_wrapper,
+    MethodKind.ASYNC: _make_async_wrapper,
+    MethodKind.ASYNC_GEN: _make_async_gen_wrapper,
+}
+
+
 def create_sdk_method_guard(
     name: str,
     methods: list[tuple[type, str, str]],
@@ -309,38 +341,10 @@ def create_sdk_method_guard(
         key = uuid4().hex
         patches.append((cls, method_name, key, kind))
 
-    def _make_sync_wrapper(key: str) -> Callable[..., Any]:
-        def guarded(self, *args, **kwargs):  # ty: ignore[invalid-type-form]
-            enforce_sdk_guard(name)
-            return originals[key](self, *args, **kwargs)
-
-        return guarded
-
-    def _make_async_wrapper(key: str) -> Callable[..., Any]:
-        async def guarded(self, *args, **kwargs):  # ty: ignore[invalid-type-form]
-            enforce_sdk_guard(name)
-            return await originals[key](self, *args, **kwargs)
-
-        return guarded
-
-    def _make_async_gen_wrapper(key: str) -> Callable[..., Any]:
-        async def guarded(self, *args, **kwargs):  # ty: ignore[invalid-type-form]
-            enforce_sdk_guard(name)
-            async for item in originals[key](self, *args, **kwargs):
-                yield item
-
-        return guarded
-
-    _wrapper_factories = {
-        MethodKind.SYNC: _make_sync_wrapper,
-        MethodKind.ASYNC: _make_async_wrapper,
-        MethodKind.ASYNC_GEN: _make_async_gen_wrapper,
-    }
-
     def install() -> None:
         for cls, method_name, key, kind in patches:
             originals[key] = getattr(cls, method_name)
-            setattr(cls, method_name, _wrapper_factories[kind](key))
+            setattr(cls, method_name, _WRAPPER_FACTORIES[kind](name, originals, key))
 
     def cleanup() -> None:
         for cls, method_name, key, _kind in patches:
