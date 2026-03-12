@@ -35,10 +35,10 @@ Resolve the base branch commit hash:
 git rev-parse {base_branch}
 ```
 
-Create a temporary worktree so the analysis agent can read the pre-change codebase:
+Create a temporary worktree with random suffix '!`head -c 8 /dev/urandom | xxd -p`' so the analysis agent can read the pre-change codebase:
 
 ```bash
-git worktree add --detach /tmp/arch-verify-!`head -c 8 /dev/urandom | xxd -p` {base_hash}
+git worktree add --detach /tmp/arch-verify-{suffix} {base_hash}
 ```
 
 ## Phase 4: Spawn Analysis Agent
