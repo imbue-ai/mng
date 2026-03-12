@@ -1,9 +1,11 @@
 #!/bin/bash
-# Stop hook that requires /autofix to be run before the agent can stop.
+# Stop hook: requires /autofix to be run before the agent can stop.
 # Reads configuration from .autofix/config/stop-hook.json.
+# If the agent is stuck (blocked 3 times at the same commit), allows through.
 set -euo pipefail
 
 CONFIG_FILE=".autofix/config/stop-hook.json"
+STUCK_FILE=".autofix/blocked_commits"
 
 # Read config values from JSON using jq
 _read_config() {
@@ -28,15 +30,13 @@ fi
 HASH=$(git rev-parse HEAD 2>/dev/null) || exit 0
 
 if [ -f ".autofix/plans/${HASH}_verified.md" ]; then
-    # Verified -- clear any stuck tracking and allow stop.
-    rm -f .autofix/blocked_commits
+    rm -f "$STUCK_FILE"
     exit 0
 fi
 
-# Track how many times we've blocked at the same commit. If the agent is stuck
-# (e.g. /autofix crashes before writing the marker), allow it through after 3
-# attempts rather than looping forever.
-STUCK_FILE=".autofix/blocked_commits"
+# Stuck agent detection: if we've blocked 3 times at the same commit,
+# the agent can't make progress (e.g. /autofix crashes before writing
+# the marker). Allow through with a warning.
 echo "$HASH" >> "$STUCK_FILE"
 if [ -f "$STUCK_FILE" ]; then
     LAST_THREE=$(tail -n 3 "$STUCK_FILE")

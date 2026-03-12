@@ -76,7 +76,49 @@ _on_signal() {
 for _sig in HUP INT QUIT TERM PIPE; do
     trap "_on_signal $_sig" "$_sig"
 done
-trap '_log_to_file "INFO" "main_stop_hook EXIT trap fired (pid=$$, exit_code=$?)"' EXIT
+trap '
+    _exit_code=$?
+    _log_to_file "INFO" "main_stop_hook EXIT trap fired (pid=$$, exit_code=$_exit_code)"
+    # Track blocked attempts for stuck agent detection
+    if [[ $_exit_code -ne 0 ]]; then
+        mkdir -p "$(dirname "$STUCK_FILE")" 2>/dev/null || true
+        echo "$HASH" >> "$STUCK_FILE" 2>/dev/null || true
+    fi
+' EXIT
+
+# ---------------------------------------------------------------------------
+# Stuck agent detection: if the stop hook has blocked 3 times at the same
+# commit, the agent is unable to make progress. Allow it through with a
+# warning rather than looping forever.
+# ---------------------------------------------------------------------------
+STUCK_FILE=".claude/blocked_stop_commits"
+HASH=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+
+_check_stuck() {
+    if [[ ! -f "$STUCK_FILE" ]]; then
+        return 1
+    fi
+    local last_three entry_count unique_count
+    last_three=$(tail -n 3 "$STUCK_FILE")
+    entry_count=$(echo "$last_three" | wc -l | tr -d ' ')
+    if [[ $entry_count -ge 3 ]]; then
+        unique_count=$(echo "$last_three" | sort -u | wc -l | tr -d ' ')
+        if [[ $unique_count -eq 1 ]]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+if _check_stuck; then
+    log_warn "Stop hook has blocked 3 times at the same commit ($HASH)."
+    log_warn "The agent appears stuck. Allowing stop to proceed -- please investigate manually."
+    _log_to_file "WARN" "Stuck agent detected at $HASH, allowing through"
+    rm -f "$STUCK_FILE"
+    rm -f "$MNG_AGENT_STATE_DIR/active"
+    notify_user || echo "No notify_user function defined, skipping."
+    exit 0
+fi
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 BASE_BRANCH="${GIT_BASE_BRANCH:-main}"
@@ -168,7 +210,8 @@ if [[ $PR_CI_EXIT -ne 0 ]]; then
     exit $PR_CI_EXIT
 fi
 
-# Call local notification script if it exists
+# Success -- clear stuck tracking and exit
+rm -f "$STUCK_FILE"
 _log_to_file "INFO" "main_stop_hook completed successfully (exit 0)"
 rm -f "$MNG_AGENT_STATE_DIR/active"
 notify_user || echo "No notify_user function defined, skipping."

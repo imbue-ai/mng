@@ -258,6 +258,9 @@ current.tar.gz
 .autofix/plans/
 .autofix/blocked_commits
 
+# Stuck agent tracking for main stop hook (CI failures escape valve)
+.claude/blocked_stop_commits
+
 # Demo recordings (asciinema .cast, .txt, and scripts)
 .demos/
 
