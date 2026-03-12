@@ -9,7 +9,6 @@ from click.core import ParameterSource
 from click.testing import CliRunner
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import _process_template_escapes
 from imbue.mng.cli.common_opts import _run_pre_command_scripts
 from imbue.mng.cli.common_opts import _run_single_script
@@ -20,6 +19,7 @@ from imbue.mng.cli.common_opts import apply_create_template
 from imbue.mng.cli.common_opts import parse_output_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.config.data_types import CommandDefaults
+from imbue.mng.config.data_types import CommonCliOptions
 from imbue.mng.config.data_types import CreateTemplate
 from imbue.mng.config.data_types import CreateTemplateName
 from imbue.mng.config.data_types import MngConfig

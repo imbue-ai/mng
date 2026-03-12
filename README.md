@@ -273,7 +273,7 @@ The repo also contains code for some dependencies and related projects, includin
 
 - [libs/concurrency_group](libs/concurrency_group/README.md): a simple Python library for managing synchronous concurrent primitives (threads and processes) in a way that makes it easy to ensure that they are cleaned up.
 - [libs/imbue_common](libs/imbue_common/README.md): core libraries that are shared across all of our projects
-- [apps/changelings](apps/changelings/README.md): an experimental project around scheduling runs of autonomous agents
+- [apps/minds](apps/minds/README.md): an experimental project around scheduling runs of autonomous agents
 
 
 ## Contributing

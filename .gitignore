@@ -257,8 +257,8 @@ scripts/notify_user.local.sh
 test-results/**
 current.tar.gz
 
-# Changelings deploy-time build artifacts
-.changelings/
+# Minds deploy-time build artifacts
+.minds/
 
 # Autofix working artifacts
 .autofix/

@@ -277,7 +277,7 @@ The repo also contains code for some dependencies and related projects, includin
 
 - [libs/concurrency_group](https://github.com/imbue-ai/mng/blob/main/libs/concurrency_group/README.md): a simple Python library for managing synchronous concurrent primitives (threads and processes) in a way that makes it easy to ensure that they are cleaned up.
 - [libs/imbue_common](https://github.com/imbue-ai/mng/blob/main/libs/imbue_common/README.md): core libraries that are shared across all of our projects
-- [apps/changelings](https://github.com/imbue-ai/mng/blob/main/apps/changelings/README.md): an experimental project around scheduling runs of autonomous agents
+- [apps/minds](https://github.com/imbue-ai/mng/blob/main/apps/minds/README.md): an experimental project around scheduling runs of autonomous agents
 
 
 ## Contributing
