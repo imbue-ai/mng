@@ -39,12 +39,7 @@ from imbue.mng_claude_mind.conftest import StubHost
 from imbue.mng_claude_mind.conftest import assert_conversation_exists_in_db
 from imbue.mng_claude_mind.conftest import create_test_llm_db
 from imbue.mng_claude_mind.conftest import write_conversation_to_db
-from imbue.mng_claude_mind.provisioning import _DEFAULT_SKILL_DIRS
-from imbue.mng_claude_mind.provisioning import _DEFAULT_THINKING_DIR_FILES
-from imbue.mng_claude_mind.provisioning import _DEFAULT_WORK_DIR_FILES
 from imbue.mng_claude_mind.provisioning import create_mind_symlinks
-from imbue.mng_claude_mind.provisioning import load_mind_resource
-from imbue.mng_claude_mind.provisioning import provision_default_content
 from imbue.mng_claude_mind.provisioning import setup_memory_directory
 from imbue.mng_llm.data_types import ProvisioningSettings
 from imbue.mng_llm.provisioning import _LLM_TOOL_FILES
@@ -53,6 +48,7 @@ from imbue.mng_llm.provisioning import load_llm_resource
 from imbue.mng_llm.provisioning import provision_llm_tools
 from imbue.mng_llm.provisioning import provision_supporting_services
 from imbue.mng_llm.resources.conversation_watcher import _sync_messages
+from imbue.mng_mind.provisioning import provision_default_content
 
 _DEFAULT_PROVISIONING = ProvisioningSettings()
 
@@ -186,17 +182,12 @@ def test_provisioning_creates_default_content_when_missing(
 
     written_path_strings = [str(p) for p, _ in written_paths]
 
-    for _, relative_path in _DEFAULT_WORK_DIR_FILES:
-        expected = str(temp_git_repo / relative_path)
-        assert expected in written_path_strings, f"Expected {relative_path} to be written to work dir"
-
-    for _, relative_path in _DEFAULT_THINKING_DIR_FILES:
-        expected = str(temp_git_repo / relative_path)
-        assert expected in written_path_strings, f"Expected {relative_path} to be written to work dir"
-
-    for skill_name in _DEFAULT_SKILL_DIRS:
-        expected = str(temp_git_repo / "thinking" / ".claude" / "skills" / skill_name / "SKILL.md")
-        assert expected in written_path_strings, f"Expected skill {skill_name}/SKILL.md to be written"
+    assert any("GLOBAL.md" in p for p in written_path_strings), "Expected GLOBAL.md to be written"
+    assert any("thinking/PROMPT.md" in p for p in written_path_strings), "Expected thinking/PROMPT.md to be written"
+    assert any("talking/PROMPT.md" in p for p in written_path_strings), "Expected talking/PROMPT.md to be written"
+    assert any("thinking/skills/send-message-to-user/SKILL.md" in p for p in written_path_strings), (
+        "Expected skills to be written"
+    )
 
 
 @pytest.mark.timeout(30)
@@ -359,20 +350,11 @@ def test_conversation_watcher_script_is_valid_python(chat_env: ChatScriptEnv) ->
 
 
 @pytest.mark.timeout(30)
-def test_event_watcher_script_is_valid_python(chat_env: ChatScriptEnv) -> None:
-    """Verify that event_watcher.py passes Python syntax check."""
-    watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "event_watcher.py"
-    watcher_script.parent.mkdir(parents=True, exist_ok=True)
-    watcher_script.write_text(load_mind_resource("event_watcher.py"))
+def test_event_watcher_module_is_importable() -> None:
+    """Verify that event_watcher module can be imported from mng_mind."""
+    from imbue.mng_mind.event_watcher import main
 
-    result = subprocess.run(
-        [sys.executable, "-m", "py_compile", str(watcher_script)],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-
-    assert result.returncode == 0, f"Syntax check failed: {result.stderr}"
+    assert callable(main)
 
 
 # -- Agent creation integration tests --

@@ -1,15 +1,15 @@
-"""Mind-specific provisioning functions for the claude-mind agent type.
+"""Claude-specific provisioning functions for the claude-mind agent type.
 
-Provides provisioning for mind defaults (GLOBAL.md, role prompts, skills),
-symlinks, memory directory setup, and talking role constraint validation.
+Provides Claude Code-specific provisioning: settings.json injection,
+.claude/skills symlink, memory directory setup, and hook configuration.
 
-LLM-related provisioning (toolchain installation, conversation management,
-supporting services) is provided by the mng_llm plugin.
+Generic mind provisioning (default content, prompts, skills) is provided
+by the mng_mind plugin.
 """
 
 from __future__ import annotations
 
-import importlib.resources
+import json
 import shlex
 from pathlib import Path
 from typing import Any
@@ -20,50 +20,39 @@ from loguru import logger
 from imbue.imbue_common.logging import log_span
 from imbue.mng.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mng.interfaces.host import OnlineHostInterface
-from imbue.mng_claude_mind import resources as mind_resources
 from imbue.mng_llm.data_types import ProvisioningSettings
 from imbue.mng_llm.provisioning import execute_with_timing
 
-# Default content files written to the work directory root if missing.
-# Tuples of (resource path under defaults/, target path relative to work dir).
-_DEFAULT_WORK_DIR_FILES: Final[tuple[tuple[str, str], ...]] = (("GLOBAL.md", "GLOBAL.md"),)
-
-# Default content files for the talking agent (user-facing conversation voice).
-# Tuples of (resource path under defaults/, target path relative to work dir).
-_DEFAULT_TALKING_DIR_FILES: Final[tuple[tuple[str, str], ...]] = (("talking/PROMPT.md", "talking/PROMPT.md"),)
-
-# Default content files for the thinking agent (inner monologue).
-# Tuples of (resource path under defaults/, target path relative to work dir).
-_DEFAULT_THINKING_DIR_FILES: Final[tuple[tuple[str, str], ...]] = (
-    ("thinking/PROMPT.md", "thinking/PROMPT.md"),
-    ("thinking/.claude/settings.json", "thinking/.claude/settings.json"),
-)
-
-# Default skill files written to thinking/.claude/skills/<name>/SKILL.md if missing.
-# Each entry is a skill directory name under defaults/thinking/.claude/skills/.
-_DEFAULT_SKILL_DIRS: Final[tuple[str, ...]] = (
-    "send-message-to-user",
-    "list-conversations",
-    "delegate-task",
-    "list-event-types",
-    "get-event-type-info",
+# Claude Code settings.json content, inlined because it is Claude-specific
+# and does not belong in the generic mng_mind plugin.
+_CLAUDE_SETTINGS_JSON: Final[str] = (
+    json.dumps(
+        {
+            "permissions": {
+                "allow": [
+                    "Bash(command:mng *)",
+                    "Bash(command:$MNG_HOST_DIR/commands/*)",
+                ]
+            }
+        },
+        indent=2,
+    )
+    + "\n"
 )
 
 
-def load_mind_resource(filename: str) -> str:
-    """Load a resource file from the mng_claude_mind resources package."""
-    resource_files = importlib.resources.files(mind_resources)
-    resource_path = resource_files.joinpath(filename)
-    return resource_path.read_text()
-
-
-def _write_default_if_missing(
+def provision_claude_settings(
     host: OnlineHostInterface,
-    target_path: Path,
-    resource_path: str,
+    work_dir: Path,
+    active_role: str,
     settings: ProvisioningSettings,
 ) -> None:
-    """Write a default resource file to the host if the target doesn't already exist."""
+    """Write the Claude Code settings.json for the active role if it doesn't exist.
+
+    This creates <work_dir>/<active_role>/.claude/settings.json with default
+    permissions for mng commands.
+    """
+    target_path = work_dir / active_role / ".claude" / "settings.json"
     check = execute_with_timing(
         host,
         f"test -f {shlex.quote(str(target_path))}",
@@ -72,7 +61,7 @@ def _write_default_if_missing(
         label="file check",
     )
     if check.success:
-        logger.debug("Default file already exists, skipping: {}", target_path)
+        logger.debug("Claude settings already exists, skipping: {}", target_path)
         return
 
     execute_with_timing(
@@ -83,56 +72,8 @@ def _write_default_if_missing(
         label="mkdir",
     )
 
-    content = load_mind_resource(resource_path)
-    with log_span("Writing default content: {}", target_path):
-        host.write_text_file(target_path, content)
-
-
-class TalkingRoleConstraintError(Exception):
-    """Raised when the talking role directory contains skills or settings.
-
-    The talking role is intentionally restricted to only a PROMPT.md file.
-    It cannot have skills or settings because the talking agent runs via the
-    ``llm`` tool (not Claude Code), and those files would have no effect.
-    """
-
-
-def provision_default_content(
-    host: OnlineHostInterface,
-    work_dir: Path,
-    settings: ProvisioningSettings,
-) -> None:
-    """Write default content files to the work directory if they don't already exist.
-
-    Populates sensible defaults for:
-    - GLOBAL.md (shared project instructions for all agents)
-    - talking/PROMPT.md (talking agent prompt, used as llm system prompt)
-    - thinking/PROMPT.md (primary/inner monologue agent prompt)
-    - thinking/.claude/settings.json (primary agent Claude settings)
-    - thinking/.claude/skills/<name>/SKILL.md (skills for the thinking agent)
-
-    Only writes files that are missing -- existing files are never overwritten.
-    This allows fresh deployments to work out of the box while preserving
-    any customizations the user has already made.
-    """
-    for resource_name, relative_path in _DEFAULT_WORK_DIR_FILES:
-        target_path = work_dir / relative_path
-        _write_default_if_missing(host, target_path, f"defaults/{resource_name}", settings)
-
-    for resource_name, relative_path in _DEFAULT_TALKING_DIR_FILES:
-        target_path = work_dir / relative_path
-        _write_default_if_missing(host, target_path, f"defaults/{resource_name}", settings)
-
-    for resource_name, relative_path in _DEFAULT_THINKING_DIR_FILES:
-        target_path = work_dir / relative_path
-        _write_default_if_missing(host, target_path, f"defaults/{resource_name}", settings)
-
-    skills_dir = work_dir / "thinking" / ".claude" / "skills"
-    for skill_name in _DEFAULT_SKILL_DIRS:
-        target_path = skills_dir / skill_name / "SKILL.md"
-        _write_default_if_missing(
-            host, target_path, f"defaults/thinking/.claude/skills/{skill_name}/SKILL.md", settings
-        )
+    with log_span("Writing Claude settings: {}", target_path):
+        host.write_text_file(target_path, _CLAUDE_SETTINGS_JSON)
 
 
 def create_mind_symlinks(
@@ -144,10 +85,11 @@ def create_mind_symlinks(
     """Create symlinks so Claude Code discovers mind files at standard locations.
 
     Claude Code runs from within the role directory (via ``cd $ROLE`` in
-    assemble_command), so ``.claude/`` is found naturally. We only need:
+    assemble_command), so ``.claude/`` is found naturally. We create:
 
     - ``<work_dir>/CLAUDE.md`` -> ``<work_dir>/GLOBAL.md``
     - ``<work_dir>/<active_role>/CLAUDE.local.md`` -> ``<work_dir>/<active_role>/PROMPT.md``
+    - ``<work_dir>/<active_role>/.claude/skills`` -> ``<work_dir>/<active_role>/skills``
     """
     _create_symlink_if_target_exists(
         host,
@@ -163,6 +105,13 @@ def create_mind_symlinks(
         settings=settings,
     )
 
+    _create_symlink_if_target_exists(
+        host,
+        link_path=work_dir / active_role / ".claude" / "skills",
+        target_path=work_dir / active_role / "skills",
+        settings=settings,
+    )
+
 
 def _create_symlink_if_target_exists(
     host: OnlineHostInterface,
@@ -170,13 +119,17 @@ def _create_symlink_if_target_exists(
     target_path: Path,
     settings: ProvisioningSettings,
 ) -> None:
-    """Create a symlink at link_path pointing to target_path, if target exists."""
+    """Create a symlink at link_path pointing to target_path, if target exists.
+
+    For directory targets, uses ``test -d`` instead of ``test -f``.
+    """
+    test_flag = "-d" if target_path.suffix == "" else "-f"
     check = execute_with_timing(
         host,
-        f"test -f {shlex.quote(str(target_path))}",
+        f"test {test_flag} {shlex.quote(str(target_path))}",
         hard_timeout=settings.fs_hard_timeout_seconds,
         warn_threshold=settings.fs_warn_threshold_seconds,
-        label="file check",
+        label="target check",
     )
     if not check.success:
         return
@@ -200,15 +153,6 @@ def _create_symlink_if_target_exists(
         )
         if not result.success:
             raise RuntimeError(f"Failed to create symlink {link_path} -> {target_path}: {result.stderr}")
-
-
-def compute_claude_project_dir_name(work_dir_abs: str) -> str:
-    """Compute the Claude project directory name from an absolute work_dir path.
-
-    Claude names project directories by replacing '/' and '.' with '-' in the
-    absolute path, e.g. /home/user/.minds/my-agent -> -home-user--minds-my-agent
-    """
-    return work_dir_abs.replace("/", "-").replace(".", "-")
 
 
 def setup_memory_directory(

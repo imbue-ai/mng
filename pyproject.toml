@@ -67,6 +67,7 @@ addopts = [
   "--cov=imbue.mng_ttyd",
   "--cov=imbue.mng_tutor",
   "--cov=imbue.mng_llm",
+  "--cov=imbue.mng_mind",
   "--cov=imbue.mng_claude_mind",
   "--cov=imbue.mng_elena_code",
   "--cov=imbue.mng_kanpan",

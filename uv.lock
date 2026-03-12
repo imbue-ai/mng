@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -20,6 +20,7 @@ members = [
     "mng-elena-code",
     "mng-kanpan",
     "mng-llm",
+    "mng-mind",
     "mng-mind-chat",
     "mng-opencode",
     "mng-pair",
@@ -1872,6 +1873,7 @@ source = { editable = "libs/mng_claude_mind" }
 dependencies = [
     { name = "mng" },
     { name = "mng-llm" },
+    { name = "mng-mind" },
     { name = "mng-recursive" },
     { name = "mng-ttyd" },
     { name = "watchdog" },
@@ -1881,6 +1883,7 @@ dependencies = [
 requires-dist = [
     { name = "mng", editable = "libs/mng" },
     { name = "mng-llm", editable = "libs/mng_llm" },
+    { name = "mng-mind", editable = "libs/mng_mind" },
     { name = "mng-recursive", editable = "libs/mng_recursive" },
     { name = "mng-ttyd", editable = "libs/mng_ttyd" },
     { name = "watchdog", specifier = ">=4.0" },
@@ -1933,6 +1936,23 @@ requires-dist = [
     { name = "mng", editable = "libs/mng" },
     { name = "mng-recursive", editable = "libs/mng_recursive" },
     { name = "watchdog", specifier = ">=4.0" },
+]
+
+[[package]]
+name = "mng-mind"
+version = "0.1.0"
+source = { editable = "libs/mng_mind" }
+dependencies = [
+    { name = "mng" },
+    { name = "mng-llm" },
+    { name = "mng-recursive" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mng", editable = "libs/mng" },
+    { name = "mng-llm", editable = "libs/mng_llm" },
+    { name = "mng-recursive", editable = "libs/mng_recursive" },
 ]
 
 [[package]]

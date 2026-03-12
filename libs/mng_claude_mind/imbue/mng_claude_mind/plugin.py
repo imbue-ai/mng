@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
 from typing import Any
 from typing import Final
 
-import click
 from loguru import logger
 from pydantic import Field
 
@@ -25,7 +23,7 @@ from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import CommandString
 from imbue.mng_claude_mind.provisioning import build_memory_sync_hooks_config
 from imbue.mng_claude_mind.provisioning import create_mind_symlinks
-from imbue.mng_claude_mind.provisioning import provision_default_content
+from imbue.mng_claude_mind.provisioning import provision_claude_settings
 from imbue.mng_claude_mind.provisioning import setup_memory_directory
 from imbue.mng_claude_mind.settings import load_settings_from_host
 from imbue.mng_llm.plugin import set_uv_tool_env_vars
@@ -38,6 +36,7 @@ from imbue.mng_llm.provisioning import install_llm_toolchain
 from imbue.mng_llm.provisioning import provision_llm_tools
 from imbue.mng_llm.provisioning import provision_supporting_services
 from imbue.mng_llm.provisioning import resolve_work_dir_abs
+from imbue.mng_mind.provisioning import provision_default_content
 from imbue.mng_recursive.provisioning import provision_mng_for_agent
 
 # Supporting service tmux window names and commands.
@@ -85,7 +84,8 @@ class ClaudeMindAgent(ClaudeAgent):
 
     During provisioning:
     - Installs the llm toolchain (via mng_llm plugin)
-    - Provisions supporting service scripts and chat utilities
+    - Provisions default content (via mng_mind plugin)
+    - Provisions Claude-specific settings.json and skills symlink
     - Syncs per-role memory/ into Claude project memory via hooks
 
     Via tmux windows (injected by override_command_options), the following
@@ -184,12 +184,13 @@ class ClaudeMindAgent(ClaudeAgent):
         1. Per-agent mng installation (via mng_recursive, before super())
         2. Settings loading from minds.toml
         3. llm + plugin installation (via mng_llm)
-        4. Default content (GLOBAL.md, role prompts, role .claude/ config)
-        5. Symlinks (CLAUDE.md -> GLOBAL.md, <role>/CLAUDE.local.md -> <role>/PROMPT.md)
-        6. All hooks (readiness + memory sync) written to <role>/.claude/settings.local.json
-        7. Supporting service scripts and chat utilities (via mng_llm)
-        8. LLM tool scripts for conversation context (via mng_llm)
-        9. Per-role memory directory setup
+        4. Default content (GLOBAL.md, role prompts, skills) via mng_mind
+        5. Claude-specific settings.json injection
+        6. Symlinks (CLAUDE.md -> GLOBAL.md, CLAUDE.local.md -> PROMPT.md, .claude/skills -> skills)
+        7. All hooks (readiness + memory sync) written to <role>/.claude/settings.local.json
+        8. Supporting service scripts and chat utilities (via mng_llm)
+        9. LLM tool scripts for conversation context (via mng_llm)
+        10. Per-role memory directory setup
         """
 
         provision_mng_for_agent(agent=self, host=host, mng_ctx=mng_ctx)
@@ -206,6 +207,7 @@ class ClaudeMindAgent(ClaudeAgent):
             install_llm_toolchain(host, provisioning)
 
         provision_default_content(host, self.work_dir, provisioning)
+        provision_claude_settings(host, self.work_dir, active_role, provisioning)
         create_mind_symlinks(host, self.work_dir, active_role, provisioning)
 
         work_dir_abs = resolve_work_dir_abs(host, self.work_dir, provisioning)
@@ -243,14 +245,6 @@ def inject_supporting_services(params: dict[str, Any]) -> None:
 def get_agent_type_from_params(params: dict[str, Any]) -> str | None:
     """Extract the agent type from create command parameters."""
     return params.get("type") or params.get("positional_agent_type")
-
-
-@hookimpl
-def register_cli_commands() -> Sequence[click.Command] | None:
-    """Register mind supporting service commands with mng."""
-    from imbue.mng_claude_mind.cli import get_all_commands
-
-    return get_all_commands()
 
 
 @hookimpl
