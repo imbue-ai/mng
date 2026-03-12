@@ -8,8 +8,8 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.imbue_common.model_update import to_update
-from imbue.mng.cli.create import AgentAddress
-from imbue.mng.cli.create import _parse_agent_address
+from imbue.mng.cli.agent_addr import AgentAddress
+from imbue.mng.cli.agent_addr import parse_agent_address
 from imbue.mng.cli.create import _parse_agent_opts
 from imbue.mng.cli.create import _parse_branch_flag
 from imbue.mng.cli.create import _parse_host_lifecycle_options
@@ -748,49 +748,49 @@ def test_parse_branch_flag_new_without_wildcard() -> None:
 
 
 # =============================================================================
-# Tests for _parse_agent_address
+# Tests for parse_agent_address
 # =============================================================================
 
 
-def test_parse_agent_address_empty_string() -> None:
+def testparse_agent_address_empty_string() -> None:
     """Empty string produces an address with all None fields."""
-    result = _parse_agent_address("")
+    result = parse_agent_address("")
 
     assert result.agent_name is None
     assert result.host_name is None
     assert result.provider_name is None
 
 
-def test_parse_agent_address_simple_name() -> None:
+def testparse_agent_address_simple_name() -> None:
     """A simple name with no @ produces just an agent name."""
-    result = _parse_agent_address("my-agent")
+    result = parse_agent_address("my-agent")
 
     assert result.agent_name == AgentName("my-agent")
     assert result.host_name is None
     assert result.provider_name is None
 
 
-def test_parse_agent_address_name_and_host() -> None:
+def testparse_agent_address_name_and_host() -> None:
     """NAME@HOST produces agent name and host name."""
-    result = _parse_agent_address("my-agent@myhost")
+    result = parse_agent_address("my-agent@myhost")
 
     assert result.agent_name == AgentName("my-agent")
     assert result.host_name == HostName("myhost")
     assert result.provider_name is None
 
 
-def test_parse_agent_address_name_host_and_provider() -> None:
+def testparse_agent_address_name_host_and_provider() -> None:
     """NAME@HOST.PROVIDER produces all three components."""
-    result = _parse_agent_address("my-agent@myhost.modal")
+    result = parse_agent_address("my-agent@myhost.modal")
 
     assert result.agent_name == AgentName("my-agent")
     assert result.host_name == HostName("myhost")
     assert result.provider_name == ProviderInstanceName("modal")
 
 
-def test_parse_agent_address_name_and_provider_only() -> None:
+def testparse_agent_address_name_and_provider_only() -> None:
     """NAME@.PROVIDER produces agent name and provider (implies new host)."""
-    result = _parse_agent_address("my-agent@.modal")
+    result = parse_agent_address("my-agent@.modal")
 
     assert result.agent_name == AgentName("my-agent")
     assert result.host_name is None
@@ -798,18 +798,18 @@ def test_parse_agent_address_name_and_provider_only() -> None:
     assert result.is_new_host_implied is True
 
 
-def test_parse_agent_address_no_name_with_host_and_provider() -> None:
+def testparse_agent_address_no_name_with_host_and_provider() -> None:
     """@HOST.PROVIDER produces host and provider, no agent name."""
-    result = _parse_agent_address("@myhost.modal")
+    result = parse_agent_address("@myhost.modal")
 
     assert result.agent_name is None
     assert result.host_name == HostName("myhost")
     assert result.provider_name == ProviderInstanceName("modal")
 
 
-def test_parse_agent_address_no_name_with_provider_only() -> None:
+def testparse_agent_address_no_name_with_provider_only() -> None:
     """@.PROVIDER produces just provider (implies new host, auto-generate name)."""
-    result = _parse_agent_address("@.docker")
+    result = parse_agent_address("@.docker")
 
     assert result.agent_name is None
     assert result.host_name is None
@@ -817,9 +817,9 @@ def test_parse_agent_address_no_name_with_provider_only() -> None:
     assert result.is_new_host_implied is True
 
 
-def test_parse_agent_address_trailing_at_ignored() -> None:
+def testparse_agent_address_trailing_at_ignored() -> None:
     """NAME@ is treated as just NAME (trailing @ with no host)."""
-    result = _parse_agent_address("my-agent@")
+    result = parse_agent_address("my-agent@")
 
     assert result.agent_name == AgentName("my-agent")
     assert result.host_name is None
@@ -827,55 +827,55 @@ def test_parse_agent_address_trailing_at_ignored() -> None:
     assert result.has_host_component is False
 
 
-def test_parse_agent_address_has_host_component() -> None:
+def testparse_agent_address_has_host_component() -> None:
     """has_host_component is True when any host info is present."""
-    assert _parse_agent_address("foo").has_host_component is False
-    assert _parse_agent_address("foo@host").has_host_component is True
-    assert _parse_agent_address("foo@.modal").has_host_component is True
-    assert _parse_agent_address("foo@host.modal").has_host_component is True
+    assert parse_agent_address("foo").has_host_component is False
+    assert parse_agent_address("foo@host").has_host_component is True
+    assert parse_agent_address("foo@.modal").has_host_component is True
+    assert parse_agent_address("foo@host.modal").has_host_component is True
 
 
-def test_parse_agent_address_is_creating_new_host() -> None:
+def testparse_agent_address_is_creating_new_host() -> None:
     """is_creating_new_host reflects both address and flag."""
     # Implied new host (no host name, has provider)
-    addr = _parse_agent_address("foo@.modal")
+    addr = parse_agent_address("foo@.modal")
     assert addr.is_creating_new_host(new_host_flag=False) is True
     assert addr.is_creating_new_host(new_host_flag=True) is True
 
     # Existing host (has host name)
-    addr = _parse_agent_address("foo@myhost.modal")
+    addr = parse_agent_address("foo@myhost.modal")
     assert addr.is_creating_new_host(new_host_flag=False) is False
     assert addr.is_creating_new_host(new_host_flag=True) is True
 
     # No host component at all
-    addr = _parse_agent_address("foo")
+    addr = parse_agent_address("foo")
     assert addr.is_creating_new_host(new_host_flag=False) is False
 
 
-def test_parse_agent_address_rejects_multiple_dots() -> None:
+def testparse_agent_address_rejects_multiple_dots() -> None:
     """Addresses with more than one dot in the host part are invalid."""
     with pytest.raises(UserInputError, match="more than one dot"):
-        _parse_agent_address("foo@host.provider.extra")
+        parse_agent_address("foo@host.provider.extra")
 
     with pytest.raises(UserInputError, match="more than one dot"):
-        _parse_agent_address("foo@a.b.c")
+        parse_agent_address("foo@a.b.c")
 
     with pytest.raises(UserInputError, match="more than one dot"):
-        _parse_agent_address("@host.provider.extra")
+        parse_agent_address("@host.provider.extra")
 
 
-def test_parse_agent_address_trailing_dot_means_host_only() -> None:
+def testparse_agent_address_trailing_dot_means_host_only() -> None:
     """A trailing dot 'host.' means host name with no provider."""
-    result = _parse_agent_address("foo@host.")
+    result = parse_agent_address("foo@host.")
 
     assert result.agent_name == AgentName("foo")
     assert result.host_name == HostName("host")
     assert result.provider_name is None
 
 
-def test_parse_agent_address_bare_dot_means_nothing() -> None:
+def testparse_agent_address_bare_dot_means_nothing() -> None:
     """'@.' means no host and no provider (both parts empty)."""
-    result = _parse_agent_address("foo@.")
+    result = parse_agent_address("foo@.")
 
     assert result.agent_name == AgentName("foo")
     assert result.host_name is None
