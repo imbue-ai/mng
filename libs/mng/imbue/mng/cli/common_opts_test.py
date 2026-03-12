@@ -13,7 +13,6 @@ from click.testing import CliRunner
 from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ConcurrencyGroupError
-from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import _close_concurrency_group
 from imbue.mng.cli.common_opts import _install_sigint_shutdown_handler
 from imbue.mng.cli.common_opts import _process_template_escapes
