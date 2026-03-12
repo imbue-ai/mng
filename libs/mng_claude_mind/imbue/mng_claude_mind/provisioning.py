@@ -20,9 +20,9 @@ from imbue.mng_claude_mind import resources as mind_resources
 from imbue.mng_claude_mind.data_types import ProvisioningSettings
 
 # Supporting service shell scripts to provision to $MNG_AGENT_STATE_DIR/commands/.
-# Python scripts (event_watcher, conversation_watcher, transcript_watcher,
-# web_server, conversation_db) are now registered as mng CLI commands and
-# do not need to be provisioned.
+# Python scripts (event_watcher, conversation_watcher, web_server,
+# conversation_db) are registered as mng CLI commands and do not need
+# to be provisioned.
 _SERVICE_SCRIPT_FILES: Final[tuple[str, ...]] = ("chat.sh",)
 
 # Scripts provisioned to $MNG_AGENT_STATE_DIR/commands/ttyd/ for URL-arg dispatch.
@@ -342,9 +342,9 @@ def provision_supporting_services(
     - Service scripts to commands/ (e.g. chat.sh)
     - Ttyd dispatch scripts to commands/ttyd/ (e.g. agent.sh, chat.sh)
 
-    Python supporting services (event_watcher, conversation_watcher, transcript_watcher,
-    web_server, conversation_db) are registered as mng CLI commands and do not need
-    to be provisioned.
+    Python supporting services (event_watcher, conversation_watcher, web_server,
+    conversation_db) are registered as mng CLI commands and do not need to
+    be provisioned.
     """
     commands_dir = agent_state_dir / "commands"
     ttyd_dir = commands_dir / "ttyd"
@@ -416,7 +416,6 @@ def create_event_log_directories(
     - events/stop/               agent stop events
     - events/monitor/            (future) monitor agent events
     - events/delivery_failures/  event delivery failure notifications
-    - events/common_transcript/  agent-agnostic transcript (written by transcript watcher)
     - events/servers/            server registration records
 
     Creates directories for log sources (logs/<source>/):
@@ -433,7 +432,6 @@ def create_event_log_directories(
         "stop",
         "monitor",
         "delivery_failures",
-        "common_transcript",
         "servers",
     ):
         source_dir = agent_state_dir / "events" / source

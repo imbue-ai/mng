@@ -25,8 +25,8 @@ from imbue.mng_claude_mind.plugin import inject_supporting_services
 from imbue.mng_claude_mind.plugin import override_command_options
 
 # Total number of tmux windows injected by inject_supporting_services:
-# conv_watcher, events, web_server, transcript
-_SUPPORTING_SERVICE_COUNT = 4
+# conv_watcher, events, web_server
+_SUPPORTING_SERVICE_COUNT = 3
 
 
 class _DummyCommandClass:

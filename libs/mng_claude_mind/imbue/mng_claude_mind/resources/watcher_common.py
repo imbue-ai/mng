@@ -1,7 +1,7 @@
 """Shared utilities for mind supporting service scripts.
 
 This module is provisioned alongside the supporting service scripts
-(event_watcher.py, conversation_watcher.py, transcript_watcher.py) to
+(event_watcher.py, conversation_watcher.py) to
 $MNG_AGENT_STATE_DIR/commands/ and imported by them at runtime. It provides the
 common watchdog integration, logging, and polling infrastructure that all
 supporting services share.

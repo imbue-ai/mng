@@ -140,6 +140,13 @@ class ClaudeAgentConfig(AgentTypeConfig):
         "in ~/.claude.json before startup. This prevents the trust dialog from appearing. "
         "Also dismisses the effort callout dialog.",
     )
+    emit_common_transcript: bool = Field(
+        default=False,
+        description="Emit a common, agent-agnostic transcript alongside the raw Claude transcript. "
+        "When enabled, a background process converts raw transcript events into a common format at "
+        "events/claude/common_transcript/events.jsonl. The common format includes user messages, "
+        "assistant messages, and tool call/result summaries.",
+    )
 
 
 def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
@@ -549,7 +556,7 @@ def _provision_background_scripts(host: OnlineHostInterface, agent_state_dir: Pa
     commands_dir = agent_state_dir / "commands"
     host.execute_command(f"mkdir -p {shlex.quote(str(commands_dir))}", timeout_seconds=5.0)
 
-    for script_name in ("mng_log.sh", "stream_transcript.sh", "claude_background_tasks.sh"):
+    for script_name in ("mng_log.sh", "stream_transcript.sh", "claude_background_tasks.sh", "common_transcript.sh"):
         script_content = load_resource_script(script_name)
         script_path = commands_dir / script_name
         with log_span("Writing {} to agent state dir", script_name):
@@ -684,8 +691,11 @@ class ClaudeAgent(BaseAgent):
         return self._get_agent_dir() / "plugin" / "claude" / "anthropic"
 
     def modify_env_vars(self, host: OnlineHostInterface, env_vars: dict[str, str]) -> None:
-        """Add CLAUDE_CONFIG_DIR pointing to the per-agent config directory."""
+        """Add CLAUDE_CONFIG_DIR and optionally enable common transcript emission."""
         env_vars["CLAUDE_CONFIG_DIR"] = str(self.get_claude_config_dir())
+        config = self._get_claude_config()
+        if config.emit_common_transcript:
+            env_vars["MNG_EMIT_COMMON_TRANSCRIPT"] = "1"
 
     def get_lifecycle_state(self) -> AgentLifecycleState:
         """Get lifecycle state, accounting for Claude-specific permissions_waiting file.

@@ -66,16 +66,16 @@ class MindEvent(EventEnvelope):
 
 # -- Common transcript types --
 # These define the agent-agnostic common message format written to
-# events/common_transcript/events.jsonl. Inspired by oh-my-pi's session
+# events/claude/common_transcript/events.jsonl. Inspired by oh-my-pi's session
 # entry format, but adapted to our EventEnvelope conventions.
 #
 # The common format focuses on semantically important messages (user input,
 # assistant output, tool calls/results) and drops noise like progress events,
 # file-history snapshots, and system bookkeeping.
 #
-# NOTE: These types document the schema produced by transcript_watcher.py.
-# The watcher runs as a standalone script on the host and produces matching
-# JSON directly (it cannot import these classes).
+# NOTE: These types document the schema produced by common_transcript.sh
+# (in the mng claude plugin). The script runs as a background process on the
+# host and produces matching JSON directly (it cannot import these classes).
 
 
 class CommonToolCallSummary(FrozenModel):

@@ -97,7 +97,7 @@ Event sources:
 - `events/stop/events.jsonl` - shutdown detection
 - `events/monitor/events.jsonl` - (future) metacognitive reminders
 - `events/delivery_failures/events.jsonl` - event delivery failure notifications
-- `events/common_transcript/events.jsonl` - agent-agnostic transcript format
+- `events/claude/common_transcript/events.jsonl` - agent-agnostic transcript format (provided by mng claude plugin)
 - `logs/claude_transcript/events.jsonl` - raw Claude transcript
 
 Every event is self-describing: you never need to know the filename to understand the event. The file organization is a performance/convenience choice, not a correctness one.

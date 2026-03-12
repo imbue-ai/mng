@@ -32,14 +32,6 @@ def mindconversations() -> None:
     main()
 
 
-@click.command("mindtranscript", hidden=True)
-def mindtranscript() -> None:
-    """Run the mind transcript watcher (internal)."""
-    from imbue.mng_claude_mind.resources.transcript_watcher import main
-
-    main()
-
-
 @click.command("mindweb", hidden=True)
 def mindweb() -> None:
     """Run the mind web server (internal)."""
@@ -113,7 +105,6 @@ def get_all_commands() -> Sequence[click.Command]:
     return [
         mindevents,
         mindconversations,
-        mindtranscript,
         mindweb,
         minddb,
     ]

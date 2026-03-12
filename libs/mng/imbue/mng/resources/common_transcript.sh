@@ -1,70 +1,41 @@
 #!/bin/bash
-# Transcript watcher for mind agents.
+# Common transcript converter for Claude agents.
 #
-# Converts raw Claude Code transcript events from
-# logs/claude_transcript/events.jsonl into a common, agent-agnostic
-# format at events/common_transcript/events.jsonl.
+# Watches the raw Claude transcript at
+# logs/claude_transcript/events.jsonl (produced by stream_transcript.sh)
+# and converts semantically important events (user input, assistant output,
+# tool calls, tool results) into a common, agent-agnostic format at
+# events/claude/common_transcript/events.jsonl.
 #
-# The common format focuses on semantically important messages (user input,
-# assistant output, tool calls, tool results) and drops noise like progress
-# events, file-history snapshots, and system bookkeeping.
+# Noise like progress events, file-history snapshots, and system
+# bookkeeping is dropped.
 #
-# Each output line is a self-describing JSON object with the standard event
-# envelope (timestamp, type, event_id, source) plus message-specific fields.
+# Each output line is a self-describing JSON object with the standard
+# event envelope (timestamp, type, event_id, source) plus
+# message-specific fields.
 #
-# The watcher uses an ID-based dedup strategy: each output event_id is
-# derived from the source event's uuid, so re-processing the same input
-# never produces duplicate output. The input file is append-only (populated
-# by stream_transcript.sh which watches all session files).
+# The converter uses an ID-based dedup strategy: each output event_id
+# is derived from the source event's uuid, so re-processing the same
+# input never produces duplicate output.
 #
-# Usage: transcript_watcher.sh
+# Usage: common_transcript.sh
 #
 # Environment:
-#   MNG_AGENT_STATE_DIR  - agent state directory (contains events/)
+#   MNG_AGENT_STATE_DIR  - agent state directory (contains events/, logs/)
 
 set -euo pipefail
 
 AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
 INPUT_FILE="$AGENT_DATA_DIR/logs/claude_transcript/events.jsonl"
-OUTPUT_FILE="$AGENT_DATA_DIR/events/common_transcript/events.jsonl"
-LOG_FILE="$AGENT_DATA_DIR/events/logs/transcript_watcher/events.jsonl"
+OUTPUT_FILE="$AGENT_DATA_DIR/events/claude/common_transcript/events.jsonl"
+POLL_INTERVAL=5
 
-# Read poll interval from settings.toml, fall back to default
-mkdir -p "$(dirname "$LOG_FILE")"
-POLL_INTERVAL=$(python3 -c "
-import tomllib, pathlib, sys
-p = pathlib.Path('${MNG_AGENT_STATE_DIR}/settings.toml')
-try:
-    s = tomllib.loads(p.read_text()) if p.exists() else {}
-    print(s.get('watchers', {}).get('transcript_poll_interval_seconds', 5))
-except Exception as e:
-    print(f'WARNING: failed to load settings: {e}', file=sys.stderr)
-    print(5)
-" 2>>"$LOG_FILE" || echo 5)
-
-log() {
-    local ts
-    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
-    local message="[$ts] $*"
-    echo "$message"
-    mkdir -p "$(dirname "$LOG_FILE")"
-    echo "$message" >> "$LOG_FILE"
-}
-
-log_warn() {
-    local ts
-    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
-    echo "[$ts] WARNING: $*"
-    mkdir -p "$(dirname "$LOG_FILE")"
-    echo "[$ts] WARNING: $*" >> "$LOG_FILE"
-}
-
-log_debug() {
-    local ts
-    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
-    mkdir -p "$(dirname "$LOG_FILE")"
-    echo "[$ts] [debug] $*" >> "$LOG_FILE"
-}
+# Configure and source the shared logging library
+_MNG_LOG_TYPE="common_transcript"
+_MNG_LOG_SOURCE="logs/common_transcript"
+_MNG_LOG_FILE="$AGENT_DATA_DIR/events/logs/common_transcript/events.jsonl"
+# shellcheck source=mng_log.sh
+source "$MNG_AGENT_STATE_DIR/commands/mng_log.sh"
 
 # Convert new Claude transcript events to the common format.
 #
@@ -335,37 +306,33 @@ CONVERT_SCRIPT
 
     local converted="${result:-0}"
     if [ "$converted" -gt 0 ] 2>/dev/null; then
-        log "Converted $converted new event(s) -> events/common_transcript/events.jsonl"
+        log_info "Converted $converted new event(s) -> events/claude/common_transcript/events.jsonl"
     fi
 }
 
 main() {
+    local is_single_pass=false
+    if [ "${1:-}" = "--single-pass" ]; then
+        is_single_pass=true
+    fi
+
     mkdir -p "$(dirname "$OUTPUT_FILE")"
 
-    log "Transcript watcher started"
-    log "  Agent data dir: $AGENT_DATA_DIR"
-    log "  Input: $INPUT_FILE"
-    log "  Output: $OUTPUT_FILE"
-    log "  Log file: $LOG_FILE"
-    log "  Poll interval: ${POLL_INTERVAL}s"
+    log_info "Common transcript converter started"
+    log_info "  Agent data dir: $AGENT_DATA_DIR"
+    log_info "  Input: $INPUT_FILE"
+    log_info "  Output: $OUTPUT_FILE"
+    log_info "  Poll interval: ${POLL_INTERVAL}s"
 
-    if command -v inotifywait &>/dev/null && [ -f "$INPUT_FILE" ]; then
-        log "Using inotifywait for file watching"
-        while true; do
-            inotifywait -q -t "$POLL_INTERVAL" -e modify,create "$INPUT_FILE" 2>/dev/null || true
-            convert_new_events
-        done
-    else
-        if ! command -v inotifywait &>/dev/null; then
-            log "inotifywait not available, using polling"
-        elif [ ! -f "$INPUT_FILE" ]; then
-            log "Input file not yet created at $INPUT_FILE, using polling"
-        fi
-        while true; do
-            convert_new_events
-            sleep "$POLL_INTERVAL"
-        done
+    if [ "$is_single_pass" = true ]; then
+        convert_new_events
+        return
     fi
+
+    while true; do
+        convert_new_events
+        sleep "$POLL_INTERVAL"
+    done
 }
 
-main
+main "${1:-}"
