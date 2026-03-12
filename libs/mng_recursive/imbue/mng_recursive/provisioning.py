@@ -81,11 +81,13 @@ def _upload_deploy_files(
                     logger.debug("Skipping non-existent deploy file: {}", source)
                     continue
                 content = source.read_bytes()
-                # futures.append(executor.submit(host.write_file, path=resolved_path, content=content))
-                host.write_file(path=resolved_path, content=content)
+                futures.append(executor.submit(host.write_file, path=resolved_path, content=content))
+                # host.write_file(path=resolved_path, content=content)
             else:
-                # futures.append(executor.submit(host.write_text_file, path=resolved_path, content=source))
-                host.write_text_file(path=resolved_path, content=source)
+                futures.append(executor.submit(host.write_text_file, path=resolved_path, content=source))
+                # host.write_text_file(path=resolved_path, content=source)
+            # wait -- just curious if the executor is the problem here
+            futures[-1].result()
 
             logger.trace("Uploaded deploy file: {} -> {}", dest_path, resolved_path)
             count += 1
