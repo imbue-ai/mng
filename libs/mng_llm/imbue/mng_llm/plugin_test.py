@@ -67,12 +67,15 @@ def test_register_agent_type_returns_llm() -> None:
     assert config_class is LlmAgentConfig
 
 
-# -- LlmAgent tests --
+# -- register_cli_commands tests --
 
 
-def test_llm_agent_modify_env_vars_delegates_to_set_uv_tool_env_vars() -> None:
-    """LlmAgent.modify_env_vars should set UV_TOOL_DIR and UV_TOOL_BIN_DIR."""
-    env: dict[str, str] = {"MNG_AGENT_STATE_DIR": "/tmp/state"}
-    set_uv_tool_env_vars(env)
-    assert env["UV_TOOL_DIR"] == "/tmp/state/tools"
-    assert env["UV_TOOL_BIN_DIR"] == "/tmp/state/bin"
+def test_register_cli_commands_returns_commands() -> None:
+    from imbue.mng_llm.plugin import register_cli_commands
+
+    commands = register_cli_commands()
+    assert commands is not None
+    command_names = [c.name for c in commands]
+    assert "llmconversations" in command_names
+    assert "llmweb" in command_names
+    assert "llmdb" in command_names
