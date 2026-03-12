@@ -36,4 +36,4 @@ If no issues are found, output nothing.
 
 ## Step 3: Write Results
 
-Write ALL issue JSON objects (one per line, JSONL format) to the output file path you were given. If you found no issues, write an empty file.
+Use the Write tool (without checking if the directory exists) to write ALL issue JSON objects (one per line, JSONL format) to the output file path you were given. If you found no issues, write an empty file.
