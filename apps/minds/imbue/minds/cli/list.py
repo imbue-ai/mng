@@ -29,7 +29,7 @@ _HEADER_LABELS: dict[str, str] = {
 
 
 def _fetch_mind_agents_json() -> list[dict[str, Any]]:
-    """Call `mng list --label mind=true --json --quiet` and return the agents list.
+    """Call `mng list --label mind=true --format json --quiet` and return the agents list.
 
     Filters to only agents with the mind=true label (set during
     mind deploy). Returns an empty list on failure.
