@@ -29,6 +29,19 @@ Then, for each potential issue, briefly check: is this actually a problem, or do
 
 If there are no issues, stop here. There is nothing to fix.
 
+## Record Issues
+
+After finalizing the issue list, use the Write tool (without checking if the directory exists) to write all issues to `.autofix/issues.jsonl`. Write one JSON object per line with these fields (in order):
+
+- `issue_type`: the issue type code (e.g., "logic_error", "poor_naming")
+- `file`: the file path
+- `line`: the line number (or null if not applicable)
+- `description`: a complete description of the problem
+- `confidence`: a confidence score between 0.0 and 1.0 (probability it is an actual issue)
+- `severity`: one of "CRITICAL", "MAJOR", "MINOR", or "NITPICK"
+
+This file serves as a structured record of all identified issues, including those that may not be fixed.
+
 # Step 3: Plan and Fix
 
 For each issue, do the following in order:

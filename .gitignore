@@ -254,8 +254,10 @@ current.tar.gz
 # Changelings deploy-time build artifacts
 .changelings/
 
-# Autofix plans and verification markers (session artifacts)
+# Autofix session artifacts (plans, verification markers, issue logs)
 .autofix/plans/
+.autofix/issues.jsonl
+.autofix/all_issues.jsonl
 
 # Stuck agent tracking (stop hook escape valve)
 .claude/blocked_stop_commits
