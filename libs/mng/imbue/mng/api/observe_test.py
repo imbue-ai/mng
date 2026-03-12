@@ -11,7 +11,6 @@ from imbue.mng.api.observe import FullAgentStateEvent
 from imbue.mng.api.observe import OBSERVE_EVENT_SOURCE
 from imbue.mng.api.observe import ObserveEventType
 from imbue.mng.api.observe import ObserveLockError
-from imbue.mng.api.observe import _VOLATILE_AGENT_FIELDS
 from imbue.mng.api.observe import acquire_observe_lock
 from imbue.mng.api.observe import append_agent_state_change_event
 from imbue.mng.api.observe import append_observe_event
@@ -27,7 +26,6 @@ from imbue.mng.api.observe import make_full_agent_state_event
 from imbue.mng.api.observe import release_observe_lock
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.utils.testing import make_test_agent_details
 from imbue.mng.utils.testing import make_test_discovered_agent
@@ -100,8 +98,8 @@ def test_make_agent_state_change_event_has_correct_fields() -> None:
     assert event.event_id.startswith("evt-")
     assert event.old_state == "STOPPED"
     assert event.new_state == "RUNNING"
-    assert event.agent_id == str(agent.id)
-    assert event.agent_name == "test-agent"
+    assert event.agent_id == agent.id
+    assert event.agent_name == agent.name
     assert event.agent["name"] == "test-agent"
     assert isinstance(event, AgentStateChangeEvent)
 
@@ -179,63 +177,11 @@ def test_append_agent_state_change_event_creates_parent_directories(temp_config:
     assert events_path.parent.exists()
 
 
-# === Volatile Field Exclusion Tests ===
-
-
-def test_serialize_agent_for_comparison_excludes_volatile_fields() -> None:
-    """Verify that _serialize_agent_for_comparison excludes continuously-changing fields."""
-    agent = make_test_agent_details()
-    result = AgentObserver._serialize_agent_for_comparison(agent)
-    parsed = json.loads(result)
-
-    for field in _VOLATILE_AGENT_FIELDS:
-        assert field not in parsed, f"Volatile field '{field}' should be excluded from comparison"
-
-
-def test_serialize_agent_for_comparison_includes_meaningful_fields() -> None:
-    """Verify that non-volatile fields are included in the comparison JSON."""
-    agent = make_test_agent_details(name="my-agent", state=AgentLifecycleState.RUNNING)
-    result = AgentObserver._serialize_agent_for_comparison(agent)
-    parsed = json.loads(result)
-
-    assert parsed["name"] == "my-agent"
-    assert parsed["state"] == "RUNNING"
-    assert "id" in parsed
-    assert "command" in parsed
-    assert "work_dir" in parsed
-    assert "host" in parsed
-    assert "labels" in parsed
-
-
-def test_volatile_field_only_change_does_not_trigger_event(temp_mng_ctx: MngContext) -> None:
-    """Verify that changing only volatile fields does not trigger an additional AGENT_STATE event."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary="/bin/true")
-    agent = make_test_agent_details(name="stable-agent", state=AgentLifecycleState.RUNNING)
-
-    # First emit sets the base state
-    observer._emit_agent_state(agent)
-
-    # Build a second agent dict with different volatile fields but identical non-volatile fields
-    second_dict = agent.model_dump(mode="json")
-    second_dict["runtime_seconds"] = 99999.0
-    second_dict["idle_seconds"] = 12345.0
-    second_agent = AgentDetails.model_validate(second_dict)
-
-    # The comparison serialization should be identical despite volatile field differences
-    original_json = AgentObserver._serialize_agent_for_comparison(agent)
-    modified_json = AgentObserver._serialize_agent_for_comparison(second_agent)
-    assert original_json == modified_json
-
-    # The stored tracking JSON should match, so _emit_agent_state would not consider it changed
-    assert observer._last_agent_json_by_id[str(agent.id)] == modified_json
-
-
 # === History Loading Tests ===
 
 
 def test_load_base_state_from_history_returns_empty_when_no_file(temp_config: MngConfig) -> None:
-    agent_json, agent_state = load_base_state_from_history(temp_config)
-    assert agent_json == {}
+    agent_state = load_base_state_from_history(temp_config)
     assert agent_state == {}
 
 
@@ -245,40 +191,33 @@ def test_load_base_state_from_history_loads_latest_full_state(temp_config: MngCo
     event = make_full_agent_state_event([agent1, agent2])
     append_observe_event(temp_config, event)
 
-    agent_json, agent_state = load_base_state_from_history(temp_config)
-    assert len(agent_json) == 2
+    agent_state = load_base_state_from_history(temp_config)
     assert len(agent_state) == 2
     assert agent_state[str(agent1.id)] == "RUNNING"
     assert agent_state[str(agent2.id)] == "STOPPED"
 
 
 def test_load_base_state_from_history_uses_latest_full_state(temp_config: MngConfig) -> None:
-    # Write first full state with one agent
     agent1 = make_test_agent_details(name="agent-1", state=AgentLifecycleState.RUNNING)
     event1 = make_full_agent_state_event([agent1])
     append_observe_event(temp_config, event1)
 
-    # Write second full state with a different agent
     agent2 = make_test_agent_details(name="agent-2", state=AgentLifecycleState.STOPPED)
     event2 = make_full_agent_state_event([agent2])
     append_observe_event(temp_config, event2)
 
-    # Should load the latest (second) full state
-    agent_json, agent_state = load_base_state_from_history(temp_config)
-    assert len(agent_json) == 1
-    assert str(agent2.id) in agent_json
+    agent_state = load_base_state_from_history(temp_config)
+    assert len(agent_state) == 1
+    assert str(agent2.id) in agent_state
     assert agent_state[str(agent2.id)] == "STOPPED"
 
 
 def test_load_base_state_from_history_ignores_non_full_state_events(temp_config: MngConfig) -> None:
-    # Write individual agent state event (not a full state)
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
     individual_event = make_agent_state_event(agent)
     append_observe_event(temp_config, individual_event)
 
-    # Should not pick up the individual event
-    agent_json, agent_state = load_base_state_from_history(temp_config)
-    assert agent_json == {}
+    agent_state = load_base_state_from_history(temp_config)
     assert agent_state == {}
 
 
@@ -286,7 +225,6 @@ def test_load_base_state_from_history_handles_malformed_lines(temp_config: MngCo
     events_path = get_observe_events_path(temp_config)
     events_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Write a malformed line followed by a valid full state
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
     event = make_full_agent_state_event([agent])
     event_json = json.dumps(event.model_dump(mode="json"), separators=(",", ":"))
@@ -295,8 +233,8 @@ def test_load_base_state_from_history_handles_malformed_lines(temp_config: MngCo
         f.write("not valid json\n")
         f.write(event_json + "\n")
 
-    agent_json, agent_state = load_base_state_from_history(temp_config)
-    assert len(agent_json) == 1
+    agent_state = load_base_state_from_history(temp_config)
+    assert len(agent_state) == 1
     assert agent_state[str(agent.id)] == "RUNNING"
 
 
@@ -403,12 +341,10 @@ def test_agent_observer_handle_full_snapshot_removes_stale_hosts(temp_mng_ctx: M
     host_b = make_test_discovered_host()
 
     with observer._cg:
-        # First snapshot: host_a is known
         snapshot1 = make_full_discovery_snapshot_event([], [host_a])
         observer._handle_full_snapshot(snapshot1)
         assert str(host_a.host_id) in observer._known_hosts
 
-        # Second snapshot: only host_b -- host_a should be removed
         snapshot2 = make_full_discovery_snapshot_event([], [host_b])
         observer._handle_full_snapshot(snapshot2)
         assert str(host_a.host_id) not in observer._known_hosts
@@ -461,7 +397,6 @@ def test_agent_observer_emit_agent_state_updates_tracking(temp_mng_ctx: MngConte
 
     observer._emit_agent_state(agent)
 
-    assert str(agent.id) in observer._last_agent_json_by_id
     assert str(agent.id) in observer._last_agent_state_by_id
 
 
@@ -488,9 +423,9 @@ def test_agent_observer_emit_agent_state_no_state_change_when_same_state(temp_mn
     observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary="/bin/true")
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
 
-    # First emit -- triggers state change (None -> RUNNING)
+    # First emit triggers state change (None -> RUNNING)
     observer._emit_agent_state(agent)
-    # Second emit with same state -- should not add another state change
+    # Second emit with same state should not add another state change
     observer._emit_agent_state(agent)
 
     # Only the initial state change should be emitted (None -> RUNNING), not a duplicate
@@ -535,7 +470,6 @@ def test_agent_observer_stop_sets_stop_event(temp_mng_ctx: MngContext) -> None:
 def test_agent_observer_on_list_stream_output_ignores_non_stdout(temp_mng_ctx: MngContext) -> None:
     """Verify that stderr output from list --stream is ignored."""
     observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary="/bin/true")
-    # Should not raise or modify state
     observer._on_list_stream_output("some error message", is_stdout=False)
     assert len(observer._known_hosts) == 0
 
@@ -548,7 +482,7 @@ def test_agent_observer_on_list_stream_output_ignores_invalid_json(temp_mng_ctx:
 
 
 def test_agent_observer_do_full_state_snapshot_writes_event(temp_mng_ctx: MngContext) -> None:
-    """Verify that _do_full_state_snapshot writes a AGENTS_FULL_STATE event."""
+    """Verify that _do_full_state_snapshot writes an AGENTS_FULL_STATE event."""
     observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary="/bin/true")
 
     observer._do_full_state_snapshot()
