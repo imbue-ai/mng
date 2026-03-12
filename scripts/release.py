@@ -533,6 +533,10 @@ def main() -> None:
     # Declined new packages are excluded entirely.
     directly_changed_for_bump = directly_changed - new_packages
 
+    if not directly_changed_for_bump and not confirmed_new:
+        print("\nNo packages to release (new packages were declined). Nothing to do.")
+        return
+
     # Compute the full bump set (includes cascades and mng-always rule)
     to_bump = _compute_bump_set(directly_changed_for_bump)
 
@@ -552,10 +556,6 @@ def main() -> None:
 
     new_mng_version = all_versions_after["mng"]
     tag = f"v{new_mng_version}"
-
-    if not to_bump and not confirmed_new:
-        print("\nNo packages to release (new packages were declined). Nothing to do.")
-        return
 
     # Show summary
     _print_bump_summary(directly_changed, to_bump, bump_levels, current_versions, new_versions, confirmed_new)
