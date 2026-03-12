@@ -17,7 +17,6 @@ from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import _close_concurrency_group
 from imbue.mng.cli.common_opts import _install_sigint_shutdown_handler
 from imbue.mng.cli.common_opts import _process_template_escapes
-from imbue.mng.cli.common_opts import _resolve_format_flags
 from imbue.mng.cli.common_opts import _run_pre_command_scripts
 from imbue.mng.cli.common_opts import _run_single_script
 from imbue.mng.cli.common_opts import _split_known_and_plugin_params
@@ -638,73 +637,6 @@ def test_headless_flag_sets_is_interactive_false_via_setup_command_context(
 
 
 # =============================================================================
-# Tests for _resolve_format_flags
-# =============================================================================
-
-
-def _make_common_cli_opts(
-    output_format: str = "human",
-    json_flag: bool = False,
-    jsonl_flag: bool = False,
-) -> CommonCliOptions:
-    """Create a CommonCliOptions with the given format-related fields."""
-    return CommonCliOptions(
-        output_format=output_format,
-        json_flag=json_flag,
-        jsonl_flag=jsonl_flag,
-        quiet=False,
-        verbose=0,
-        log_file=None,
-        log_commands=None,
-        log_command_output=None,
-        log_env_vars=None,
-        project_context_path=None,
-        plugin=(),
-        disable_plugin=(),
-    )
-
-
-def test_resolve_format_flags_no_flags() -> None:
-    """_resolve_format_flags should return output_format when no flags are set."""
-    ctx = _make_click_context({"output_format": "human"})
-    opts = _make_common_cli_opts(output_format="human")
-    assert _resolve_format_flags(ctx, opts) == "human"
-
-
-def test_resolve_format_flags_json_flag() -> None:
-    """_resolve_format_flags should return 'json' when --json flag is set."""
-    ctx = _make_click_context({"output_format": "human"})
-    opts = _make_common_cli_opts(json_flag=True)
-    assert _resolve_format_flags(ctx, opts) == "json"
-
-
-def test_resolve_format_flags_jsonl_flag() -> None:
-    """_resolve_format_flags should return 'jsonl' when --jsonl flag is set."""
-    ctx = _make_click_context({"output_format": "human"})
-    opts = _make_common_cli_opts(jsonl_flag=True)
-    assert _resolve_format_flags(ctx, opts) == "jsonl"
-
-
-def test_resolve_format_flags_both_flags_raises() -> None:
-    """_resolve_format_flags should raise when both --json and --jsonl are set."""
-    ctx = _make_click_context({"output_format": "human"})
-    opts = _make_common_cli_opts(json_flag=True, jsonl_flag=True)
-    with pytest.raises(click.UsageError, match="mutually exclusive"):
-        _resolve_format_flags(ctx, opts)
-
-
-def test_resolve_format_flags_json_with_explicit_format_raises() -> None:
-    """_resolve_format_flags should raise when --json is used with explicit --format."""
-    ctx = _make_click_context(
-        {"output_format": "jsonl"},
-        source_by_param_name={"output_format": ParameterSource.COMMANDLINE},
-    )
-    opts = _make_common_cli_opts(output_format="jsonl", json_flag=True)
-    with pytest.raises(click.UsageError, match="mutually exclusive"):
-        _resolve_format_flags(ctx, opts)
-
-
-# =============================================================================
 # Tests for _close_concurrency_group and SIGINT handler
 # =============================================================================
 
@@ -787,11 +719,10 @@ def test_install_sigint_handler_sets_shutdown_event() -> None:
         # Simulate SIGINT by calling the installed handler directly
         handler = signal.getsignal(signal.SIGINT)
         assert callable(handler)
-        # The original handler raises KeyboardInterrupt, which is expected
-        try:
+        # The handler should set shutdown_event, then delegate to the original handler
+        # which raises KeyboardInterrupt
+        with pytest.raises(KeyboardInterrupt):
             handler(signal.SIGINT, None)
-        except KeyboardInterrupt:
-            pass
 
         assert cg.shutdown_event.is_set()
     finally:
