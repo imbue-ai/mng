@@ -146,6 +146,30 @@ def format_line(line_num, msg_type, text, use_json, show_line_numbers=True):
         return "\n".join(formatted)
 
 
+def _compute_filtered_size(path, args):
+    """Compute the filtered output size in bytes for a single file."""
+    total = 0
+    with open(path) as f:
+        for line_num, raw_line in enumerate(f, start=1):
+            raw_line = raw_line.strip()
+            if not raw_line:
+                continue
+            try:
+                obj = json.loads(raw_line)
+            except json.JSONDecodeError:
+                continue
+            msg_type = get_message_type(obj)
+            if not should_include(msg_type, args):
+                continue
+            content = get_content(obj)
+            text = extract_text(content)
+            if not text.strip():
+                continue
+            output = format_line(line_num, msg_type, text, args.json, show_line_numbers=not args.no_line_numbers)
+            total += len(output.encode("utf-8")) + 1
+    return total
+
+
 def main():
     parser = argparse.ArgumentParser(description="Filter and format Claude Code session transcript JSONL files.")
     parser.add_argument("file", nargs="?", help="JSONL file to filter (reads stdin if omitted)")
@@ -158,7 +182,27 @@ def main():
     parser.add_argument("--json", action="store_true", help="Output as JSON instead of formatted text")
     parser.add_argument("--no-line-numbers", action="store_true", help="Omit line numbers")
     parser.add_argument("--size", action="store_true", help="Only output total byte count of filtered output")
+    parser.add_argument(
+        "--total-size",
+        action="store_true",
+        help="Read file paths (one per line, optionally tab-prefixed) from stdin and print total filtered size",
+    )
     args = parser.parse_args()
+
+    if args.total_size:
+        total = 0
+        for line in sys.stdin:
+            # Support both plain paths and "source\tpath" format from export_transcript_paths.sh
+            parts = line.strip().split("\t")
+            path = parts[-1]
+            if not path:
+                continue
+            try:
+                total += _compute_filtered_size(path, args)
+            except (FileNotFoundError, PermissionError):
+                pass
+        print(total)
+        return
 
     if args.file:
         try:

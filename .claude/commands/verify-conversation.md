@@ -1,7 +1,7 @@
 ---
 argument-hint: [options...]
 description: Review the conversation transcript for behavioral issues (misleading behavior, disobeyed instructions, instructions worth saving).
-allowed-tools: Bash(bash ./scripts/export_transcript_paths.sh*), Bash(python3 *scripts/filter_transcript.py *), Bash(git rev-parse HEAD), Bash(wc *), Read, Write, Agent, AskUserQuestion
+allowed-tools: Bash(bash ./scripts/export_transcript_paths.sh*), Bash(python3 *scripts/filter_transcript.py *), Bash(bash ./scripts/export_transcript_paths.sh | python3 *scripts/filter_transcript.py --total-size), Bash(git rev-parse HEAD), Bash(wc *), Read, Write, Agent, AskUserQuestion
 ---
 
 # Verify Conversation
@@ -37,13 +37,13 @@ If this outputs nothing (no sessions found), skip to Step 5 and write an empty m
 
 ### Step 2: Check Size and Choose Model
 
-For each session file found, get the filtered size (which is what the reviewer will actually see):
+Get the total filtered size across all session files by piping the export script output to the filter script:
 
 ```bash
-python3 scripts/filter_transcript.py --size <file_path>
+bash ./scripts/export_transcript_paths.sh | python3 scripts/filter_transcript.py --total-size
 ```
 
-Sum the filtered sizes across all session files.
+This outputs a single number (total bytes).
 
 - If total size exceeds 3MB (3000000 bytes), STOP and warn the user. The transcripts are too large for even the 1M context window. Suggest narrowing scope, for example:
   - `/verify-conversation only review tracked sessions`
