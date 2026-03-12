@@ -29,6 +29,7 @@ from imbue.mng_claude_mind.provisioning import provision_default_content
 from imbue.mng_claude_mind.provisioning import setup_memory_directory
 from imbue.mng_claude_mind.provisioning import validate_talking_role_constraints
 from imbue.mng_claude_mind.settings import load_settings_from_host
+from imbue.mng_llm.plugin import set_uv_tool_env_vars
 from imbue.mng_llm.provisioning import configure_llm_user_path
 from imbue.mng_llm.provisioning import create_daily_conversation
 from imbue.mng_llm.provisioning import create_mind_conversations_table
@@ -38,6 +39,7 @@ from imbue.mng_llm.provisioning import install_llm_toolchain
 from imbue.mng_llm.provisioning import provision_llm_tools
 from imbue.mng_llm.provisioning import provision_supporting_services
 from imbue.mng_llm.provisioning import resolve_work_dir_abs
+from imbue.mng_recursive.provisioning import provision_mng_for_agent
 
 # Supporting service tmux window names and commands.
 # These are run as additional tmux windows alongside the primary role agent.
@@ -163,8 +165,7 @@ class ClaudeMindAgent(ClaudeAgent):
         env_vars: dict[str, str],
     ) -> None:
         """Set UV_TOOL_DIR and UV_TOOL_BIN_DIR for per-agent tool isolation."""
-        from imbue.mng_llm.plugin import set_uv_tool_env_vars
-
+        super().modify_env_vars(host, env_vars)
         set_uv_tool_env_vars(env_vars)
 
     def assemble_command(
@@ -197,7 +198,6 @@ class ClaudeMindAgent(ClaudeAgent):
         8. LLM tool scripts for conversation context (via mng_llm)
         9. Per-role memory directory setup
         """
-        from imbue.mng_recursive.provisioning import provision_mng_for_agent
 
         provision_mng_for_agent(agent=self, host=host, mng_ctx=mng_ctx)
 

@@ -141,7 +141,7 @@ class ClaudeAgentConfig(AgentTypeConfig):
         "Also dismisses the effort callout dialog.",
     )
     emit_common_transcript: bool = Field(
-        default=False,
+        default=True,
         description="Emit a common, agent-agnostic transcript alongside the raw Claude transcript. "
         "When enabled, a background process converts raw transcript events into a common format at "
         "events/claude/common_transcript/events.jsonl. The common format includes user messages, "
