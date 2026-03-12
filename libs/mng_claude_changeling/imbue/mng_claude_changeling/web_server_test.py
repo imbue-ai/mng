@@ -298,3 +298,100 @@ def test_render_header_highlights_active_agents(web_server_module: Any) -> None:
 def test_render_header_no_active_when_unspecified(web_server_module: Any) -> None:
     header = web_server_module._render_header("Agent")
     assert 'class="active"' not in header
+
+
+# -- API function tests (env-var dependent, only testable via dynamic module) --
+
+
+def test_get_default_chat_model_reads_from_settings(web_server_module: Any, tmp_path: Path) -> None:
+    work_dir = tmp_path / "chat_settings_work"
+    work_dir.mkdir()
+    (work_dir / "changelings.toml").write_text('[chat]\nmodel = "claude-sonnet-4-6"\n')
+    web_server_module.AGENT_WORK_DIR = str(work_dir)
+
+    result = web_server_module._get_default_chat_model()
+    assert result == "claude-sonnet-4-6"
+
+
+def test_get_system_prompt_reads_files(web_server_module: Any, tmp_path: Path) -> None:
+    work_dir = tmp_path / "prompt_work"
+    work_dir.mkdir()
+    (work_dir / "GLOBAL.md").write_text("Global instructions")
+    talking_dir = work_dir / "talking"
+    talking_dir.mkdir()
+    (talking_dir / "PROMPT.md").write_text("Talking prompt")
+    web_server_module.AGENT_WORK_DIR = str(work_dir)
+
+    result = web_server_module._get_system_prompt()
+    assert "Global instructions" in result
+    assert "Talking prompt" in result
+
+
+def test_get_system_prompt_returns_empty_when_no_work_dir(web_server_module: Any) -> None:
+    web_server_module.AGENT_WORK_DIR = ""
+    result = web_server_module._get_system_prompt()
+    assert result == ""
+
+
+def test_read_message_history_skips_injected_prompts(web_server_module: Any) -> None:
+    import sqlite3
+
+    db_path = web_server_module.LLM_DB_PATH
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS responses ("
+        "id TEXT PRIMARY KEY, prompt TEXT, response TEXT, "
+        "model TEXT, datetime_utc TEXT, conversation_id TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO responses VALUES (?, ?, ?, ?, ?, ?)",
+        ("r1-82741", "...", "injected response", "test-model", "2026-01-01T00:00:00Z", "conv-skip-82741"),
+    )
+    conn.commit()
+    conn.close()
+
+    result = web_server_module._read_message_history("conv-skip-82741")
+    assert len(result) == 1
+    assert result[0]["role"] == "assistant"
+
+
+# -- Inworld config tests --
+
+
+def test_get_inworld_config_returns_empty_when_no_api_key(web_server_module: Any) -> None:
+    web_server_module.INWORLD_API_KEY = ""
+    result = web_server_module._get_inworld_config()
+    assert result["api_key"] == ""
+    assert result["ice_servers"] == []
+    assert result["url"] == ""
+
+
+def test_get_inworld_config_returns_config_with_api_key(web_server_module: Any) -> None:
+    web_server_module.INWORLD_API_KEY = "test-key-82741"
+    # Point at an invalid proxy to avoid real HTTP calls (ICE fetch will fail gracefully)
+    original_proxy = web_server_module.INWORLD_PROXY
+    web_server_module.INWORLD_PROXY = "http://127.0.0.1:1"
+    try:
+        result = web_server_module._get_inworld_config()
+        assert result["api_key"] == "test-key-82741"
+        assert result["ice_servers"] == []
+        assert result["url"] == "http://127.0.0.1:1/v1/realtime/calls"
+    finally:
+        web_server_module.INWORLD_PROXY = original_proxy
+
+
+# -- Web chat page audio tests --
+
+
+def test_render_web_chat_page_includes_audio_button(web_server_module: Any) -> None:
+    page = web_server_module._render_web_chat_page("TestAgent", "conv-audio-82741")
+    assert 'id="audio-btn"' in page
+    assert "toggleAudio" in page
+
+
+def test_render_web_chat_page_includes_webrtc_code(web_server_module: Any) -> None:
+    page = web_server_module._render_web_chat_page("TestAgent", "conv-audio-82741")
+    assert "RTCPeerConnection" in page
+    assert "speakText" in page
+    assert "session.update" in page
+    assert "inworld-tts" in page
