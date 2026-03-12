@@ -673,11 +673,11 @@ def test_close_concurrency_group_raises_when_not_shutting_down() -> None:
     cg.__enter__()
 
     _start_failing_thread(cg)
-    assert not cg.shutdown_event.is_set()
 
     # Should raise because the CG is NOT shutting down -- this is a real failure
     with pytest.raises(ConcurrencyExceptionGroup):
         _close_concurrency_group(cg, None)
+    assert not cg.shutdown_event.is_set()
 
 
 def test_close_concurrency_group_restores_signal_handler() -> None:
