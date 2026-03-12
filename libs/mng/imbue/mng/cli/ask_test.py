@@ -252,15 +252,29 @@ def test_show_command_summary_jsonl(capsys: pytest.CaptureFixture[str]) -> None:
 # =============================================================================
 
 
-def test_find_mng_source_directory_returns_path() -> None:
-    """Should find the mng source directory when running from the source tree."""
+def test_find_mng_source_directory_returns_project_root_for_source_checkout() -> None:
+    """Should return the project root (with pyproject.toml) when running from source."""
     result = _find_mng_source_directory()
     assert result is not None
+    assert (result / "pyproject.toml").is_file()
     assert (result / "imbue" / "mng").is_dir()
 
 
+def test_find_mng_source_directory_returns_imbue_dir_for_installed_package(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Should return the imbue/ directory when installed (no pyproject.toml)."""
+    # Simulate site-packages/imbue/mng/cli/ask.py
+    fake_file = tmp_path / "imbue" / "mng" / "cli" / "ask.py"
+    fake_file.parent.mkdir(parents=True)
+    fake_file.touch()
+    monkeypatch.setattr(ask_module, "__file__", str(fake_file))
+    result = _find_mng_source_directory()
+    assert result == tmp_path / "imbue"
+
+
 def test_find_mng_source_directory_returns_none_when_not_found(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     """Should return None when the source tree is not found."""
     fake_file = tmp_path / "a" / "b" / "c" / "ask.py"
@@ -292,6 +306,16 @@ def test_build_source_access_context_omits_docs_when_missing(tmp_path: Path) -> 
     (tmp_path / "imbue" / "mng").mkdir(parents=True)
     context = _build_source_access_context(tmp_path)
     assert "docs/" not in context
+
+
+def test_build_source_access_context_installed_package(tmp_path: Path) -> None:
+    """When source_directory is the imbue/ dir, paths should use mng/ not imbue/mng/."""
+    imbue_dir = tmp_path / "imbue"
+    (imbue_dir / "mng" / "cli").mkdir(parents=True)
+    context = _build_source_access_context(imbue_dir)
+    assert str(imbue_dir / "mng") + "/" in context
+    # Should NOT contain doubled imbue/imbue/mng path
+    assert "imbue/imbue" not in context
 
 
 # =============================================================================

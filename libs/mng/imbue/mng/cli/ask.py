@@ -228,15 +228,30 @@ _MNG_REPO_URL: Final[str] = "https://github.com/imbue-ai/mng"
 
 
 def _find_mng_source_directory() -> Path | None:
-    """Find the mng project directory by walking up from this file.
+    """Find the mng source directory by walking up from this file.
 
-    Returns the project root (containing imbue/mng/) or None if not found.
-    Only requires the Python source tree to exist; docs/ may or may not be
-    present (the CLI docs are already injected from the help metadata registry).
+    For a source checkout (editable install / uv run), returns the project root
+    so that docs/ and other top-level files are included.  Detected by the
+    presence of pyproject.toml alongside the imbue/ package.
+
+    For a regular install (site-packages), returns the imbue/ directory so the
+    agent can still read the Python source, but is not scoped to all of
+    site-packages.
+
+    Returns None only if the directory structure is completely unexpected.
     """
-    candidate = Path(__file__).resolve().parents[3]
-    if (candidate / "imbue" / "mng").is_dir():
-        return candidate
+    # parents[0]=cli/, [1]=mng/, [2]=imbue/, [3]=project-root-or-site-packages
+    imbue_dir = Path(__file__).resolve().parents[2]
+    project_root = imbue_dir.parent
+
+    # Source checkout: project root has pyproject.toml
+    if (project_root / "pyproject.toml").is_file():
+        return project_root
+
+    # Installed package: scope to imbue/ (contains only mng)
+    if (imbue_dir / "mng").is_dir():
+        return imbue_dir
+
     return None
 
 
@@ -248,16 +263,25 @@ def _build_source_access_context(source_directory: Path) -> str:
         "You can use the Read, Glob, and Grep tools to explore it when answering questions.\n\n",
         "Key directories:\n",
     ]
+    # Determine the path to the mng package within source_directory.
+    # For a source checkout, source_directory is the project root and the
+    # package is at imbue/mng/.  For an installed package, source_directory
+    # is the imbue/ directory and the package is at mng/.
+    if (source_directory / "imbue" / "mng").is_dir():
+        mng_pkg = source_directory / "imbue" / "mng"
+    else:
+        mng_pkg = source_directory / "mng"
+
     is_docs_present = (source_directory / "docs").is_dir()
     if is_docs_present:
         parts.append(f"- {source_directory}/docs/ - User-facing documentation (markdown)\n")
     parts += [
-        f"- {source_directory}/imbue/mng/ - Python source code\n",
-        f"- {source_directory}/imbue/mng/cli/ - CLI command implementations\n",
-        f"- {source_directory}/imbue/mng/agents/ - Agent type implementations\n",
-        f"- {source_directory}/imbue/mng/providers/ - Provider backends (docker, modal, local)\n",
-        f"- {source_directory}/imbue/mng/plugins/ - Plugin system\n",
-        f"- {source_directory}/imbue/mng/config/ - Configuration handling\n",
+        f"- {mng_pkg}/ - Python source code\n",
+        f"- {mng_pkg}/cli/ - CLI command implementations\n",
+        f"- {mng_pkg}/agents/ - Agent type implementations\n",
+        f"- {mng_pkg}/providers/ - Provider backends (docker, modal, local)\n",
+        f"- {mng_pkg}/plugins/ - Plugin system\n",
+        f"- {mng_pkg}/config/ - Configuration handling\n",
     ]
     return "".join(parts)
 
