@@ -60,7 +60,7 @@ For each issue, do the following in order:
 ## Implementation phase
 
 5. Implement the fix according to your plan.
-6. Commit with a message in this format:
+6. Commit only the code changes (not files in `.autofix/` -- those are gitignored and must not be committed). Use this format:
 
 ```
 <short summary>
