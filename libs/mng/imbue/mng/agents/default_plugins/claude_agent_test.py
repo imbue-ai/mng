@@ -2198,13 +2198,13 @@ def test_provision_raises_on_version_mismatch(
 
 
 def test_install_claude_passes_version_to_command() -> None:
-    """_install_claude should pass the version to the install script."""
+    """_install_claude should pass the version as a positional arg to the install script."""
     host, executed_commands = _make_command_tracking_host()
 
     _install_claude(host, version="2.1.50")
 
     assert len(executed_commands) == 1
-    assert "install_claude.sh -s 2.1.50" in executed_commands[0]
+    assert "install_claude.sh 2.1.50" in executed_commands[0]
 
 
 def test_install_claude_without_version() -> None:
@@ -2214,7 +2214,7 @@ def test_install_claude_without_version() -> None:
     _install_claude(host, version=None)
 
     assert len(executed_commands) == 1
-    assert "install_claude.sh -s" not in executed_commands[0]
+    # Script name should be followed directly by " &&" (no version arg)
     assert "install_claude.sh &&" in executed_commands[0]
 
 

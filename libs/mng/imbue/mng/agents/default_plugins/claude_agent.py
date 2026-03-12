@@ -281,10 +281,10 @@ def _install_claude(host: OnlineHostInterface, version: str | None = None) -> No
     """Install claude on the host using the official installer.
 
     Downloads the install script to a temp file, runs it, then verifies
-    the binary exists. When version is specified, passes it to the script
-    (e.g., 'bash /tmp/install_claude.sh -s 2.1.50').
+    the binary exists. When version is specified, passes it as a positional
+    argument (e.g., 'bash /tmp/install_claude.sh 2.1.50').
     """
-    version_arg = f" -s {shlex.quote(version)}" if version else ""
+    version_arg = f" {shlex.quote(version)}" if version else ""
     steps = [
         "curl --version",
         "curl -fsSL https://claude.ai/install.sh -o /tmp/install_claude.sh",
