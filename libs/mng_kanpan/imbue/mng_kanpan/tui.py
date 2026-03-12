@@ -988,10 +988,13 @@ class _ColumnDef(FrozenModel):
     flexible: bool
 
 
-def _custom_col_text(entry: AgentBoardEntry, col_key: str, plugin_name: str | None, field: str | None) -> str:
-    """Get the text value for a custom column from either labels or plugin data."""
+def _custom_col_text(
+    entry: AgentBoardEntry, col_key: str, plugin_name: str | None, field: str | None, source: str = "state"
+) -> str:
+    """Get the text value for a custom column from labels, plugin_data, or plugin_state."""
     if plugin_name is not None:
-        return str(entry.plugin_data.get(plugin_name, {}).get(field or "", ""))
+        data = entry.plugin_data if source == "agent" else entry.plugin_state
+        return str(data.get(plugin_name, {}).get(field or "", ""))
     return entry.labels.get(col_key, "")
 
 
@@ -1001,9 +1004,10 @@ def _custom_col_markup(
     plugin_name: str | None,
     field: str | None,
     colors: dict[str, str],
+    source: str = "state",
 ) -> str | tuple[Hashable, str]:
     """Get markup for a custom column, applying color when configured."""
-    value = _custom_col_text(entry, col_key, plugin_name, field)
+    value = _custom_col_text(entry, col_key, plugin_name, field, source)
     if not value:
         return ""
     if value in colors:
@@ -1017,9 +1021,10 @@ class _CustomColTextFn(FrozenModel):
     col_key: str
     plugin_name: str | None
     field: str | None
+    source: str
 
     def __call__(self, entry: AgentBoardEntry) -> str:
-        return _custom_col_text(entry, self.col_key, self.plugin_name, self.field)
+        return _custom_col_text(entry, self.col_key, self.plugin_name, self.field, self.source)
 
 
 class _CustomColMarkupFn(FrozenModel):
@@ -1029,9 +1034,10 @@ class _CustomColMarkupFn(FrozenModel):
     plugin_name: str | None
     field: str | None
     colors: dict[str, str]
+    source: str
 
     def __call__(self, entry: AgentBoardEntry) -> str | tuple[Hashable, str]:
-        return _custom_col_markup(entry, self.col_key, self.plugin_name, self.field, self.colors)
+        return _custom_col_markup(entry, self.col_key, self.plugin_name, self.field, self.colors, self.source)
 
 
 @pure
@@ -1043,12 +1049,18 @@ def _build_custom_column_defs(columns_config: dict[str, CustomColumnConfig]) -> 
             _ColumnDef(
                 name=f"custom_{col_key}",
                 header=col_config.header,
-                text_fn=_CustomColTextFn(col_key=col_key, plugin_name=col_config.plugin_name, field=col_config.field),
+                text_fn=_CustomColTextFn(
+                    col_key=col_key,
+                    plugin_name=col_config.plugin_name,
+                    field=col_config.field,
+                    source=col_config.source,
+                ),
                 markup_fn=_CustomColMarkupFn(
                     col_key=col_key,
                     plugin_name=col_config.plugin_name,
                     field=col_config.field,
                     colors=col_config.colors,
+                    source=col_config.source,
                 ),
                 flexible=False,
             )

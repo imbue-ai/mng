@@ -68,7 +68,8 @@ def fetch_agent_snapshot(
                 commits_ahead=commits_ahead,
                 is_muted=agent.name in muted_agents,
                 labels=agent.labels,
-                plugin_data=plugin_data_by_agent.get(agent.name, agent.plugin),
+                plugin_data=agent.plugin,
+                plugin_state=plugin_data_by_agent.get(agent.name, {}),
             )
         )
 
@@ -188,7 +189,8 @@ def fetch_board_snapshot(
                 create_pr_url=create_pr_url,
                 is_muted=agent.name in muted_agents,
                 labels=agent.labels,
-                plugin_data=plugin_data_by_agent.get(agent.name, agent.plugin),
+                plugin_data=agent.plugin,
+                plugin_state=plugin_data_by_agent.get(agent.name, {}),
             )
         )
 

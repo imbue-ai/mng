@@ -136,6 +136,7 @@ def test_agent_board_entry_labels_default_empty() -> None:
     )
     assert entry.labels == {}
     assert entry.plugin_data == {}
+    assert entry.plugin_state == {}
 
 
 def test_agent_board_entry_with_labels_and_plugin_data() -> None:
@@ -144,10 +145,12 @@ def test_agent_board_entry_with_labels_and_plugin_data() -> None:
         state=AgentLifecycleState.RUNNING,
         provider_name=ProviderInstanceName("local"),
         labels={"blocked": "yes"},
-        plugin_data={"claude": {"waiting_reason": "PERMISSIONS"}},
+        plugin_data={"claude": {"cost": "1.50"}},
+        plugin_state={"claude": {"waiting_reason": "PERMISSIONS"}},
     )
     assert entry.labels == {"blocked": "yes"}
-    assert entry.plugin_data["claude"]["waiting_reason"] == "PERMISSIONS"
+    assert entry.plugin_data["claude"]["cost"] == "1.50"
+    assert entry.plugin_state["claude"]["waiting_reason"] == "PERMISSIONS"
 
 
 def test_kanpan_plugin_config_merge_with_columns() -> None:

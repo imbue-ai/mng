@@ -103,6 +103,7 @@ def _make_entry(
     is_muted: bool = False,
     labels: dict[str, str] | None = None,
     plugin_data: dict[str, Any] | None = None,
+    plugin_state: dict[str, Any] | None = None,
 ) -> AgentBoardEntry:
     if pr is None and pr_state is not None:
         pr = _make_pr(state=pr_state)
@@ -117,6 +118,7 @@ def _make_entry(
         is_muted=is_muted,
         labels=labels or {},
         plugin_data=plugin_data or {},
+        plugin_state=plugin_state or {},
     )
 
 
@@ -1369,18 +1371,23 @@ def test_custom_col_text_returns_empty_for_missing_label() -> None:
     assert _custom_col_text(entry, "blocked", None, None) == ""
 
 
-def test_custom_col_text_reads_from_plugin_data() -> None:
-    entry = _make_entry(plugin_data={"claude": {"waiting_reason": "PERMISSIONS"}})
+def test_custom_col_text_reads_from_plugin_state() -> None:
+    entry = _make_entry(plugin_state={"claude": {"waiting_reason": "PERMISSIONS"}})
     assert _custom_col_text(entry, "waiting", "claude", "waiting_reason") == "PERMISSIONS"
 
 
-def test_custom_col_text_returns_empty_for_missing_plugin_data() -> None:
+def test_custom_col_text_reads_from_plugin_data_with_agent_source() -> None:
+    entry = _make_entry(plugin_data={"claude": {"cost": "1.50"}})
+    assert _custom_col_text(entry, "cost", "claude", "cost", source="agent") == "1.50"
+
+
+def test_custom_col_text_returns_empty_for_missing_plugin_state() -> None:
     entry = _make_entry()
     assert _custom_col_text(entry, "waiting", "claude", "waiting_reason") == ""
 
 
 def test_custom_col_text_returns_empty_for_missing_plugin_field() -> None:
-    entry = _make_entry(plugin_data={"claude": {}})
+    entry = _make_entry(plugin_state={"claude": {}})
     assert _custom_col_text(entry, "waiting", "claude", "waiting_reason") == ""
 
 
@@ -1402,8 +1409,8 @@ def test_custom_col_markup_empty_value_returns_empty_string() -> None:
     assert result == ""
 
 
-def test_custom_col_markup_plugin_data_with_color() -> None:
-    entry = _make_entry(plugin_data={"claude": {"reason": "PERMISSIONS"}})
+def test_custom_col_markup_plugin_state_with_color() -> None:
+    entry = _make_entry(plugin_state={"claude": {"reason": "PERMISSIONS"}})
     result = _custom_col_markup(entry, "wait", "claude", "reason", {"PERMISSIONS": "light red"})
     assert result == ("col_wait_PERMISSIONS", "PERMISSIONS")
 
@@ -1429,8 +1436,17 @@ def test_build_custom_column_defs_plugin_source() -> None:
     defs = _build_custom_column_defs(config)
     assert len(defs) == 1
     assert defs[0].name == "custom_wait"
-    entry = _make_entry(plugin_data={"claude": {"waiting_reason": "PERMISSIONS"}})
+    entry = _make_entry(plugin_state={"claude": {"waiting_reason": "PERMISSIONS"}})
     assert defs[0].text_fn(entry) == "PERMISSIONS"
+
+
+def test_build_custom_column_defs_agent_source() -> None:
+    config = {
+        "cost": CustomColumnConfig(header="COST", plugin_name="claude", field="total_cost", source="agent"),
+    }
+    defs = _build_custom_column_defs(config)
+    entry = _make_entry(plugin_data={"claude": {"total_cost": "1.50"}})
+    assert defs[0].text_fn(entry) == "1.50"
 
 
 def test_build_custom_column_defs_text_fn_reads_labels() -> None:

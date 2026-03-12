@@ -55,7 +55,8 @@ refresh_afterwards = true
 Add extra columns to the board that display per-agent data. Each column reads from one of two sources:
 
 - **Labels** (default) -- reads `agent.labels[key]`, where `key` is the column's config key.
-- **Plugin data** -- reads from the agent's plugin data when `plugin_name` and `field` are set. Plugin data is collected from two places: the certified data in `data.json` (written by `set_plugin_data()`) and reported plugin state files at `$STATE_DIR/plugin/<plugin_name>/<field>` (written by `set_reported_plugin_file()`). State files take precedence when both exist.
+- **Plugin state** (default for plugin columns) -- reads from certified data in `data.json` (written by `set_plugin_data()`) and reported plugin state files at `$STATE_DIR/plugin/<plugin_name>/<field>` (written by `set_reported_plugin_file()`). State files take precedence when both exist.
+- **Plugin agent data** -- reads from `AgentDetails.plugin`, populated by `agent_field_generators`. Set `source = "agent"` to use this source.
 
 Values can be colored by mapping specific strings to urwid color names.
 

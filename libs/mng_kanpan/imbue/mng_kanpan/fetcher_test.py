@@ -279,6 +279,8 @@ def test_fetch_agent_snapshot_passes_labels_and_plugin_data() -> None:
 
     assert snapshot.entries[0].labels == {"project": "mng"}
     assert snapshot.entries[0].plugin_data == {"kanpan": {"muted": True}}
+    # plugin_state comes from _load_agent_metadata (which falls back to empty on errors)
+    assert snapshot.entries[0].plugin_state == {}
 
 
 def test_fetch_board_snapshot_surfaces_gh_errors_and_suppresses_create_pr_url(tmp_path: Path) -> None:

@@ -66,7 +66,11 @@ class AgentBoardEntry(FrozenModel):
     create_pr_url: str | None = Field(default=None, description="URL to create a new PR for this branch")
     is_muted: bool = Field(default=False, description="Whether the agent is muted (relegated to bottom)")
     labels: dict[str, str] = Field(default_factory=dict, description="Agent labels (key-value pairs)")
-    plugin_data: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
+    plugin_data: dict[str, Any] = Field(default_factory=dict, description="Plugin fields from AgentDetails.plugin")
+    plugin_state: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Plugin data from certified data (data.json) and reported state dir files",
+    )
 
 
 class BoardSnapshot(FrozenModel):
@@ -92,8 +96,13 @@ class CustomColumnConfig(FrozenModel):
 
     header: str = Field(description="Column header text")
     colors: dict[str, str] = Field(default_factory=dict, description="Mapping from value to urwid color name")
-    plugin_name: str | None = Field(default=None, description="Plugin name to read from agent.plugin[plugin_name]")
+    plugin_name: str | None = Field(default=None, description="Plugin name for plugin-backed columns")
     field: str | None = Field(default=None, description="Field name within plugin data")
+    source: str = Field(
+        default="state",
+        description="Data source for plugin columns: 'state' (certified data + state dir files) "
+        "or 'agent' (AgentDetails.plugin, populated by agent_field_generators)",
+    )
 
 
 class CustomCommand(FrozenModel):
