@@ -319,8 +319,8 @@ def inject_supporting_services(params: dict[str, Any]) -> None:
     - Chat ttyd (--url-arg ttyd for conversation access)
     - Transcript watcher (converts claude_transcript to common_transcript)
     """
-    existing = params.get("add_command", ())
-    params["add_command"] = (
+    existing = params.get("extra_window", ())
+    params["extra_window"] = (
         *existing,
         f'{AGENT_TTYD_WINDOW_NAME}="{AGENT_TTYD_COMMAND}"',
         f'{CONV_WATCHER_WINDOW_NAME}="{CONV_WATCHER_COMMAND}"',
@@ -333,7 +333,7 @@ def inject_supporting_services(params: dict[str, Any]) -> None:
 
 def get_agent_type_from_params(params: dict[str, Any]) -> str | None:
     """Extract the agent type from create command parameters."""
-    return params.get("agent_type") or params.get("positional_agent_type")
+    return params.get("type") or params.get("positional_agent_type")
 
 
 @hookimpl

@@ -211,7 +211,8 @@ def find_agent(agent_name: str) -> dict[str, object] | None:
         "list",
         "--include",
         f'name == "{agent_name}"',
-        "--json",
+        "--format",
+        "json",
         "--provider",
         "local",
     )

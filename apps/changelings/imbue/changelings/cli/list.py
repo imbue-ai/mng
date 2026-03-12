@@ -38,7 +38,7 @@ def _fetch_changeling_agents_json() -> list[dict[str, Any]]:
     try:
         with cg:
             result = cg.run_process_to_completion(
-                command=[MNG_BINARY, "list", "--label", "changeling=true", "--json", "--quiet"],
+                command=[MNG_BINARY, "list", "--label", "changeling=true", "--format", "json", "--quiet"],
                 is_checked_after=False,
             )
     except ConcurrencyExceptionGroup as e:
