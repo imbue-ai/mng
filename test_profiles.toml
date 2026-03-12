@@ -40,6 +40,7 @@ testpaths = [
 cov_packages = [
     "imbue.mng",
     "imbue.imbue_common",
+    "imbue.concurrency_group",
     "imbue.resource_guards",
     "imbue.mng_opencode",
     "imbue.mng_pair",
