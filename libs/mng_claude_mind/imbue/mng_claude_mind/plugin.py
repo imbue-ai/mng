@@ -28,6 +28,7 @@ from imbue.mng_claude_mind.provisioning import create_mind_symlinks
 from imbue.mng_claude_mind.provisioning import provision_default_content
 from imbue.mng_claude_mind.provisioning import setup_memory_directory
 from imbue.mng_claude_mind.provisioning import validate_talking_role_constraints
+from imbue.mng_claude_mind.settings import load_settings_from_host
 from imbue.mng_llm.provisioning import configure_llm_user_path
 from imbue.mng_llm.provisioning import create_daily_conversation
 from imbue.mng_llm.provisioning import create_mind_conversations_table
@@ -37,7 +38,6 @@ from imbue.mng_llm.provisioning import install_llm_toolchain
 from imbue.mng_llm.provisioning import provision_llm_tools
 from imbue.mng_llm.provisioning import provision_supporting_services
 from imbue.mng_llm.provisioning import resolve_work_dir_abs
-from imbue.mng_llm.settings import load_settings_from_host
 
 # Supporting service tmux window names and commands.
 # These are run as additional tmux windows alongside the primary role agent.

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from imbue.mng_claude_mind.conftest import create_mind_conversations_table_in_test_db
+from imbue.mng_llm.conftest import create_mind_conversations_table_in_test_db
 from imbue.mng_llm.resources.conversation_db import _warn
 from imbue.mng_llm.resources.conversation_db import _write_stdout
 from imbue.mng_llm.resources.conversation_db import count

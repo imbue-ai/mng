@@ -138,13 +138,8 @@ def _make_jsonl_file_sink(
                 state["file"].close()
                 state["file"] = None
             path = Path(file_path)
-            rotation_idx = 1
-            while True:
-                rotated = path.with_name(f"{path.name}.{rotation_idx}")
-                if not rotated.exists():
-                    break
-                rotation_idx += 1
-            path.rename(rotated)
+            rotation_idx = next(idx for idx in range(1, 10000) if not path.with_name(f"{path.name}.{idx}").exists())
+            path.rename(path.with_name(f"{path.name}.{rotation_idx}"))
             state["size"] = 0
 
     def sink(message: Any) -> None:
@@ -175,7 +170,7 @@ def require_env(name: str) -> str:
     """Read a required environment variable, exiting if unset."""
     value = os.environ.get(name, "")
     if not value:
-        print(f"ERROR: {name} must be set", file=sys.stderr)
+        logger.error("{} must be set", name)
         sys.exit(1)
     return value
 
@@ -216,7 +211,7 @@ def load_watchers_section(agent_work_dir: Path) -> dict[str, Any]:
             return {}
         raw = tomllib.loads(settings_path.read_text())
         return raw.get("watchers", {})
-    except Exception as exc:
+    except (OSError, tomllib.TOMLDecodeError, ValueError, KeyError) as exc:
         logger.warning("Failed to load watcher settings: {}", exc)
         return {}
 

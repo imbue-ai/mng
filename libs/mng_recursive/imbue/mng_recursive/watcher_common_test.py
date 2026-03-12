@@ -376,3 +376,173 @@ def test_setup_watchdog_for_files_deduplicates_parent_directories(tmp_path: Path
     finally:
         observer.stop()
         observer.join(timeout=5)
+
+
+# -- get_mng_command tests --
+
+
+def test_get_mng_command_returns_path_when_binary_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from imbue.mng_recursive.watcher_common import get_mng_command
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    mng_bin = bin_dir / "mng"
+    mng_bin.write_text("#!/bin/bash\n")
+    monkeypatch.setenv("UV_TOOL_BIN_DIR", str(bin_dir))
+
+    result = get_mng_command()
+    assert result == [str(mng_bin)]
+
+
+def test_get_mng_command_raises_when_env_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    from imbue.mng_recursive.watcher_common import MngNotInstalledError
+    from imbue.mng_recursive.watcher_common import get_mng_command
+
+    monkeypatch.delenv("UV_TOOL_BIN_DIR", raising=False)
+    with pytest.raises(MngNotInstalledError, match="UV_TOOL_BIN_DIR is not set"):
+        get_mng_command()
+
+
+def test_get_mng_command_raises_when_binary_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from imbue.mng_recursive.watcher_common import MngNotInstalledError
+    from imbue.mng_recursive.watcher_common import get_mng_command
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    monkeypatch.setenv("UV_TOOL_BIN_DIR", str(bin_dir))
+
+    with pytest.raises(MngNotInstalledError, match="not found"):
+        get_mng_command()
+
+
+# -- _format_nanosecond_timestamp tests --
+
+
+def test_format_nanosecond_timestamp_formats_utc() -> None:
+    from datetime import datetime
+    from datetime import timezone
+
+    from imbue.mng_recursive.watcher_common import _format_nanosecond_timestamp
+
+    dt = datetime(2025, 3, 15, 10, 30, 45, 123456, tzinfo=timezone.utc)
+    result = _format_nanosecond_timestamp(dt)
+    assert result == "2025-03-15T10:30:45.123456000Z"
+
+
+# -- _make_jsonl_file_sink tests --
+
+
+def test_jsonl_file_sink_creates_file_and_writes_event(tmp_path: Path) -> None:
+    from imbue.mng_recursive.watcher_common import _make_jsonl_file_sink
+
+    log_file = tmp_path / "logs" / "events.jsonl"
+    sink = _make_jsonl_file_sink(str(log_file), "test_event", "test/source")
+
+    # Simulate calling the sink with a loguru message-like object
+    import types
+
+    msg_record = types.SimpleNamespace(
+        record={
+            "time": __import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+            "level": types.SimpleNamespace(name="INFO"),
+            "message": "test sink message",
+        }
+    )
+    sink(msg_record)
+
+    assert log_file.exists()
+    content = log_file.read_text().strip()
+    event = json.loads(content)
+    assert event["type"] == "test_event"
+    assert event["source"] == "test/source"
+    assert event["message"] == "test sink message"
+    assert event["level"] == "INFO"
+    assert event["event_id"].startswith("evt-")
+
+
+def test_jsonl_file_sink_rotates_when_max_size_exceeded(tmp_path: Path) -> None:
+    from imbue.mng_recursive.watcher_common import _make_jsonl_file_sink
+
+    log_file = tmp_path / "events.jsonl"
+
+    # Use a tiny max_size to trigger rotation
+    sink = _make_jsonl_file_sink(str(log_file), "test", "test/source", max_size_bytes=50)
+
+    import types
+    from datetime import datetime
+    from datetime import timezone
+
+    now = datetime.now(timezone.utc)
+    msg = types.SimpleNamespace(
+        record={
+            "time": now,
+            "level": types.SimpleNamespace(name="INFO"),
+            "message": "a message that is long enough to exceed 50 bytes",
+        }
+    )
+
+    # Write enough to exceed the limit
+    sink(msg)
+    sink(msg)
+
+    # After rotation, the original file should still exist (recreated)
+    assert log_file.exists()
+    # And a rotated file should exist
+    rotated = log_file.with_name(f"{log_file.name}.1")
+    assert rotated.exists()
+
+
+# -- run_watcher_loop tests --
+
+
+def test_run_watcher_loop_calls_on_tick_and_exits_on_keyboard_interrupt(tmp_path: Path) -> None:
+    from imbue.mng_recursive.watcher_common import run_watcher_loop
+
+    tick_count = 0
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+
+    def on_tick() -> None:
+        nonlocal tick_count
+        tick_count += 1
+        if tick_count >= 2:
+            raise KeyboardInterrupt
+
+    run_watcher_loop(
+        "test_watcher",
+        poll_interval=0,
+        watch_targets=[source_dir],
+        is_directory_mode=True,
+        on_tick=on_tick,
+    )
+
+    assert tick_count >= 2
+
+
+def test_run_watcher_loop_file_mode(tmp_path: Path) -> None:
+    from imbue.mng_recursive.watcher_common import run_watcher_loop
+
+    tick_count = 0
+    watch_file = tmp_path / "watched.txt"
+
+    def on_tick() -> None:
+        nonlocal tick_count
+        tick_count += 1
+        if tick_count >= 1:
+            raise KeyboardInterrupt
+
+    run_watcher_loop(
+        "test_watcher",
+        poll_interval=0,
+        watch_targets=[watch_file],
+        is_directory_mode=False,
+        on_tick=on_tick,
+    )
+
+    assert tick_count >= 1

@@ -46,15 +46,17 @@ class LlmAgentConfig(AgentTypeConfig):
     def merge_with(self, override: AgentTypeConfig) -> AgentTypeConfig:
         """Merge this config with an override config.
 
-        Scalar fields from the override take precedence when set.
+        Scalar fields from the override take precedence when not None.
         """
         if not isinstance(override, LlmAgentConfig):
             return override
 
+        merged_command = self.command
+        if hasattr(override, "command") and override.command is not None:
+            merged_command = override.command
+
         return self.__class__(
-            command=override.command
-            if override.command != LlmAgentConfig.__fields__["command"].default
-            else self.command,
+            command=merged_command,
             install_llm=override.install_llm,
             cli_args=override.cli_args or self.cli_args,
             permissions=override.permissions or self.permissions,

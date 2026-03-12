@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-from imbue.mng_claude_mind.conftest import create_mind_conversations_table_in_test_db
-from imbue.mng_claude_mind.conftest import write_conversation_to_db
+from imbue.mng_llm.conftest import create_mind_conversations_table_in_test_db
+from imbue.mng_llm.conftest import write_conversation_to_db
 from imbue.mng_llm.provisioning import load_llm_resource
 
 
