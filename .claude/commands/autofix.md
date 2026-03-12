@@ -40,11 +40,10 @@ Based on the agent's response:
 Repeat up to 10 times:
 
 1. Record the current HEAD as `pre_iteration_head`.
-2. Spawn a single Agent (`subagent_type: "general-purpose"`) and tell it the base branch (`{base_branch}`) and to read and follow `.claude/skills/autofix/verify-and-fix.md`.
-3. After the agent finishes, if `.autofix/issues.jsonl` exists, read it and append its contents to `.autofix/all_issues.jsonl` (accumulating issues across iterations). Then delete `.autofix/issues.jsonl` so the next iteration starts fresh.
-4. Check if HEAD moved: compare `git rev-parse HEAD` to `pre_iteration_head`.
-5. If HEAD did not move, no fixes were made. The branch is clean (or remaining issues are unfixable). Stop looping.
-6. If HEAD moved, continue to the next iteration.
+2. Spawn a single Agent (`subagent_type: "general-purpose"`) and tell it the base branch (`{base_branch}`), the current HEAD hash (`{pre_iteration_head}`), and to read and follow `.claude/skills/autofix/verify-and-fix.md`.
+3. Check if HEAD moved: compare `git rev-parse HEAD` to `pre_iteration_head`.
+4. If HEAD did not move, no fixes were made. The branch is clean (or remaining issues are unfixable). Stop looping.
+5. If HEAD moved, continue to the next iteration.
 
 Important:
 - Do NOT explore code, plan, or fix anything yourself. The agent does all the work.
@@ -63,7 +62,7 @@ After the loop ends:
    - Show the full commit message (which contains the problem and the fix).
    - Options: "Keep" and "Revert"
 6. Only after ALL answers have been collected, revert the rejected commits. Run `git revert --no-edit {hash}` for each, in reverse chronological order (newest first) to avoid conflicts.
-7. Report the final summary: how many fixes kept (noting which were auto-accepted), how many reverted. If `.autofix/all_issues.jsonl` exists, note how many total issues were identified across all iterations.
+7. Report the final summary: how many fixes kept (noting which were auto-accepted), how many reverted. Note how many total issues were identified (from `.autofix/issues/*.jsonl` files).
 
 ### Phase 5: Create Verification Marker
 

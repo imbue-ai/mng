@@ -31,7 +31,7 @@ If there are no issues, stop here. There is nothing to fix.
 
 ## Record Issues
 
-After finalizing the issue list, use the Write tool (without checking if the directory exists) to write all issues to `.autofix/issues.jsonl`. Write one JSON object per line with these fields (in order):
+After finalizing the issue list, use the Write tool (without checking if the directory exists) to write all issues to `.autofix/issues/{hash}.jsonl` (where `{hash}` is the HEAD hash you were given). Write one JSON object per line with these fields (in order):
 
 - `issue_type`: the issue type code (e.g., "logic_error", "poor_naming")
 - `file`: the file path

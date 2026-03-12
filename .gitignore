@@ -256,8 +256,7 @@ current.tar.gz
 
 # Autofix session artifacts (plans, verification markers, issue logs)
 .autofix/plans/
-.autofix/issues.jsonl
-.autofix/all_issues.jsonl
+.autofix/issues/
 
 # Stuck agent tracking (stop hook escape valve)
 .claude/blocked_stop_commits

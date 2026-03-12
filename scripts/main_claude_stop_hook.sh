@@ -234,7 +234,7 @@ while true; do
         _log_to_file "INFO" "PR/CI process (pid=$PR_CI_PID) exited with code $PR_CI_EXIT"
         if [[ $PR_CI_EXIT -eq 2 ]]; then
             log_error "PR/CI hook failed -- go fix the CI failures first."
-            log_error "If autofix has run, check .autofix/all_issues.jsonl for identified issues."
+            log_error "If autofix has run, check .autofix/issues/*.jsonl for identified issues."
             _log_to_file "INFO" "Killing autofix tree (pid=$AUTOFIX_PID) before exiting"
             disown "$AUTOFIX_PID" 2>/dev/null || true
             _kill_tree "$AUTOFIX_PID"
@@ -287,9 +287,9 @@ rm -f "$STUCK_FILE"
 
 # Upload autofix issue data to Modal volume for data collection (best-effort).
 _upload_autofix_issues() {
-    local issues_file=".autofix/all_issues.jsonl"
-    if [[ ! -f "$issues_file" ]]; then
-        _log_to_file "INFO" "No autofix issues file to upload"
+    local issues_dir=".autofix/issues"
+    if [[ ! -d "$issues_dir" ]] || ! ls "$issues_dir"/*.jsonl >/dev/null 2>&1; then
+        _log_to_file "INFO" "No autofix issue files to upload"
         return
     fi
 
@@ -297,16 +297,20 @@ _upload_autofix_issues() {
     commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
     # Nested directory path from commit hash (same structure as old reviewer)
     local nested_path="${commit:0:4}/${commit:4:4}/${commit:8:4}/${commit:12:4}/${commit:16}"
-    local filename="autofix.json"
 
     local volume_name="code-review-json"
     local volume_mount="/code_reviews"
 
+    # Concatenate all issue files for upload
+    local combined
+    combined=$(mktemp)
+    cat "$issues_dir"/*.jsonl > "$combined"
+
     # Method 1: Copy to mounted volume + sync (Modal sandbox)
     local mount_dir="${volume_mount}/${nested_path}"
-    if mkdir -p "${mount_dir}" 2>/dev/null && cp "$issues_file" "${mount_dir}/${filename}" 2>/dev/null; then
+    if mkdir -p "${mount_dir}" 2>/dev/null && cp "$combined" "${mount_dir}/autofix.json" 2>/dev/null; then
         if sync "${volume_mount}" 2>/dev/null; then
-            log_info "Uploaded autofix issues to mounted volume at ${mount_dir}/${filename}"
+            log_info "Uploaded autofix issues to mounted volume at ${mount_dir}/autofix.json"
         else
             log_warn "Copied to mounted volume but sync failed"
         fi
@@ -315,11 +319,13 @@ _upload_autofix_issues() {
     fi
 
     # Method 2: Upload via modal CLI (local machine with Modal credentials)
-    if uv run modal volume put "${volume_name}" "$issues_file" "/${nested_path}/${filename}" --force 2>/dev/null; then
+    if uv run modal volume put "${volume_name}" "$combined" "/${nested_path}/autofix.json" --force 2>/dev/null; then
         log_info "Uploaded autofix issues via modal volume put"
     else
         _log_to_file "INFO" "modal volume put failed (expected if not running locally with Modal credentials)"
     fi
+
+    rm -f "$combined"
 }
 _upload_autofix_issues
 
