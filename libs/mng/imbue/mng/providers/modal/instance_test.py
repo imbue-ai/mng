@@ -24,6 +24,7 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import UserId
+from imbue.mng.primitives import VolumeId
 from imbue.mng.providers.modal.config import ModalProviderConfig
 from imbue.mng.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mng.providers.modal.instance import HOST_VOLUME_INFIX
@@ -695,6 +696,17 @@ def test_list_volumes_returns_empty_when_environment_missing(
         result = modal_provider.list_volumes()
 
     assert result == []
+
+
+def test_delete_volume_raises_mng_error_when_environment_missing(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """delete_volume should raise MngError when Modal environment doesn't exist."""
+    mock_volume_objects = MagicMock()
+    mock_volume_objects.list.side_effect = modal.exception.NotFoundError("env not found")
+    with patch.object(modal.Volume, "objects", mock_volume_objects):
+        with pytest.raises(MngError, match="not found"):
+            modal_provider.delete_volume(VolumeId("vol-00000000000000000000000000000000"))
 
 
 # =============================================================================

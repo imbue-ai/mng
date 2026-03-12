@@ -2922,7 +2922,8 @@ log "=== Shutdown script completed ==="
         """Delete a Modal host volume.
 
         Finds the Modal volume whose derived VolumeId matches, then deletes
-        it by its Modal name. No-op if the Modal environment doesn't exist.
+        it by its Modal name. Raises MngError if the volume is not found,
+        including when the Modal environment does not exist.
         """
         try:
             volume_iter = modal.Volume.objects.list(environment_name=self.environment_name)
