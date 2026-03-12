@@ -290,9 +290,8 @@ def inject_supporting_services(params: dict[str, Any]) -> None:
     - Web server (main web interface with conversation selector and agent list)
     - Transcript watcher (converts claude_transcript to common_transcript)
 
-    Note: agent and chat ttyd services are no longer separate tmux windows.
-    They are handled by the single consolidated ttyd server (from mng_ttyd)
-    via URL-arg dispatch to commands/ttyd/*.sh scripts.
+    Agent and chat terminal access is provided by the consolidated ttyd
+    server (from mng_ttyd) via URL-arg dispatch to commands/ttyd/*.sh scripts.
     """
     existing = params.get("extra_window", ())
     params["extra_window"] = (
