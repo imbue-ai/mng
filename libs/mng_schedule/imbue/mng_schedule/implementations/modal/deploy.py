@@ -412,7 +412,7 @@ def stage_deploy_files(
     # Stage deploy files into home/ and project/ subdirectories
     _shared_stage_deploy_files(staging_dir, deploy_files, skip_missing=False)
 
-    # resolve_staged_path is still needed for staging uploads below
+    # Map upload destinations to their staging location under home/ or project/
     home_dir = staging_dir / "home"
     project_dir = staging_dir / "project"
 
