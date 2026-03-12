@@ -281,8 +281,47 @@ if [[ $AUTOFIX_EXIT -ne 0 ]]; then
     exit $AUTOFIX_EXIT
 fi
 
-# Success -- clear stuck tracking and exit
+# Success -- clear stuck tracking and upload issue data
 rm -f "$STUCK_FILE"
+
+# Upload autofix issue data to Modal volume for data collection (best-effort).
+_upload_autofix_issues() {
+    local issues_file=".autofix/all_issues.jsonl"
+    if [[ ! -f "$issues_file" ]]; then
+        _log_to_file "INFO" "No autofix issues file to upload"
+        return
+    fi
+
+    local commit
+    commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+    # Nested directory path from commit hash (same structure as old reviewer)
+    local nested_path="${commit:0:4}/${commit:4:4}/${commit:8:4}/${commit:12:4}/${commit:16}"
+    local filename="autofix.json"
+
+    local volume_name="code-review-json"
+    local volume_mount="/code_reviews"
+
+    # Method 1: Copy to mounted volume + sync (Modal sandbox)
+    local mount_dir="${volume_mount}/${nested_path}"
+    if mkdir -p "${mount_dir}" 2>/dev/null && cp "$issues_file" "${mount_dir}/${filename}" 2>/dev/null; then
+        if sync "${volume_mount}" 2>/dev/null; then
+            log_info "Uploaded autofix issues to mounted volume at ${mount_dir}/${filename}"
+        else
+            log_warn "Copied to mounted volume but sync failed"
+        fi
+    else
+        _log_to_file "INFO" "Direct volume copy failed (expected if not running in Modal)"
+    fi
+
+    # Method 2: Upload via modal CLI (local machine with Modal credentials)
+    if uv run modal volume put "${volume_name}" "$issues_file" "/${nested_path}/${filename}" --force 2>/dev/null; then
+        log_info "Uploaded autofix issues via modal volume put"
+    else
+        _log_to_file "INFO" "modal volume put failed (expected if not running locally with Modal credentials)"
+    fi
+}
+_upload_autofix_issues
+
 _log_to_file "INFO" "main_stop_hook completed successfully (exit 0)"
 rm -f "$MNG_AGENT_STATE_DIR/active"
 notify_user || echo "No notify_user function defined, skipping."
