@@ -1758,6 +1758,8 @@ class Host(BaseHost, OnlineHostInterface):
         """Validate and execute file transfers from the agent.
 
         First validates that all required files exist, then executes transfers.
+        For remote hosts, stages all files locally and rsyncs in a single
+        operation instead of writing each file individually over SFTP.
         """
         if not transfers:
             return
@@ -1772,19 +1774,76 @@ class Host(BaseHost, OnlineHostInterface):
             missing_str = ", ".join(str(p) for p in missing_required)
             raise MngError(f"Required files for provisioning not found: {missing_str}")
 
-        # Execute transfers
+        if self.is_local:
+            self._execute_agent_file_transfers_local(agent, transfers)
+        else:
+            self._execute_agent_file_transfers_rsync(agent, transfers)
+
+    def _execute_agent_file_transfers_local(
+        self,
+        agent: AgentInterface,
+        transfers: list[FileTransferSpec],
+    ) -> None:
+        """Execute file transfers using direct writes (for local hosts)."""
         for transfer in transfers:
             if not transfer.local_path.exists():
-                # Optional file doesn't exist, skip it
                 logger.trace("Skipped optional file transfer (file not found): {}", transfer.local_path)
                 continue
 
-            # Resolve relative remote paths to work_dir
             remote_path = agent.work_dir / transfer.agent_path
 
             local_content = transfer.local_path.read_bytes()
             self.write_file(remote_path, local_content)
             logger.trace("Transferred agent file: {} -> {}", transfer.local_path, remote_path)
+
+    def _execute_agent_file_transfers_rsync(
+        self,
+        agent: AgentInterface,
+        transfers: list[FileTransferSpec],
+    ) -> None:
+        """Execute file transfers using rsync (for remote hosts).
+
+        Stages all files into a local temp directory mirroring the agent
+        work_dir structure, then rsyncs the entire directory in one operation.
+        """
+        ssh_info = self.get_ssh_connection_info()
+        if ssh_info is None:
+            raise MngError("Cannot rsync agent file transfers: host has no SSH connection info")
+
+        with tempfile.TemporaryDirectory(prefix="mng-agent-transfer-") as tmpdir:
+            staging_dir = Path(tmpdir)
+            count = 0
+
+            for transfer in transfers:
+                if not transfer.local_path.exists():
+                    logger.trace("Skipped optional file transfer (file not found): {}", transfer.local_path)
+                    continue
+
+                staged_path = staging_dir / str(transfer.agent_path)
+                staged_path.parent.mkdir(parents=True, exist_ok=True)
+                staged_path.write_bytes(transfer.local_path.read_bytes())
+                count += 1
+
+            if count == 0:
+                return
+
+            user, hostname, port, key_path = ssh_info
+            work_dir_str = str(agent.work_dir).rstrip("/") + "/"
+            rsync_args = [
+                "rsync",
+                "-rlpt",
+                "-e",
+                f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no",
+                str(staging_dir).rstrip("/") + "/",
+                f"{user}@{hostname}:{work_dir_str}",
+            ]
+
+            try:
+                self.mng_ctx.concurrency_group.run_process_to_completion(rsync_args)
+            except ProcessError as e:
+                raise MngError(f"Failed to rsync agent file transfers: {e.stderr}") from e
+
+            logger.debug("Transferred {} agent files via rsync", count)
 
     def _append_to_file(self, path: Path, text: str) -> None:
         """Append text to a file, creating it if it doesn't exist."""
