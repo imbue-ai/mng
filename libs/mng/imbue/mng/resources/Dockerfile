@@ -36,8 +36,7 @@ ENV PATH="/root/.local/bin:$PATH"
 
 # Install claude code (pass CLAUDE_CODE_VERSION as a build arg to pin a specific version)
 ARG CLAUDE_CODE_VERSION=""
-RUN curl -fsSL https://claude.ai/install.sh > /tmp/install_claude.sh && ( if [ -n "$CLAUDE_CODE_VERSION" ]; then cat /tmp/install_claude.sh | bash -s "$CLAUDE_CODE_VERSION"; else cat /tmp/install_claude.sh | bash; fi && echo 'PATH="/root/.claude/local/bin:$PATH"' >> /root/.bashrc ) || ( cat /tmp/install_claude.sh && exit 1 )
-ENV PATH="/root/.claude/local/bin:$PATH"
+RUN curl -fsSL https://claude.ai/install.sh > /tmp/install_claude.sh && ( if [ -n "$CLAUDE_CODE_VERSION" ]; then cat /tmp/install_claude.sh | bash -s "$CLAUDE_CODE_VERSION"; else cat /tmp/install_claude.sh | bash; fi && test -x /root/.local/bin/claude ) || ( cat /tmp/install_claude.sh && exit 1 )
 ENV CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION}
 
 # without this, there are some annoying bugs on modal's side with snapshotting

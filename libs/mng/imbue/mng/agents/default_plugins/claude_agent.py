@@ -273,17 +273,26 @@ def _build_install_command_hint(version: str | None = None) -> str:
     return "curl -fsSL https://claude.ai/install.sh | bash"
 
 
+CLAUDE_INSTALL_PATH: Final[str] = "$HOME/.local/bin"
+"""Directory where the Claude Code installer places the claude binary."""
+
+
 def _install_claude(host: OnlineHostInterface, version: str | None = None) -> None:
     """Install claude on the host using the official installer.
 
     When version is specified, passes it to the install script to install that
     specific version (e.g., 'bash -s 2.1.50').
     """
-    if version:
-        version_arg = f" -s {shlex.quote(version)}"
-    else:
-        version_arg = ""
-    install_command = f"""curl --version && curl -fsSL https://claude.ai/install.sh -o /tmp/install_claude.sh && bash /tmp/install_claude.sh{version_arg} && rm -f /tmp/install_claude.sh && echo 'export PATH="$HOME/.claude/local/bin:$PATH"' >> ~/.bashrc"""
+    version_arg = f" -s {shlex.quote(version)}" if version else ""
+    steps = [
+        "curl --version",
+        "curl -fsSL https://claude.ai/install.sh -o /tmp/install_claude.sh",
+        f"bash /tmp/install_claude.sh{version_arg}",
+        "rm -f /tmp/install_claude.sh",
+        f"test -x {CLAUDE_INSTALL_PATH}/claude",
+        f"""echo 'export PATH="{CLAUDE_INSTALL_PATH}:$PATH"' >> ~/.bashrc""",
+    ]
+    install_command = " && ".join(steps)
     result = host.execute_command(install_command, timeout_seconds=300.0)
     if not result.success:
         raise PluginMngError(f"Failed to install claude. stderr: {result.stderr}")
