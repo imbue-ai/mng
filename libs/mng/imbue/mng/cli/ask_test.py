@@ -1,3 +1,5 @@
+import importlib
+import importlib.util
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -14,6 +16,7 @@ from imbue.mng.cli.ask import _build_read_only_tools_and_permissions
 from imbue.mng.cli.ask import _build_source_access_context
 from imbue.mng.cli.ask import _build_web_access_context
 from imbue.mng.cli.ask import _execute_response
+from imbue.mng.cli.ask import _MONOREPO_PACKAGE_DIRS
 from imbue.mng.cli.ask import _find_source_checkout_directories
 from imbue.mng.cli.ask import _find_source_directories
 from imbue.mng.cli.ask import _run_ask_query
@@ -295,19 +298,24 @@ def test_find_source_directories_returns_empty_when_not_found(
 # =============================================================================
 
 
-def test_find_source_checkout_directories_includes_all_monorepo_libs() -> None:
-    """All libs/ packages with pyproject.toml should be discovered."""
+def test_monorepo_package_dirs_matches_release_packages() -> None:
+    """_MONOREPO_PACKAGE_DIRS must stay in sync with scripts/utils.py PACKAGES."""
+    repo_root = Path(__file__).resolve().parents[5]
+    spec = importlib.util.spec_from_file_location("scripts.utils", repo_root / "scripts" / "utils.py")
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    release_dir_names = {pkg.dir_name for pkg in mod.PACKAGES}
+    assert set(_MONOREPO_PACKAGE_DIRS) == release_dir_names
+
+
+def test_find_source_checkout_directories_returns_listed_packages() -> None:
+    """Should return project roots for all packages listed in _MONOREPO_PACKAGE_DIRS."""
     mng_project_root = Path(__file__).resolve().parents[3]
-    libs_dir = mng_project_root.parent
     result = _find_source_checkout_directories(mng_project_root)
-
-    # Build expected set: every libs/ subdirectory with a pyproject.toml and imbue/ dir.
-    expected = set()
-    for child in libs_dir.iterdir():
-        if child.is_dir() and (child / "pyproject.toml").is_file() and (child / "imbue").is_dir():
-            expected.add(child)
-
-    assert set(result) == expected
+    result_names = {d.name for d in result}
+    assert result_names == set(_MONOREPO_PACKAGE_DIRS)
 
 
 # =============================================================================

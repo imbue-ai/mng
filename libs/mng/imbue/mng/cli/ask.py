@@ -227,14 +227,26 @@ _EXECUTE_QUERY_PREFIX: Final[str] = (
 _MNG_REPO_URL: Final[str] = "https://github.com/imbue-ai/mng"
 
 
+# Monorepo library directory names whose source the ask agent can read.
+# Keep in sync with scripts/utils.py PACKAGES -- validated by
+# test_monorepo_package_dirs_matches_release_packages in ask_test.py.
+_MONOREPO_PACKAGE_DIRS: Final[tuple[str, ...]] = (
+    "concurrency_group",
+    "imbue_common",
+    "mng",
+    "mng_kanpan",
+    "mng_opencode",
+    "mng_pair",
+    "mng_tutor",
+)
+
+
 def _find_source_directories() -> list[Path]:
     """Find source directories for mng and all related monorepo packages.
 
     For a source checkout (editable install / uv run), returns the project root
-    of every monorepo library that contributes to the ``imbue`` namespace.  This
-    includes mng itself, all plugins, and dependency libraries such as
-    imbue_common and concurrency_group.  Detected by the mng project root
-    containing a pyproject.toml.
+    of every library listed in ``_MONOREPO_PACKAGE_DIRS`` that exists on disk.
+    Detected by the mng project root containing a pyproject.toml.
 
     For a regular install (site-packages), all packages merge into a single
     ``imbue/`` directory, so a single path is returned.
@@ -258,25 +270,14 @@ def _find_source_directories() -> list[Path]:
 
 
 def _find_source_checkout_directories(mng_project_root: Path) -> list[Path]:
-    """Discover all monorepo library roots that are siblings of mng.
-
-    Scans the parent directory of mng's project root (typically ``libs/``) for
-    sibling packages that have both a ``pyproject.toml`` and an ``imbue/``
-    subdirectory.  This captures mng itself, all plugins (mng_opencode, etc.),
-    and dependency libraries (imbue_common, concurrency_group, etc.).
-    """
+    """Return project roots for all monorepo libraries listed in _MONOREPO_PACKAGE_DIRS."""
     libs_dir = mng_project_root.parent
     directories: list[Path] = []
-    for child in sorted(libs_dir.iterdir()):
-        if child.is_dir() and (child / "pyproject.toml").is_file() and (child / "imbue").is_dir():
-            directories.append(child)
-
-    # Ensure mng itself is always included (defensive).
-    if mng_project_root not in directories:
-        directories.append(mng_project_root)
-        directories.sort()
-
-    return directories
+    for dir_name in _MONOREPO_PACKAGE_DIRS:
+        candidate = libs_dir / dir_name
+        if candidate.is_dir():
+            directories.append(candidate)
+    return sorted(directories)
 
 
 def _find_mng_package_dir(source_directories: list[Path]) -> Path | None:
