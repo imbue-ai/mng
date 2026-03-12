@@ -240,8 +240,8 @@ def register_cli_commands():
 def override_command_options(command_name, command_class, params):
     if command_name != "create":
         return
-    existing = params.get("add_command", ())
-    params["add_command"] = (*existing, 'my_window="my-command"')
+    existing = params.get("extra_window", ())
+    params["extra_window"] = (*existing, 'my_window="my-command"')
 ```
 
 **Chained hooks** receive the previous hook's output and return a modified copy (or `None` to pass through). Used by `on_before_create`:
@@ -262,14 +262,16 @@ To add a new top-level command to `mng`, implement `register_cli_commands` and f
 ```python
 # cli.py
 import click
-from imbue.mng.cli.common_opts import CommonCliOptions
+from imbue.mng.config.data_types import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 
+
 class MyCommandOptions(CommonCliOptions):
     my_arg: str | None
+
 
 @click.command()
 @click.argument("my_arg", default=None, required=False)
@@ -281,6 +283,7 @@ def my_command(ctx, **kwargs):
     )
     # opts.my_arg is now typed and available
     ...
+
 
 CommandHelpMetadata(
     key="my-command",

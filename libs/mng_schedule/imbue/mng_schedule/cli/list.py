@@ -50,7 +50,7 @@ def schedule_list(ctx: click.Context, **kwargs: Any) -> None:
     Examples:
       mng schedule list --provider local
       mng schedule list --provider modal --all
-      mng schedule list --provider local --json
+      mng schedule list --provider local --format=json
     """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,

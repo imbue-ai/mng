@@ -19,7 +19,6 @@ from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
-from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.config import ConfigScope
@@ -34,6 +33,7 @@ from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_format_template_lines
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.config.data_types import CommonCliOptions
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions

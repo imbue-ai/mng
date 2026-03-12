@@ -10,7 +10,6 @@ from imbue.mng.api.find import find_agents_by_identifiers_or_state
 from imbue.mng.api.find import group_agents_by_host
 from imbue.mng.api.providers import get_all_provider_instances
 from imbue.mng.api.providers import get_provider_instance
-from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.default_command_group import DefaultCommandGroup
@@ -24,6 +23,7 @@ from imbue.mng.cli.output_helpers import emit_info
 from imbue.mng.cli.output_helpers import format_size
 from imbue.mng.cli.output_helpers import on_error
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.config.data_types import CommonCliOptions
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import BaseMngError
