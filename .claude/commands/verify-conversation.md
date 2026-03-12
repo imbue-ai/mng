@@ -100,7 +100,7 @@ This ensures the next invocation knows which portions have already been covered.
 
 ### Step 6: Save Results
 
-If the agent found no issues or no transcript was available, ensure the output file `.reviews/conversation/{hash}.json` exists (even if empty) -- it serves as the verification marker.
+If the agent found no issues or no transcript was available, use the Write tool (without checking if the directory exists) to ensure the output file `.reviews/conversation/{hash}.json` exists (even if empty) -- it serves as the verification marker.
 
 ### Step 7: Report
 
