@@ -4,12 +4,13 @@
 #
 # Orchestrator for stop hook scripts. Performs shared setup (precondition
 # checks, fetch/merge/push, informational detection, stuck-agent tracking),
-# then launches stop_hook_pr_and_ci.sh and stop_hook_reviewer.sh in parallel.
+# then gates on autofix verification and launches stop_hook_pr_and_ci.sh
+# to handle PR creation and CI checks.
 
 set -euo pipefail
 
-# Read hook input JSON from stdin (must be done before anything else consumes stdin)
-HOOK_INPUT=$(cat 2>/dev/null || echo '{}')
+# Drain stdin so downstream commands don't accidentally consume the hook JSON
+cat > /dev/null 2>&1 || true
 
 # Check if we're in a tmux session
 if [ -z "${TMUX:-}" ]; then
@@ -18,7 +19,7 @@ fi
 
 # Make sure we're the main claude session
 if [ -z "${MAIN_CLAUDE_SESSION_ID:-}" ]; then
-    # if not, this is a reviewer or some other random claude
+    # if not, this is some other claude session (not the main agent)
     exit 0
 fi
 
@@ -32,10 +33,6 @@ if [ -n "${MNG_AGENT_STATE_DIR:-}" ] && [ -f "$MNG_AGENT_STATE_DIR/claude_sessio
         MAIN_CLAUDE_SESSION_ID="$_MNG_READ_SID"
     fi
 fi
-
-# make the session id accessible to the reviewers
-mkdir -p .claude
-echo "$MAIN_CLAUDE_SESSION_ID" > .claude/sessionid
 
 # Verify that all changes are committed (fail if not)
 untracked=$(git ls-files --others --exclude-standard)
@@ -80,7 +77,48 @@ _on_signal() {
 for _sig in HUP INT QUIT TERM PIPE; do
     trap "_on_signal $_sig" "$_sig"
 done
-trap '_log_to_file "INFO" "main_stop_hook EXIT trap fired (pid=$$, exit_code=$?)"' EXIT
+trap '
+    _exit_code=$?
+    _log_to_file "INFO" "main_stop_hook EXIT trap fired (pid=$$, exit_code=$_exit_code)"
+    # Track blocked attempts for stuck agent detection
+    if [[ $_exit_code -ne 0 ]]; then
+        mkdir -p "$(dirname "$STUCK_FILE")" 2>/dev/null || true
+        echo "$HASH" >> "$STUCK_FILE" 2>/dev/null || true
+    fi
+' EXIT
+
+# ---------------------------------------------------------------------------
+# Stuck agent detection: if the stop hook has blocked 3 times at the same
+# commit, the agent is unable to make progress. Allow it through with a
+# warning rather than looping forever.
+# ---------------------------------------------------------------------------
+STUCK_FILE=".claude/blocked_stop_commits"
+HASH=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+
+_check_stuck() {
+    if [[ ! -f "$STUCK_FILE" ]]; then
+        return 1
+    fi
+    local last_three entry_count unique_count
+    last_three=$(tail -n 3 "$STUCK_FILE")
+    entry_count=$(echo "$last_three" | wc -l | tr -d ' ')
+    if [[ $entry_count -ge 3 ]]; then
+        unique_count=$(echo "$last_three" | sort -u | wc -l | tr -d ' ')
+        if [[ $unique_count -eq 1 ]]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+if _check_stuck; then
+    log_error "Stop hook has blocked 3 times at the same commit ($HASH)."
+    log_error "The agent appears stuck. Please investigate manually."
+    _log_to_file "ERROR" "Stuck agent detected at $HASH, exiting with error"
+    rm -f "$STUCK_FILE"
+    notify_user || echo "No notify_user function defined, skipping."
+    exit 1
+fi
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 BASE_BRANCH="${GIT_BASE_BRANCH:-main}"
@@ -155,33 +193,6 @@ if [[ "$IS_INFORMATIONAL_ONLY" == "true" ]]; then
     exit 0
 fi
 
-# Track the commit hash to detect stuck agents.
-# Only track if this is the main agent and it's already trying to stop (stop_hook_active=true).
-# Subagents (launched by claude itself) also trigger the stop hook, and we must not
-# append to reviewed_commits for those, otherwise it looks like the main agent stopped
-# again and can falsely trigger the "stuck agent" detection.
-STOP_HOOK_ACTIVE=$(echo "$HOOK_INPUT" | jq -r '.stop_hook_active // false')
-if [[ "$STOP_HOOK_ACTIVE" == "true" ]]; then
-    ( git rev-parse HEAD || echo "conflict" ) >> .claude/reviewed_commits
-fi
-
-# Check if we've reviewed the same commit 3 times in a row (agent is stuck)
-if [[ -f .claude/reviewed_commits ]]; then
-    LAST_THREE=$(tail -n 3 .claude/reviewed_commits)
-    ENTRY_COUNT=$(echo "$LAST_THREE" | wc -l)
-
-    if [[ $ENTRY_COUNT -ge 3 ]]; then
-        UNIQUE_COUNT=$(echo "$LAST_THREE" | sort -u | wc -l)
-        if [[ $UNIQUE_COUNT -eq 1 ]]; then
-            echo "ERROR: This hook has been run 3 times at the same commit." >&2
-            echo "ERROR: The agent appears to be stuck and unable to make progress." >&2
-            echo "ERROR: Please investigate and resolve the issue manually." >&2
-            notify_user || echo "No notify_user function defined, skipping."
-            exit 1
-        fi
-    fi
-fi
-
 # Export variables needed by child scripts
 export TMUX_SESSION SCRIPT_DIR CURRENT_BRANCH BASE_BRANCH
 export RED GREEN YELLOW NC
@@ -193,9 +204,9 @@ _log_to_file "INFO" "Launching child scripts in parallel..."
 PR_CI_PID=$!
 _log_to_file "INFO" "Launched stop_hook_pr_and_ci.sh (pid=$PR_CI_PID)"
 
-"$SCRIPT_DIR/stop_hook_reviewer.sh" &
-REVIEWER_PID=$!
-_log_to_file "INFO" "Launched stop_hook_reviewer.sh (pid=$REVIEWER_PID)"
+"$SCRIPT_DIR/check_autofix_ran.sh" &
+AUTOFIX_PID=$!
+_log_to_file "INFO" "Launched check_autofix_ran.sh (pid=$AUTOFIX_PID)"
 
 # Kill a process and all its descendants (depth-first).
 _kill_tree() {
@@ -212,7 +223,7 @@ _kill_tree() {
 # Exit code 2 means the agent needs to fix something, so we return immediately
 # to let it start working rather than waiting for the other hook.
 PR_CI_EXIT=""
-REVIEWER_EXIT=""
+AUTOFIX_EXIT=""
 
 _log_to_file "INFO" "Entering poll loop (waiting for children to finish)..."
 
@@ -222,13 +233,11 @@ while true; do
         wait "$PR_CI_PID" && PR_CI_EXIT=0 || PR_CI_EXIT=$?
         _log_to_file "INFO" "PR/CI process (pid=$PR_CI_PID) exited with code $PR_CI_EXIT"
         if [[ $PR_CI_EXIT -eq 2 ]]; then
-            log_error "PR/CI hook failed (exit code 2)"
-            log_error "Reviewer hook is still running in the background -- go fix the tests first, then check the outputs from the reviewers."
-            log_error "Run 'cat .reviews/final_issue_json/*.json' to see those issues when you're ready (after fixing CI failures)."
-            log_error "And remember that you MUST fix any CRITICAL or MAJOR issues (with confidence >= 0.7) before trying again."
-            _log_to_file "INFO" "Killing reviewer tree (pid=$REVIEWER_PID) before exiting"
-            disown "$REVIEWER_PID" 2>/dev/null || true
-            _kill_tree "$REVIEWER_PID"
+            log_error "PR/CI hook failed -- go fix the CI failures first."
+            log_error "If autofix has run, check .autofix/all_issues.jsonl for identified issues."
+            _log_to_file "INFO" "Killing autofix tree (pid=$AUTOFIX_PID) before exiting"
+            disown "$AUTOFIX_PID" 2>/dev/null || true
+            _kill_tree "$AUTOFIX_PID"
             _log_to_file "INFO" "main_stop_hook exiting with code 2 (PR/CI failure)"
             exit 2
         elif [[ $PR_CI_EXIT -ne 0 ]]; then
@@ -236,32 +245,25 @@ while true; do
         fi
     fi
 
-    # Check reviewer process
-    if [[ -z "$REVIEWER_EXIT" ]] && ! kill -0 "$REVIEWER_PID" 2>/dev/null; then
-        wait "$REVIEWER_PID" && REVIEWER_EXIT=0 || REVIEWER_EXIT=$?
-        _log_to_file "INFO" "Reviewer process (pid=$REVIEWER_PID) exited with code $REVIEWER_EXIT"
-        if [[ $REVIEWER_EXIT -eq 2 ]]; then
-            log_error "Reviewer hook failed (exit code 2)"
-            log_error "PR/CI hook is still running in the background -- go fix the issues flagged by the reviewer first, then check back in to see if the tests passed in CI."
-            log_error "When checking CI, use the gh tool to inspect the remote test results for this branch and see what failed."
-            log_error "If any tests failed, remember that you MUST identify the issue and fix it locally before trying again!"
-            log_error "NEVER just re-trigger the pipeline!"
-            log_error "NEVER fix timeouts by increasing them! Instead, make things faster or increase parallelism."
-            log_error "If it is impossible to fix the test, tell the user and say that you failed."
-            log_error "Otherwise, once you have understood and fixed any issues, you can simply commit to try again."
+    # Check autofix process
+    if [[ -z "$AUTOFIX_EXIT" ]] && ! kill -0 "$AUTOFIX_PID" 2>/dev/null; then
+        wait "$AUTOFIX_PID" && AUTOFIX_EXIT=0 || AUTOFIX_EXIT=$?
+        _log_to_file "INFO" "Autofix process (pid=$AUTOFIX_PID) exited with code $AUTOFIX_EXIT"
+        if [[ $AUTOFIX_EXIT -eq 2 ]]; then
+            log_error "Autofix has not been run yet. Run /autofix to verify your changes."
             _log_to_file "INFO" "Killing PR/CI tree (pid=$PR_CI_PID) before exiting"
             disown "$PR_CI_PID" 2>/dev/null || true
             _kill_tree "$PR_CI_PID"
-            _log_to_file "INFO" "main_stop_hook exiting with code 2 (reviewer failure)"
+            _log_to_file "INFO" "main_stop_hook exiting with code 2 (autofix failure)"
             exit 2
-        elif [[ $REVIEWER_EXIT -ne 0 ]]; then
-            log_error "Reviewer hook failed (exit code $REVIEWER_EXIT)"
+        elif [[ $AUTOFIX_EXIT -ne 0 ]]; then
+            log_error "Autofix hook failed (exit code $AUTOFIX_EXIT)"
         fi
     fi
 
     # Both finished
-    if [[ -n "$PR_CI_EXIT" && -n "$REVIEWER_EXIT" ]]; then
-        _log_to_file "INFO" "Both children finished: PR_CI_EXIT=$PR_CI_EXIT, REVIEWER_EXIT=$REVIEWER_EXIT"
+    if [[ -n "$PR_CI_EXIT" && -n "$AUTOFIX_EXIT" ]]; then
+        _log_to_file "INFO" "Both children finished: PR_CI_EXIT=$PR_CI_EXIT, AUTOFIX_EXIT=$AUTOFIX_EXIT"
         break
     fi
 
@@ -274,13 +276,53 @@ if [[ $PR_CI_EXIT -ne 0 ]]; then
     notify_user || echo "No notify_user function defined, skipping."
     exit $PR_CI_EXIT
 fi
-if [[ $REVIEWER_EXIT -ne 0 ]]; then
-    _log_to_file "ERROR" "main_stop_hook exiting with reviewer exit code $REVIEWER_EXIT"
+if [[ $AUTOFIX_EXIT -ne 0 ]]; then
+    _log_to_file "ERROR" "main_stop_hook exiting with autofix exit code $AUTOFIX_EXIT"
     notify_user || echo "No notify_user function defined, skipping."
-    exit $REVIEWER_EXIT
+    exit $AUTOFIX_EXIT
 fi
 
-# Call local notification script if it exists
+# Success -- clear stuck tracking and upload issue data
+rm -f "$STUCK_FILE"
+
+# Upload autofix issue data to Modal volume for data collection (best-effort).
+_upload_autofix_issues() {
+    local issues_file=".autofix/all_issues.jsonl"
+    if [[ ! -f "$issues_file" ]]; then
+        _log_to_file "INFO" "No autofix issues file to upload"
+        return
+    fi
+
+    local commit
+    commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+    # Nested directory path from commit hash (same structure as old reviewer)
+    local nested_path="${commit:0:4}/${commit:4:4}/${commit:8:4}/${commit:12:4}/${commit:16}"
+    local filename="autofix.json"
+
+    local volume_name="code-review-json"
+    local volume_mount="/code_reviews"
+
+    # Method 1: Copy to mounted volume + sync (Modal sandbox)
+    local mount_dir="${volume_mount}/${nested_path}"
+    if mkdir -p "${mount_dir}" 2>/dev/null && cp "$issues_file" "${mount_dir}/${filename}" 2>/dev/null; then
+        if sync "${volume_mount}" 2>/dev/null; then
+            log_info "Uploaded autofix issues to mounted volume at ${mount_dir}/${filename}"
+        else
+            log_warn "Copied to mounted volume but sync failed"
+        fi
+    else
+        _log_to_file "INFO" "Direct volume copy failed (expected if not running in Modal)"
+    fi
+
+    # Method 2: Upload via modal CLI (local machine with Modal credentials)
+    if uv run modal volume put "${volume_name}" "$issues_file" "/${nested_path}/${filename}" --force 2>/dev/null; then
+        log_info "Uploaded autofix issues via modal volume put"
+    else
+        _log_to_file "INFO" "modal volume put failed (expected if not running locally with Modal credentials)"
+    fi
+}
+_upload_autofix_issues
+
 _log_to_file "INFO" "main_stop_hook completed successfully (exit 0)"
 rm -f "$MNG_AGENT_STATE_DIR/active"
 notify_user || echo "No notify_user function defined, skipping."
