@@ -1,25 +1,15 @@
-"""Generate and assemble verify skill markdown files.
+"""Regenerate vet-sourced issue category files from a checkout of imbue-ai/vet.
 
-Two modes:
+Requires --vet-repo or VET_REPO env var.
 
-  assemble    Combine local source files into final skill files (no external deps).
-              Sources: scripts/verify_skill_sources/{verify-and-fix-preamble,
-                       branch-categories,conversation-categories}.md
-              Output:  .claude/skills/autofix/verify-and-fix.md
-                       .claude/skills/verify-conversation/categories.md
-
-  from-vet    Regenerate vet-sourced intermediate files from a checkout of imbue-ai/vet.
-              Requires --vet-repo or VET_REPO env var.
-              Output:  scripts/verify_skill_sources/{branch-categories,
-                       conversation-categories}.md
-
-Both modes support --check to verify on-disk files are up to date without writing.
+Output:
+  .claude/skills/autofix/branch-categories.md
+  .claude/skills/verify-conversation/categories.md
 
 Usage:
-    uv run python scripts/generate_verify_skills.py assemble
-    uv run python scripts/generate_verify_skills.py assemble --check
-    uv run python scripts/generate_verify_skills.py from-vet --vet-repo /path/to/vet
-    VET_REPO=/path/to/vet uv run python scripts/generate_verify_skills.py from-vet --check
+    uv run python scripts/generate_verify_skills.py --vet-repo /path/to/vet
+    VET_REPO=/path/to/vet uv run python scripts/generate_verify_skills.py
+    uv run python scripts/generate_verify_skills.py --check
 """
 
 from __future__ import annotations
@@ -33,42 +23,13 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 
-# Source files (checked in, hand-edited or vet-generated)
-SOURCES_DIR = SCRIPT_DIR / "verify_skill_sources"
-PREAMBLE_PATH = SOURCES_DIR / "verify-and-fix-preamble.md"
-BRANCH_CATEGORIES_PATH = SOURCES_DIR / "branch-categories.md"
-CONVERSATION_CATEGORIES_PATH = SOURCES_DIR / "conversation-categories.md"
-
-# Final skill files (assembled from source files above)
-VERIFY_AND_FIX_PATH = REPO_ROOT / ".claude" / "skills" / "autofix" / "verify-and-fix.md"
-CONVERSATION_CATEGORIES_SKILL_PATH = REPO_ROOT / ".claude" / "skills" / "verify-conversation" / "categories.md"
+# Output paths (vet-generated, checked in)
+BRANCH_CATEGORIES_PATH = REPO_ROOT / ".claude" / "skills" / "autofix" / "branch-categories.md"
+CONVERSATION_CATEGORIES_PATH = REPO_ROOT / ".claude" / "skills" / "verify-conversation" / "categories.md"
 
 
 # ---------------------------------------------------------------------------
-# Assemble mode: combine local files into final skill files
-# ---------------------------------------------------------------------------
-
-
-def assemble_verify_and_fix() -> str:
-    """Assemble verify-and-fix.md from preamble + branch categories."""
-    preamble = PREAMBLE_PATH.read_text()
-    categories = BRANCH_CATEGORIES_PATH.read_text()
-    return preamble.rstrip() + "\n\n---\n\n" + categories
-
-
-def assemble_conversation_categories() -> str:
-    """Assemble conversation categories (direct copy from source)."""
-    return CONVERSATION_CATEGORIES_PATH.read_text()
-
-
-ASSEMBLE_TARGETS: dict[str, tuple[Path, callable]] = {
-    "verify-and-fix": (VERIFY_AND_FIX_PATH, assemble_verify_and_fix),
-    "conversation-categories": (CONVERSATION_CATEGORIES_SKILL_PATH, assemble_conversation_categories),
-}
-
-
-# ---------------------------------------------------------------------------
-# From-vet mode: regenerate vet-sourced files
+# Formatting helpers
 # ---------------------------------------------------------------------------
 
 
@@ -129,6 +90,11 @@ CONVERSATION_OUTPUT_FORMAT = textwrap.dedent("""\
 """)
 
 
+# ---------------------------------------------------------------------------
+# Generation
+# ---------------------------------------------------------------------------
+
+
 def generate_branch_categories(vet_modules) -> str:
     """Generate branch issue categories from vet: batched commit + correctness guides."""
     codes_batch = vet_modules["ISSUE_CODES_FOR_BATCHED_COMMIT_CHECK"]
@@ -180,7 +146,7 @@ def load_vet(vet_repo: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Shared check/write logic
+# Check/write logic
 # ---------------------------------------------------------------------------
 
 
@@ -224,25 +190,33 @@ def _resolve_vet_repo(explicit: Path | None) -> Path | None:
     return None
 
 
-def cmd_assemble(args: argparse.Namespace) -> None:
-    targets = {label: (path, gen_fn()) for label, (path, gen_fn) in ASSEMBLE_TARGETS.items()}
-    ok = check_or_write(targets, check=args.check)
-    if args.check and not ok:
-        print("Run 'uv run python scripts/generate_verify_skills.py assemble' to regenerate.", file=sys.stderr)
-        raise SystemExit(1)
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Regenerate vet-sourced issue category files.",
+    )
+    parser.add_argument(
+        "--vet-repo",
+        type=Path,
+        default=None,
+        help="Path to vet repo checkout. Falls back to VET_REPO env var.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check that on-disk files match what would be generated. Exits non-zero if stale.",
+    )
+    args = parser.parse_args()
 
-
-def cmd_from_vet(args: argparse.Namespace) -> None:
     vet_repo = _resolve_vet_repo(args.vet_repo)
     if vet_repo is None:
         print(
             "error: vet repo not found.\n"
             "\n"
-            "You modified a vet-generated file (scripts/verify_skill_sources/branch-categories.md\n"
-            "or conversation-categories.md). To validate against vet, set VET_REPO or regenerate\n"
-            "with:\n"
+            "You modified a vet-generated file (.claude/skills/autofix/branch-categories.md\n"
+            "or .claude/skills/verify-conversation/categories.md). To validate against vet,\n"
+            "set VET_REPO or regenerate with:\n"
             "\n"
-            "    uv run python scripts/generate_verify_skills.py from-vet --vet-repo /path/to/vet\n",
+            "    uv run python scripts/generate_verify_skills.py --vet-repo /path/to/vet\n",
             file=sys.stderr,
         )
         raise SystemExit(1)
@@ -256,46 +230,13 @@ def cmd_from_vet(args: argparse.Namespace) -> None:
         "branch-categories": (BRANCH_CATEGORIES_PATH, generate_branch_categories(vet_modules)),
         "conversation-categories": (CONVERSATION_CATEGORIES_PATH, generate_conversation_categories(vet_modules)),
     }
-    # Note: both targets are in scripts/. After updating, run `assemble` to propagate to skill files.
     ok = check_or_write(targets, check=args.check)
     if args.check and not ok:
         print(
-            "Run 'uv run python scripts/generate_verify_skills.py from-vet --vet-repo <path>' to regenerate.",
+            "Run 'uv run python scripts/generate_verify_skills.py --vet-repo <path>' to regenerate.",
             file=sys.stderr,
         )
         raise SystemExit(1)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate and assemble verify skill markdown files.",
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # assemble subcommand
-    p_assemble = subparsers.add_parser(
-        "assemble",
-        help="Assemble final skill files from local source files (no external deps).",
-    )
-    p_assemble.add_argument("--check", action="store_true", help="Check without writing.")
-    p_assemble.set_defaults(func=cmd_assemble)
-
-    # from-vet subcommand
-    p_vet = subparsers.add_parser(
-        "from-vet",
-        help="Regenerate vet-sourced files from a vet checkout.",
-    )
-    p_vet.add_argument(
-        "--vet-repo",
-        type=Path,
-        default=None,
-        help="Path to vet repo checkout. Falls back to VET_REPO env var.",
-    )
-    p_vet.add_argument("--check", action="store_true", help="Check without writing.")
-    p_vet.set_defaults(func=cmd_from_vet)
-
-    args = parser.parse_args()
-    args.func(args)
 
 
 if __name__ == "__main__":

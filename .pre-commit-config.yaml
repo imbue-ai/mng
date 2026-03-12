@@ -20,17 +20,11 @@ repos:
         language: system
         files: 'libs/mng/imbue/mng/cli/.*\.py$|libs/mng/imbue/mng/main\.py$|scripts/make_cli_docs\.py$|libs/mng/docs/commands/.*\.md$|^README\.md$|^libs/mng/README\.md$'
         pass_filenames: false
-    -   id: assemble-verify-skills
-        name: "Assemble verify skill files from source parts"
-        entry: bash -c 'uv run python scripts/generate_verify_skills.py assemble && git diff --quiet .claude/skills/autofix/verify-and-fix.md .claude/skills/verify-conversation/categories.md'
-        language: system
-        files: 'scripts/generate_verify_skills\.py$|scripts/verify_skill_sources/.*\.md$|\.claude/skills/autofix/verify-and-fix\.md$|\.claude/skills/verify-conversation/categories\.md$'
-        pass_filenames: false
     -   id: check-vet-generated-skills
-        name: "Check vet-generated skill sources against vet"
-        entry: bash -c 'uv run python scripts/generate_verify_skills.py from-vet --check'
+        name: "Check vet-generated skill categories against vet"
+        entry: bash -c 'uv run python scripts/generate_verify_skills.py --check'
         language: system
-        files: 'scripts/verify_skill_sources/(branch|conversation)-categories\.md$'
+        files: 'scripts/generate_verify_skills\.py$|\.claude/skills/autofix/branch-categories\.md$|\.claude/skills/verify-conversation/categories\.md$'
         pass_filenames: false
     -   id: clean-stale-workspace-dirs
 #        Without this, when a workspace member is removed, its directory and contents remain, which causes uv to explode with a cryptic error message any time you run any uv command
