@@ -20,6 +20,12 @@ repos:
         language: system
         files: 'libs/mng/imbue/mng/cli/.*\.py$|libs/mng/imbue/mng/main\.py$|scripts/make_cli_docs\.py$|libs/mng/docs/commands/.*\.md$|^README\.md$|^libs/mng/README\.md$'
         pass_filenames: false
+    -   id: regenerate-verify-skills
+        name: "Regenerate verify skill markdown (from vet)"
+        entry: bash scripts/regenerate_verify_skills_hook.sh
+        language: system
+        files: 'scripts/generate_verify_skills\.py$|scripts/verify-and-fix-preamble\.md$|\.claude/skills/verify-conversation/categories\.md$|\.claude/skills/autofix/verify-and-fix\.md$'
+        pass_filenames: false
     -   id: clean-stale-workspace-dirs
 #        Without this, when a workspace member is removed, its directory and contents remain, which causes uv to explode with a cryptic error message any time you run any uv command
         name: "Clean stale workspace member directories"
