@@ -10,6 +10,7 @@ from typing import assert_never
 
 from loguru import logger
 
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.logging import log_span
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
@@ -29,52 +30,102 @@ def _get_remote_home(host: OnlineHostInterface) -> str:
     return result.stdout.strip()
 
 
-def _resolve_remote_path(dest_path: Path, remote_home: str) -> Path:
-    """Resolve a deploy destination path to an absolute path on the remote host.
+def _deploy_dest_to_home_relative(dest_path: Path) -> Path:
+    """Convert a deploy destination path to a path relative to the home directory.
 
-    Paths starting with '~/' are resolved relative to the remote user's home.
-    A bare '~' resolves to the remote home directory itself.
-    Relative paths are left as-is.
+    Paths starting with '~/' have the prefix stripped.
+    A bare '~' returns Path('.').
+    Relative paths are returned as-is.
     """
     dest_str = str(dest_path)
     if dest_str == "~":
-        return Path(remote_home)
+        return Path(".")
     if dest_str.startswith("~/"):
-        return Path(remote_home) / dest_str.removeprefix("~/")
+        return Path(dest_str.removeprefix("~/"))
     return dest_path
+
+
+def _stage_deploy_files(
+    staging_dir: Path,
+    deploy_files: dict[Path, Path | str],
+) -> int:
+    """Write deploy files into a local staging directory.
+
+    Each file is placed at a path relative to the home directory
+    (tilde-prefixed paths are stripped of '~/').
+
+    Returns the number of files staged.
+    """
+    count = 0
+    for dest_path, source in deploy_files.items():
+        relative_path = _deploy_dest_to_home_relative(dest_path)
+        local_path = staging_dir / relative_path
+
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if isinstance(source, Path):
+            if not source.exists():
+                logger.debug("Skipping non-existent deploy file: {}", source)
+                continue
+            local_path.write_bytes(source.read_bytes())
+        else:
+            local_path.write_text(source)
+
+        logger.trace("Staged deploy file: {} -> {}", dest_path, relative_path)
+        count += 1
+
+    return count
+
+
+def _rsync_staging_dir_to_remote(
+    host: OnlineHostInterface,
+    staging_dir: Path,
+    remote_home: str,
+    mng_ctx: MngContext,
+) -> None:
+    """Rsync a local staging directory to the remote host's home directory."""
+    ssh_info = host.get_ssh_connection_info()
+    if ssh_info is None:
+        raise MngError("Cannot rsync deploy files: host has no SSH connection info")
+
+    user, hostname, port, key_path = ssh_info
+
+    rsync_args = [
+        "rsync",
+        "-rlpt",
+        "-e",
+        f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no",
+        str(staging_dir).rstrip("/") + "/",
+        f"{user}@{hostname}:{remote_home.rstrip('/')}/",
+    ]
+
+    try:
+        mng_ctx.concurrency_group.run_process_to_completion(rsync_args)
+    except ProcessError as e:
+        raise MngError(f"Failed to rsync deploy files to remote host: {e.stderr}") from e
 
 
 def _upload_deploy_files(
     host: OnlineHostInterface,
     deploy_files: dict[Path, Path | str],
     remote_home: str,
+    mng_ctx: MngContext,
 ) -> int:
-    """Upload collected deploy files to the remote host.
+    """Upload collected deploy files to the remote host using rsync.
+
+    Constructs the desired directory structure in a local temp directory,
+    then rsyncs it to the remote host's home directory in a single operation.
 
     Returns the number of files uploaded.
     """
-    count = 0
-    for dest_path, source in deploy_files.items():
-        resolved_path = _resolve_remote_path(dest_path, remote_home)
+    with tempfile.TemporaryDirectory(prefix="mng-deploy-") as tmpdir:
+        staging_dir = Path(tmpdir)
+        count = _stage_deploy_files(staging_dir, deploy_files)
 
-        # Ensure parent directory exists
-        parent_str = shlex.quote(str(resolved_path.parent))
-        mkdir_result = host.execute_command(f"mkdir -p {parent_str}")
-        if not mkdir_result.success:
-            raise MngError(f"Failed to create directory {resolved_path.parent}: {mkdir_result.stderr}")
+        if count == 0:
+            return 0
 
-        # Read content and upload
-        if isinstance(source, Path):
-            if not source.exists():
-                logger.debug("Skipping non-existent deploy file: {}", source)
-                continue
-            content = source.read_bytes()
-            host.write_file(resolved_path, content)
-        else:
-            host.write_text_file(resolved_path, source)
-
-        logger.trace("Uploaded deploy file: {} -> {}", dest_path, resolved_path)
-        count += 1
+        _rsync_staging_dir_to_remote(host, staging_dir, remote_home, mng_ctx)
 
     return count
 
@@ -351,7 +402,7 @@ def provision_mng_on_host(
 
                 if deploy_files:
                     with log_span("Uploading {} deploy files to remote host", len(deploy_files)):
-                        uploaded = _upload_deploy_files(host, deploy_files, remote_home)
+                        uploaded = _upload_deploy_files(host, deploy_files, remote_home, mng_ctx)
                         logger.info("Uploaded {} mng config files to remote host", uploaded)
 
             # Ensure uv is available on the host
