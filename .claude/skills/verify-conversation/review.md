@@ -28,13 +28,7 @@ Useful flags:
 - `--size` -- output only the byte count of filtered output (for size estimation)
 - `--json` -- output as JSON instead of formatted text
 
-If you need raw context for a specific line (e.g., to see the full tool result or system message that was filtered out), use `sed` with the line number from the filter output:
-
-```bash
-sed -n '42p' <file.jsonl>
-```
-
-This gives you the raw JSON for line 42 of the original file.
+If you need raw context for a specific line (e.g., to see the full tool result or system message that was filtered out), use the Read tool with `offset` and `limit` parameters to read that specific line from the original file.
 
 # Instructions
 
