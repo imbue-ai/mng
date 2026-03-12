@@ -19,6 +19,7 @@ from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.providers.deploy_utils import MngInstallMode
 from imbue.mng.providers.deploy_utils import collect_deploy_files
 from imbue.mng.providers.deploy_utils import resolve_mng_install_mode
+from imbue.mng.providers.deploy_utils import stage_deploy_files
 from imbue.mng_recursive.data_types import RecursivePluginConfig
 
 
@@ -28,53 +29,6 @@ def _get_remote_home(host: OnlineHostInterface) -> str:
     if not result.success:
         raise MngError(f"Failed to determine remote home directory: {result.stderr}")
     return result.stdout.strip()
-
-
-def _deploy_dest_to_home_relative(dest_path: Path) -> Path:
-    """Convert a deploy destination path to a path relative to the home directory.
-
-    Paths starting with '~/' have the prefix stripped.
-    A bare '~' returns Path('.').
-    Relative paths are returned as-is.
-    """
-    dest_str = str(dest_path)
-    if dest_str == "~":
-        return Path(".")
-    if dest_str.startswith("~/"):
-        return Path(dest_str.removeprefix("~/"))
-    return dest_path
-
-
-def _stage_deploy_files(
-    staging_dir: Path,
-    deploy_files: dict[Path, Path | str],
-) -> int:
-    """Write deploy files into a local staging directory.
-
-    Each file is placed at a path relative to the home directory
-    (tilde-prefixed paths are stripped of '~/').
-
-    Returns the number of files staged.
-    """
-    count = 0
-    for dest_path, source in deploy_files.items():
-        relative_path = _deploy_dest_to_home_relative(dest_path)
-        local_path = staging_dir / relative_path
-
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if isinstance(source, Path):
-            if not source.exists():
-                logger.debug("Skipping non-existent deploy file: {}", source)
-                continue
-            local_path.write_bytes(source.read_bytes())
-        else:
-            local_path.write_text(source)
-
-        logger.trace("Staged deploy file: {} -> {}", dest_path, relative_path)
-        count += 1
-
-    return count
 
 
 def _rsync_staging_dir_to_remote(
@@ -120,12 +74,20 @@ def _upload_deploy_files(
     """
     with tempfile.TemporaryDirectory(prefix="mng-deploy-") as tmpdir:
         staging_dir = Path(tmpdir)
-        count = _stage_deploy_files(staging_dir, deploy_files)
+        count = stage_deploy_files(staging_dir, deploy_files)
 
         if count == 0:
             return 0
 
-        _rsync_staging_dir_to_remote(host, staging_dir, remote_home, mng_ctx)
+        project_dir = staging_dir / "project"
+        if any(project_dir.iterdir()):
+            logger.warning(
+                "Skipping project-relative deploy files: no working directory exists at host provisioning time"
+            )
+
+        home_dir = staging_dir / "home"
+        if any(home_dir.iterdir()):
+            _rsync_staging_dir_to_remote(host, home_dir, remote_home, mng_ctx)
 
     return count
 

@@ -12,6 +12,7 @@ from imbue.mng.providers.deploy_utils import collect_deploy_files
 from imbue.mng.providers.deploy_utils import collect_provider_profile_files
 from imbue.mng.providers.deploy_utils import detect_mng_install_mode
 from imbue.mng.providers.deploy_utils import resolve_mng_install_mode
+from imbue.mng.providers.deploy_utils import stage_deploy_files
 
 
 class _MockHook:
@@ -224,3 +225,125 @@ def test_collect_provider_profile_files_excludes_specified_files(
     # The single remaining file should be config.toml
     dest_paths = list(result.keys())
     assert any("config.toml" in str(p) for p in dest_paths)
+
+
+# --- stage_deploy_files tests ---
+
+
+def test_stage_deploy_files_tilde_paths_go_to_home(tmp_path: Path) -> None:
+    """Tilde-prefixed paths should be staged under home/ with ~/ stripped."""
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+
+    deploy_files: dict[Path, Path | str] = {
+        Path("~/.mng/config.toml"): "config content",
+    }
+
+    count = stage_deploy_files(staging_dir, deploy_files)
+
+    assert count == 1
+    staged = staging_dir / "home" / ".mng" / "config.toml"
+    assert staged.exists()
+    assert staged.read_text() == "config content"
+    assert not any((staging_dir / "project").iterdir())
+
+
+def test_stage_deploy_files_relative_paths_go_to_project(tmp_path: Path) -> None:
+    """Relative paths should be staged under project/."""
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+
+    deploy_files: dict[Path, Path | str] = {
+        Path(".mng/settings.local.toml"): "project content",
+    }
+
+    count = stage_deploy_files(staging_dir, deploy_files)
+
+    assert count == 1
+    staged = staging_dir / "project" / ".mng" / "settings.local.toml"
+    assert staged.exists()
+    assert staged.read_text() == "project content"
+    assert not any((staging_dir / "home").iterdir())
+
+
+def test_stage_deploy_files_path_source_copies_file(tmp_path: Path) -> None:
+    """Path sources should be copied with content preserved."""
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+
+    source_file = tmp_path / "source.toml"
+    source_file.write_text("file content")
+
+    deploy_files: dict[Path, Path | str] = {
+        Path("~/.mng/config.toml"): source_file,
+    }
+
+    count = stage_deploy_files(staging_dir, deploy_files)
+
+    assert count == 1
+    staged = staging_dir / "home" / ".mng" / "config.toml"
+    assert staged.read_text() == "file content"
+
+
+def test_stage_deploy_files_skip_missing_true(tmp_path: Path) -> None:
+    """With skip_missing=True, non-existent Path sources are skipped."""
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+
+    deploy_files: dict[Path, Path | str] = {
+        Path("~/.mng/config.toml"): tmp_path / "nonexistent.toml",
+    }
+
+    count = stage_deploy_files(staging_dir, deploy_files, skip_missing=True)
+
+    assert count == 0
+
+
+def test_stage_deploy_files_skip_missing_false_raises(tmp_path: Path) -> None:
+    """With skip_missing=False, non-existent Path sources raise MngError."""
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+
+    deploy_files: dict[Path, Path | str] = {
+        Path("~/.mng/config.toml"): tmp_path / "nonexistent.toml",
+    }
+
+    with pytest.raises(MngError, match="Deploy file source does not exist"):
+        stage_deploy_files(staging_dir, deploy_files, skip_missing=False)
+
+
+def test_stage_deploy_files_creates_nested_dirs(tmp_path: Path) -> None:
+    """Nested parent directories should be created automatically."""
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+
+    deploy_files: dict[Path, Path | str] = {
+        Path("~/.mng/profiles/abc/settings.toml"): "nested content",
+    }
+
+    count = stage_deploy_files(staging_dir, deploy_files)
+
+    assert count == 1
+    staged = staging_dir / "home" / ".mng" / "profiles" / "abc" / "settings.toml"
+    assert staged.exists()
+    assert staged.read_text() == "nested content"
+
+
+def test_stage_deploy_files_counts_all_staged(tmp_path: Path) -> None:
+    """Count should reflect the total number of files actually staged."""
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+
+    source_file = tmp_path / "existing.toml"
+    source_file.write_text("exists")
+
+    deploy_files: dict[Path, Path | str] = {
+        Path("~/.mng/config.toml"): source_file,
+        Path("~/.claude.json"): '{"key": "value"}',
+        Path(".mng/settings.local.toml"): "project file",
+        Path("~/.mng/missing.toml"): tmp_path / "missing.toml",
+    }
+
+    count = stage_deploy_files(staging_dir, deploy_files)
+
+    assert count == 3

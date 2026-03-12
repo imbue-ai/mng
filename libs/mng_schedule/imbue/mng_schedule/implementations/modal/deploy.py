@@ -32,6 +32,7 @@ from imbue.mng.providers.deploy_utils import MngInstallMode
 from imbue.mng.providers.deploy_utils import collect_deploy_files
 from imbue.mng.providers.deploy_utils import detect_mng_install_mode as _shared_detect_mng_install_mode
 from imbue.mng.providers.deploy_utils import resolve_mng_install_mode as _shared_resolve_mng_install_mode
+from imbue.mng.providers.deploy_utils import stage_deploy_files as _shared_stage_deploy_files
 from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
@@ -408,28 +409,18 @@ def stage_deploy_files(
         include_project_settings=include_project_settings,
     )
 
-    # Create both staging subdirectories unconditionally
+    # Stage deploy files into home/ and project/ subdirectories
+    _shared_stage_deploy_files(staging_dir, deploy_files, skip_missing=False)
+
+    # resolve_staged_path is still needed for staging uploads below
     home_dir = staging_dir / "home"
-    home_dir.mkdir(exist_ok=True)
     project_dir = staging_dir / "project"
-    project_dir.mkdir(exist_ok=True)
 
     def resolve_staged_path(dest_str: str) -> Path:
         """Resolve a destination string to a staged path under home/ or project/."""
         if dest_str.startswith("~"):
             return home_dir / dest_str.removeprefix("~/")
         return project_dir / dest_str
-
-    for dest_path, source in deploy_files.items():
-        staged_path = resolve_staged_path(str(dest_path))
-        staged_path.parent.mkdir(parents=True, exist_ok=True)
-        if isinstance(source, Path):
-            shutil.copy2(source, staged_path)
-        else:
-            staged_path.write_text(source)
-
-    if deploy_files:
-        logger.info("Staged {} deploy files from plugins", len(deploy_files))
 
     # Stage user-specified uploads
     for source_path, dest in uploads:

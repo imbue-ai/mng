@@ -13,13 +13,11 @@ from imbue.mng.providers.deploy_utils import MngInstallMode
 from imbue.mng_recursive.data_types import RecursivePluginConfig
 from imbue.mng_recursive.plugin import on_host_created
 from imbue.mng_recursive.provisioning import _build_uv_env_prefix
-from imbue.mng_recursive.provisioning import _deploy_dest_to_home_relative
 from imbue.mng_recursive.provisioning import _ensure_uv_available
 from imbue.mng_recursive.provisioning import _get_installed_mng_packages
 from imbue.mng_recursive.provisioning import _get_mng_repo_root
 from imbue.mng_recursive.provisioning import _install_mng_package_mode
 from imbue.mng_recursive.provisioning import _rsync_staging_dir_to_remote
-from imbue.mng_recursive.provisioning import _stage_deploy_files
 from imbue.mng_recursive.provisioning import _upload_deploy_files
 from imbue.mng_recursive.provisioning import provision_mng_for_agent
 from imbue.mng_recursive.provisioning import provision_mng_on_host
@@ -64,124 +62,6 @@ def _make_mock_agent(agent_id: str = "agent-123", mng_ctx: MagicMock | None = No
     agent.name = "test-agent"
     agent.mng_ctx = mng_ctx or _make_mock_mng_ctx()
     return agent
-
-
-# --- Path conversion tests ---
-
-
-def test_deploy_dest_to_home_relative_with_tilde() -> None:
-    """Paths starting with ~ should have the ~/ prefix stripped."""
-    result = _deploy_dest_to_home_relative(Path("~/.mng/config.toml"))
-    assert result == Path(".mng/config.toml")
-
-
-def test_deploy_dest_to_home_relative_nested() -> None:
-    """Nested tilde paths should be stripped correctly."""
-    result = _deploy_dest_to_home_relative(Path("~/.mng/profiles/abc/settings.toml"))
-    assert result == Path(".mng/profiles/abc/settings.toml")
-
-
-def test_deploy_dest_to_home_relative_bare_tilde() -> None:
-    """A bare '~' should return Path('.')."""
-    result = _deploy_dest_to_home_relative(Path("~"))
-    assert result == Path(".")
-
-
-def test_deploy_dest_to_home_relative_keeps_relative_paths() -> None:
-    """Relative paths should pass through unchanged."""
-    result = _deploy_dest_to_home_relative(Path(".mng/settings.local.toml"))
-    assert result == Path(".mng/settings.local.toml")
-
-
-# --- Staging tests ---
-
-
-def test_stage_deploy_files_with_path_source(tmp_path: Path) -> None:
-    """Files with Path sources should be written to the staging directory."""
-    staging_dir = tmp_path / "staging"
-    staging_dir.mkdir()
-
-    source_file = tmp_path / "config.toml"
-    source_file.write_text("key = 'value'")
-
-    deploy_files: dict[Path, Path | str] = {
-        Path("~/.mng/config.toml"): source_file,
-    }
-
-    count = _stage_deploy_files(staging_dir, deploy_files)
-
-    assert count == 1
-    staged_file = staging_dir / ".mng" / "config.toml"
-    assert staged_file.exists()
-    assert staged_file.read_text() == "key = 'value'"
-
-
-def test_stage_deploy_files_with_string_source(tmp_path: Path) -> None:
-    """Files with string sources should be written to the staging directory."""
-    staging_dir = tmp_path / "staging"
-    staging_dir.mkdir()
-
-    deploy_files: dict[Path, Path | str] = {
-        Path("~/.mng/config.toml"): 'key = "value"',
-    }
-
-    count = _stage_deploy_files(staging_dir, deploy_files)
-
-    assert count == 1
-    staged_file = staging_dir / ".mng" / "config.toml"
-    assert staged_file.exists()
-    assert staged_file.read_text() == 'key = "value"'
-
-
-def test_stage_deploy_files_skips_missing_path(tmp_path: Path) -> None:
-    """Missing Path source files should be skipped."""
-    staging_dir = tmp_path / "staging"
-    staging_dir.mkdir()
-
-    deploy_files: dict[Path, Path | str] = {
-        Path("~/.mng/config.toml"): tmp_path / "nonexistent.toml",
-    }
-
-    count = _stage_deploy_files(staging_dir, deploy_files)
-
-    assert count == 0
-
-
-def test_stage_deploy_files_creates_nested_dirs(tmp_path: Path) -> None:
-    """Nested parent directories should be created in the staging directory."""
-    staging_dir = tmp_path / "staging"
-    staging_dir.mkdir()
-
-    deploy_files: dict[Path, Path | str] = {
-        Path("~/.mng/profiles/abc/settings.toml"): "content",
-    }
-
-    count = _stage_deploy_files(staging_dir, deploy_files)
-
-    assert count == 1
-    staged_file = staging_dir / ".mng" / "profiles" / "abc" / "settings.toml"
-    assert staged_file.exists()
-    assert staged_file.read_text() == "content"
-
-
-def test_stage_deploy_files_handles_multiple_files(tmp_path: Path) -> None:
-    """Multiple files should all be staged correctly."""
-    staging_dir = tmp_path / "staging"
-    staging_dir.mkdir()
-
-    source_file = tmp_path / "source.toml"
-    source_file.write_text("from_file")
-
-    deploy_files: dict[Path, Path | str] = {
-        Path("~/.mng/config.toml"): source_file,
-        Path("~/.mng/settings.toml"): "from_string",
-    }
-
-    count = _stage_deploy_files(staging_dir, deploy_files)
-
-    assert count == 2
-    assert (staging_dir / ".mng" / "config.toml").read_text() == "from_file"
-    assert (staging_dir / ".mng" / "settings.toml").read_text() == "from_string"
 
 
 # --- Rsync tests ---
@@ -280,6 +160,39 @@ def test_upload_deploy_files_skips_missing_path(tmp_path: Path) -> None:
 
     assert count == 0
     ctx.concurrency_group.run_process_to_completion.assert_not_called()
+
+
+def test_upload_deploy_files_skips_project_relative_files() -> None:
+    """Project-relative deploy files should not be rsynced (no work dir at provisioning time)."""
+    host = _make_mock_host()
+    ctx = _make_mock_mng_ctx()
+    deploy_files: dict[Path, Path | str] = {
+        Path(".mng/settings.local.toml"): "project content",
+    }
+
+    count = _upload_deploy_files(host, deploy_files, "/home/testuser", ctx)
+
+    assert count == 1
+    ctx.concurrency_group.run_process_to_completion.assert_not_called()
+
+
+def test_upload_deploy_files_rsyncs_home_subdir(tmp_path: Path) -> None:
+    """Rsync should operate on the home/ subdirectory, not the staging root."""
+    host = _make_mock_host()
+    ctx = _make_mock_mng_ctx()
+    source_file = tmp_path / "config.toml"
+    source_file.write_text("key = 'value'")
+
+    deploy_files: dict[Path, Path | str] = {
+        Path("~/.mng/config.toml"): source_file,
+    }
+
+    _upload_deploy_files(host, deploy_files, "/home/testuser", ctx)
+
+    ctx.concurrency_group.run_process_to_completion.assert_called_once()
+    rsync_args = ctx.concurrency_group.run_process_to_completion.call_args[0][0]
+    source_arg = [a for a in rsync_args if a.endswith("/")][0]
+    assert source_arg.endswith("/home/")
 
 
 # --- Host provisioning tests ---

@@ -2,6 +2,7 @@
 
 import importlib.metadata
 import json
+import shutil
 from enum import auto
 from pathlib import Path
 
@@ -125,3 +126,53 @@ def collect_deploy_files(
                 )
             merged[dest_path] = source
     return merged
+
+
+def stage_deploy_files(
+    staging_dir: Path,
+    deploy_files: dict[Path, Path | str],
+    skip_missing: bool = True,
+) -> int:
+    """Stage deploy files into home/ and project/ subdirectories.
+
+    Tilde-prefixed destination paths (e.g. ~/.mng/config.toml) are placed
+    under staging_dir/home/ with the ~/ prefix stripped. Relative paths
+    are placed under staging_dir/project/.
+
+    Path sources are copied with shutil.copy2 (preserving permissions).
+    String sources are written directly.
+
+    When skip_missing is True, non-existent Path sources are silently skipped.
+    When False, a MngError is raised for missing sources.
+    """
+    home_dir = staging_dir / "home"
+    home_dir.mkdir(parents=True, exist_ok=True)
+    project_dir = staging_dir / "project"
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    count = 0
+    for dest_path, source in deploy_files.items():
+        dest_str = str(dest_path)
+        if dest_str.startswith("~"):
+            staged_path = home_dir / dest_str.removeprefix("~/")
+        else:
+            staged_path = project_dir / dest_str
+
+        staged_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if isinstance(source, Path):
+            if not source.exists():
+                if skip_missing:
+                    logger.debug("Skipping non-existent deploy file: {}", source)
+                    continue
+                raise MngError(f"Deploy file source does not exist: {source}")
+            shutil.copy2(source, staged_path)
+        else:
+            staged_path.write_text(source)
+
+        count += 1
+
+    if count:
+        logger.info("Staged {} deploy files", count)
+
+    return count
