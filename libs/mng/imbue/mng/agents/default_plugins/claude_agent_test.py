@@ -2214,8 +2214,8 @@ def test_install_claude_without_version() -> None:
     _install_claude(host, version=None)
 
     assert len(executed_commands) == 1
-    # Script name should be followed directly by " &&" (no version arg)
-    assert "install_claude.sh &&" in executed_commands[0]
+    # The bash invocation should have no version arg after the script name
+    assert "bash /tmp/install_claude.sh &&" in executed_commands[0]
 
 
 def test_install_claude_verifies_binary_exists() -> None:
