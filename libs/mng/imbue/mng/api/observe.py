@@ -43,32 +43,17 @@ from imbue.mng.primitives import HostName
 
 # === Constants ===
 
-# Fields excluded from change comparison because they change continuously with time
-# rather than reflecting meaningful state transitions. This is a blacklist (not a
-# whitelist) so that new fields are compared by default.
-_VOLATILE_AGENT_FIELDS: Final[frozenset[str]] = frozenset(
-    {
-        "runtime_seconds",
-        "idle_seconds",
-        "user_activity_time",
-        "agent_activity_time",
-        "start_time",
-    }
-)
-
-
-def _serialize_dict_for_comparison(data: dict[str, object]) -> str:
-    """Filter volatile fields from a dict and serialize to deterministic JSON for comparison."""
-    filtered = {k: v for k, v in data.items() if k not in _VOLATILE_AGENT_FIELDS}
-    return json.dumps(filtered, sort_keys=True)
-
-
 OBSERVE_EVENT_SOURCE: Final[EventSource] = EventSource("mng/agents")
 AGENT_STATES_EVENT_SOURCE: Final[EventSource] = EventSource("mng/agent_states")
+ACTIVITY_EVENT_SOURCE: Final[EventSource] = EventSource("mng/activity")
 OBSERVE_LOCK_FILENAME: Final[str] = "observe_lock"
 FULL_STATE_INTERVAL_SECONDS: Final[float] = 300.0
-ACTIVITY_EVENT_FILENAME: Final[str] = "mng/activity/events.jsonl"
 _ACTIVITY_DEBOUNCE_SECONDS: Final[float] = 2.0
+
+
+def _event_source_filename(source: EventSource) -> str:
+    """Build the events JSONL filename for a given event source."""
+    return f"{source}/events.jsonl"
 
 
 # === Event Types ===
@@ -83,7 +68,7 @@ class ObserveEventType(UpperCaseStrEnum):
 
 
 class AgentStateEvent(EventEnvelope):
-    """An individual agent's current state, emitted when a change is detected."""
+    """An individual agent's current state, emitted when activity is detected on its host."""
 
     agent: dict = Field(description="Serialized AgentDetails for the agent")
 
@@ -226,19 +211,17 @@ def append_agent_state_change_event(config: MngConfig, event: AgentStateChangeEv
 
 def load_base_state_from_history(
     config: MngConfig,
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Load base state from the most recent full state event in history.
+) -> dict[str, str]:
+    """Load base agent state from the most recent full state event in history.
 
     Scans the observe events file for the latest AGENTS_FULL_STATE event and
-    reconstructs agent tracking state from it.
+    reconstructs the last known lifecycle state for each agent.
 
-    Returns (last_agent_json_by_id, last_agent_state_by_id) where:
-    - last_agent_json_by_id maps agent ID -> full JSON string of agent details
-    - last_agent_state_by_id maps agent ID -> lifecycle state value string
+    Returns a dict mapping agent ID -> lifecycle state value string.
     """
     events_path = get_observe_events_path(config)
     if not events_path.exists():
-        return {}, {}
+        return {}
 
     latest_agents_data: tuple[dict, ...] | None = None
     with open(events_path) as f:
@@ -255,21 +238,17 @@ def load_base_state_from_history(
                 latest_agents_data = tuple(data.get("agents", ()))
 
     if latest_agents_data is None:
-        return {}, {}
+        return {}
 
-    last_agent_json_by_id: dict[str, str] = {}
     last_agent_state_by_id: dict[str, str] = {}
-
     for agent_dict in latest_agents_data:
         agent_id = agent_dict.get("id")
         if agent_id is not None:
-            agent_id_str = str(agent_id)
-            last_agent_json_by_id[agent_id_str] = _serialize_dict_for_comparison(agent_dict)
             state = agent_dict.get("state")
             if state is not None:
-                last_agent_state_by_id[agent_id_str] = str(state)
+                last_agent_state_by_id[str(agent_id)] = str(state)
 
-    return last_agent_json_by_id, last_agent_state_by_id
+    return last_agent_state_by_id
 
 
 # === Locking ===
@@ -326,9 +305,9 @@ class AgentObserver(MutableModel):
 
     Uses 'mng list --stream' to track hosts and 'mng events' to stream
     activity events from each online host. When activity is detected,
-    fetches agent state and emits change events to local JSONL files:
+    fetches agent state and emits events to local JSONL files:
 
-    - events/mng/agents/events.jsonl: full agent details on any change
+    - events/mng/agents/events.jsonl: individual and full agent state snapshots
     - events/mng/agent_states/events.jsonl: only when the lifecycle state field changes
     """
 
@@ -338,7 +317,6 @@ class AgentObserver(MutableModel):
     _cg: ConcurrencyGroup = PrivateAttr(default_factory=lambda: ConcurrencyGroup(name="agent-observer"))
     _known_hosts: dict[str, _KnownHost] = PrivateAttr(default_factory=dict)
     _events_processes: dict[str, RunningProcess] = PrivateAttr(default_factory=dict)
-    _last_agent_json_by_id: dict[str, str] = PrivateAttr(default_factory=dict)
     _last_agent_state_by_id: dict[str, str] = PrivateAttr(default_factory=dict)
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
     _stop_event: threading.Event = PrivateAttr(default_factory=threading.Event)
@@ -347,12 +325,13 @@ class AgentObserver(MutableModel):
     def run(self) -> None:
         """Run the observer. Blocks until stopped or interrupted."""
         with self._cg:
-            # Load base state from event history so we can detect changes since last run
+            # Load base state from event history so we can detect state changes since last run
             with log_span("Loading base state from history"):
-                agent_json, agent_state = load_base_state_from_history(self.mng_ctx.config)
-                self._last_agent_json_by_id = agent_json
-                self._last_agent_state_by_id = agent_state
-                logger.debug("Loaded base state for {} agent(s) from history", len(agent_json))
+                self._last_agent_state_by_id = load_base_state_from_history(self.mng_ctx.config)
+                logger.debug(
+                    "Loaded base state for {} agent(s) from history",
+                    len(self._last_agent_state_by_id),
+                )
 
             # Phase 1: initial full state snapshot
             with log_span("Performing initial full state snapshot"):
@@ -454,7 +433,7 @@ class AgentObserver(MutableModel):
                     self.mng_binary,
                     "events",
                     str(host_name),
-                    ACTIVITY_EVENT_FILENAME,
+                    _event_source_filename(ACTIVITY_EVENT_SOURCE),
                     "--follow",
                     "--quiet",
                 ],
@@ -507,17 +486,8 @@ class AgentObserver(MutableModel):
                 except (MngError, OSError) as e:
                     logger.warning("Failed to fetch agent state for host {}: {}", hid, e)
 
-    @staticmethod
-    def _serialize_agent_for_comparison(agent: AgentDetails) -> str:
-        """Serialize an agent to a deterministic JSON string for change comparison.
-
-        Excludes continuously-changing timing fields so that events are only emitted
-        for meaningful state changes, not for the mere passage of time.
-        """
-        return _serialize_dict_for_comparison(agent.model_dump(mode="json"))
-
     def _fetch_and_emit_agent_state_for_host(self, host_id_str: str) -> None:
-        """Fetch current agent state for a host and emit events for changed agents."""
+        """Fetch current agent state for a host and emit events for all agents."""
         with self._lock:
             host = self._known_hosts.get(host_id_str)
         if host is None:
@@ -532,11 +502,7 @@ class AgentObserver(MutableModel):
             )
 
         for agent in result.agents:
-            agent_json = self._serialize_agent_for_comparison(agent)
-            with self._lock:
-                has_changed = agent_json != self._last_agent_json_by_id.get(str(agent.id))
-            if has_changed:
-                self._emit_agent_state(agent)
+            self._emit_agent_state(agent)
 
     def _do_full_state_snapshot(self) -> None:
         """Perform a full listing, emit a full state event, and check for state changes."""
@@ -563,7 +529,6 @@ class AgentObserver(MutableModel):
                 if old_state != new_state:
                     state_changes.append((agent, old_state))
                     self._last_agent_state_by_id[agent_id_str] = new_state
-                self._last_agent_json_by_id[agent_id_str] = self._serialize_agent_for_comparison(agent)
 
         # Emit the full state event (includes all agents regardless of change)
         event = make_full_agent_state_event(agents)
@@ -588,7 +553,6 @@ class AgentObserver(MutableModel):
 
         with self._lock:
             old_state = self._last_agent_state_by_id.get(agent_id_str)
-            self._last_agent_json_by_id[agent_id_str] = self._serialize_agent_for_comparison(agent)
             self._last_agent_state_by_id[agent_id_str] = new_state
 
         if old_state != new_state:
