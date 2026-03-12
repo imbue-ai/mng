@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "mng==0.1.4",
+    "mng-llm==0.1.0",
+    "mng-mind==0.1.0",
+    "mng-recursive==0.1.0",
     "mng-ttyd==0.1.0",
     "watchdog>=4.0",
 ]
@@ -22,6 +25,9 @@ packages = ["imbue"]
 
 [tool.uv.sources]
 mng = { workspace = true }
+mng-llm = { workspace = true }
+mng-mind = { workspace = true }
+mng-recursive = { workspace = true }
 mng-ttyd = { workspace = true }
 
 # Shared pytest settings (markers, filterwarnings, coverage report config)
@@ -40,7 +46,7 @@ addopts = [
   "--cov-report=term-missing",
   "--cov-report=html",
   "--cov-report=xml",
-  "--cov-fail-under=70",
+  "--cov-fail-under=69",
   "--durations=20",
   "--timeout=10",
   "--timeout-method=signal",

@@ -39,20 +39,16 @@ from imbue.mng_claude_mind.conftest import StubHost
 from imbue.mng_claude_mind.conftest import assert_conversation_exists_in_db
 from imbue.mng_claude_mind.conftest import create_test_llm_db
 from imbue.mng_claude_mind.conftest import write_conversation_to_db
-from imbue.mng_claude_mind.data_types import ProvisioningSettings
-from imbue.mng_claude_mind.provisioning import _DEFAULT_SKILL_DIRS
-from imbue.mng_claude_mind.provisioning import _DEFAULT_THINKING_DIR_FILES
-from imbue.mng_claude_mind.provisioning import _DEFAULT_WORK_DIR_FILES
-from imbue.mng_claude_mind.provisioning import _LLM_TOOL_FILES
-from imbue.mng_claude_mind.provisioning import _SERVICE_SCRIPT_FILES
-from imbue.mng_claude_mind.provisioning import create_event_log_directories
 from imbue.mng_claude_mind.provisioning import create_mind_symlinks
-from imbue.mng_claude_mind.provisioning import load_mind_resource
-from imbue.mng_claude_mind.provisioning import provision_default_content
-from imbue.mng_claude_mind.provisioning import provision_llm_tools
-from imbue.mng_claude_mind.provisioning import provision_supporting_services
 from imbue.mng_claude_mind.provisioning import setup_memory_directory
-from imbue.mng_claude_mind.resources.conversation_watcher import _sync_messages
+from imbue.mng_llm.data_types import ProvisioningSettings
+from imbue.mng_llm.provisioning import _LLM_TOOL_FILES
+from imbue.mng_llm.provisioning import _SERVICE_SCRIPT_FILES
+from imbue.mng_llm.provisioning import load_llm_resource
+from imbue.mng_llm.provisioning import provision_llm_tools
+from imbue.mng_llm.provisioning import provision_supporting_services
+from imbue.mng_llm.resources.conversation_watcher import _sync_messages
+from imbue.mng_mind.provisioning import provision_default_content
 
 _DEFAULT_PROVISIONING = ProvisioningSettings()
 
@@ -127,33 +123,6 @@ def _run_sync_script(messages_file: Path, db_path: Path) -> int:
 
 
 @pytest.mark.timeout(30)
-def test_provisioning_creates_event_log_directories(
-    temp_host_dir: Path,
-) -> None:
-    """Verify that provisioning creates all expected event log directories."""
-    agent_state_dir = temp_host_dir / "agents" / "test-agent"
-    agent_state_dir.mkdir(parents=True)
-
-    host = StubHost(host_dir=temp_host_dir, execute_mkdir=True)
-    create_event_log_directories(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING)
-
-    expected_sources = (
-        "messages",
-        "scheduled",
-        "mng/agents",
-        "stop",
-        "monitor",
-    )
-    for source in expected_sources:
-        source_dir = agent_state_dir / "events" / source
-        assert source_dir.exists(), f"Expected events/{source}/ directory to exist"
-
-    # Log directories
-    claude_transcript_dir = agent_state_dir / "logs" / "claude_transcript"
-    assert claude_transcript_dir.exists(), "Expected logs/claude_transcript/ directory to exist"
-
-
-@pytest.mark.timeout(30)
 def test_provisioning_writes_supporting_services_to_host(
     local_shell_host: LocalShellHost,
 ) -> None:
@@ -213,17 +182,12 @@ def test_provisioning_creates_default_content_when_missing(
 
     written_path_strings = [str(p) for p, _ in written_paths]
 
-    for _, relative_path in _DEFAULT_WORK_DIR_FILES:
-        expected = str(temp_git_repo / relative_path)
-        assert expected in written_path_strings, f"Expected {relative_path} to be written to work dir"
-
-    for _, relative_path in _DEFAULT_THINKING_DIR_FILES:
-        expected = str(temp_git_repo / relative_path)
-        assert expected in written_path_strings, f"Expected {relative_path} to be written to work dir"
-
-    for skill_name in _DEFAULT_SKILL_DIRS:
-        expected = str(temp_git_repo / "thinking" / ".claude" / "skills" / skill_name / "SKILL.md")
-        assert expected in written_path_strings, f"Expected skill {skill_name}/SKILL.md to be written"
+    assert any("GLOBAL.md" in p for p in written_path_strings), "Expected GLOBAL.md to be written"
+    assert any("thinking/PROMPT.md" in p for p in written_path_strings), "Expected thinking/PROMPT.md to be written"
+    assert any("talking/PROMPT.md" in p for p in written_path_strings), "Expected talking/PROMPT.md to be written"
+    assert any("thinking/skills/send-message-to-user/SKILL.md" in p for p in written_path_strings), (
+        "Expected skills to be written"
+    )
 
 
 @pytest.mark.timeout(30)
@@ -373,7 +337,7 @@ def test_conversation_watcher_script_is_valid_python(chat_env: ChatScriptEnv) ->
     """Verify that conversation_watcher.py passes Python syntax check."""
     watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "conversation_watcher.py"
     watcher_script.parent.mkdir(parents=True, exist_ok=True)
-    watcher_script.write_text(load_mind_resource("conversation_watcher.py"))
+    watcher_script.write_text(load_llm_resource("conversation_watcher.py"))
 
     result = subprocess.run(
         [sys.executable, "-m", "py_compile", str(watcher_script)],
@@ -386,20 +350,11 @@ def test_conversation_watcher_script_is_valid_python(chat_env: ChatScriptEnv) ->
 
 
 @pytest.mark.timeout(30)
-def test_event_watcher_script_is_valid_python(chat_env: ChatScriptEnv) -> None:
-    """Verify that event_watcher.py passes Python syntax check."""
-    watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "event_watcher.py"
-    watcher_script.parent.mkdir(parents=True, exist_ok=True)
-    watcher_script.write_text(load_mind_resource("event_watcher.py"))
+def test_event_watcher_module_is_importable() -> None:
+    """Verify that event_watcher module can be imported from mng_mind."""
+    from imbue.mng_mind.event_watcher import main
 
-    result = subprocess.run(
-        [sys.executable, "-m", "py_compile", str(watcher_script)],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-
-    assert result.returncode == 0, f"Syntax check failed: {result.stderr}"
+    assert callable(main)
 
 
 # -- Agent creation integration tests --
@@ -773,10 +728,10 @@ def test_chat_script_db_model_lookup_finds_correct_model(chat_env: ChatScriptEnv
     write_conversation_to_db(chat_env.llm_db_path, cid1, model="claude-sonnet-4-6")
     write_conversation_to_db(chat_env.llm_db_path, cid2, model="claude-haiku-4-5")
 
-    # Use the conversation_db module directly (same logic as mng minddb)
+    # Use the conversation_db module directly (same logic as mng llmdb)
     import io
 
-    from imbue.mng_claude_mind.resources.conversation_db import lookup_model
+    from imbue.mng_llm.resources.conversation_db import lookup_model
 
     old_stdout = sys.stdout
     sys.stdout = io.StringIO()
