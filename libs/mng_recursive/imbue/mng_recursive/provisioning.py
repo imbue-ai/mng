@@ -5,11 +5,13 @@ import json
 import shlex
 import subprocess
 import tempfile
+from concurrent.futures import Future
 from pathlib import Path
 from typing import assert_never
 
 from loguru import logger
 
+from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.logging import log_span
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
@@ -48,12 +50,14 @@ def _upload_deploy_files(
     host: OnlineHostInterface,
     deploy_files: dict[Path, Path | str],
     remote_home: str,
+    mng_ctx: MngContext,
 ) -> int:
     """Upload collected deploy files to the remote host.
 
     Returns the number of files uploaded.
     """
-    # Batch all parent directory creation into a single mkdir -p call
+    # do this in parallel, since there can sometimes be a bunch of things to transfer
+    # first, figure out all directories and do a single mkdir -p that captures all of them:
     remote_paths: list[str] = []
     for dest_path in deploy_files:
         resolved_path = _resolve_remote_path(dest_path, remote_home)
@@ -62,21 +66,33 @@ def _upload_deploy_files(
     if not mkdir_result.success:
         raise MngError(f"Failed to create directories: {mkdir_result.stderr}")
 
+    # then upload them all in parallel
+    futures: list[Future[None]] = []
     count = 0
-    for dest_path, source in deploy_files.items():
-        resolved_path = _resolve_remote_path(dest_path, remote_home)
+    with ConcurrencyGroupExecutor(
+        parent_cg=mng_ctx.concurrency_group, name="upload_deploy_files", max_workers=32
+    ) as _executor:
+        for dest_path, source in deploy_files.items():
+            resolved_path = _resolve_remote_path(dest_path, remote_home)
 
-        if isinstance(source, Path):
-            if not source.exists():
-                logger.debug("Skipping non-existent deploy file: {}", source)
-                continue
-            content = source.read_bytes()
-            host.write_file(path=resolved_path, content=content)
-        else:
-            host.write_text_file(path=resolved_path, content=source)
+            # Read content and upload
+            if isinstance(source, Path):
+                if not source.exists():
+                    logger.debug("Skipping non-existent deploy file: {}", source)
+                    continue
+                content = source.read_bytes()
+                # futures.append(executor.submit(host.write_file, path=resolved_path, content=content))
+                host.write_file(path=resolved_path, content=content)
+            else:
+                # futures.append(executor.submit(host.write_text_file, path=resolved_path, content=source))
+                host.write_text_file(path=resolved_path, content=source)
 
-        logger.trace("Uploaded deploy file: {} -> {}", dest_path, resolved_path)
-        count += 1
+            logger.trace("Uploaded deploy file: {} -> {}", dest_path, resolved_path)
+            count += 1
+
+    # Re-raise any thread exceptions (e.g. abort-mode errors)
+    for future in futures:
+        future.result()
 
     return count
 
@@ -353,7 +369,7 @@ def provision_mng_on_host(
 
                 if deploy_files:
                     with log_span("Uploading {} deploy files to remote host", len(deploy_files)):
-                        uploaded = _upload_deploy_files(host, deploy_files, remote_home)
+                        uploaded = _upload_deploy_files(host, deploy_files, remote_home, mng_ctx)
                         logger.info("Uploaded {} mng config files to remote host", uploaded)
 
             # Ensure uv is available on the host
