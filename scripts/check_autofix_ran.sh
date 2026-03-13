@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Gate check: requires /autofix to be run before the agent can stop.
 # Reads configuration from .autofix/config/stop-hook.json.
 # Called by main_claude_stop_hook.sh before PR creation.
