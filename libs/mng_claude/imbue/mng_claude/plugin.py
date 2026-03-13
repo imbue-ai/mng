@@ -717,6 +717,16 @@ class TrustDialogIndicator(DialogIndicator):
         return "trust dialog"
 
 
+class CustomApiKeyDialogIndicator(DialogIndicator):
+    """Detects the Claude Code dialog asking about whether to use an API defined in an env var."""
+
+    def get_match_string(self) -> str:
+        return "Detected a custom API key in your environment"
+
+    def get_description(self) -> str:
+        return "API key dialog"
+
+
 class ThemeSelectionIndicator(DialogIndicator):
     """Detects the Claude Code theme selection prompt shown during onboarding."""
 
@@ -804,6 +814,7 @@ class ClaudeAgent(BaseAgent):
 
     _DIALOG_INDICATORS: tuple[DialogIndicator, ...] = (
         TrustDialogIndicator(),
+        CustomApiKeyDialogIndicator(),
         ThemeSelectionIndicator(),
         EffortCalloutIndicator(),
     )
