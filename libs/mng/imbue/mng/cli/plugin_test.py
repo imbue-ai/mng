@@ -660,8 +660,6 @@ def test_parse_add_sources_multiple_paths() -> None:
     opts = _make_plugin_cli_options(path=("./plugin-a", "./plugin-b", "./plugin-c"))
     sources = _parse_add_sources(opts)
     assert len(sources) == 3
-    for source in sources:
-        assert isinstance(source, _PathSource)
     assert isinstance(sources[0], _PathSource)
     assert isinstance(sources[1], _PathSource)
     assert isinstance(sources[2], _PathSource)

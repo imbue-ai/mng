@@ -826,11 +826,13 @@ CommandHelpMetadata(
     key="plugin.remove",
     one_line_description="Uninstall a plugin package",
     synopsis="mng plugin remove [NAME] [OPTIONS]",
-    description="""Provide exactly one of NAME (positional) or --path. For local paths,
-the package name is read from pyproject.toml.""",
+    description="""Provide at least one of NAME (positional) or --path (repeatable).
+For local paths, the package name is read from pyproject.toml.
+--path can be repeated to remove multiple plugins in a single command.""",
     examples=(
         ("Remove by name", "mng plugin remove mng-pair"),
         ("Remove by local path", "mng plugin remove --path ./my-plugin"),
+        ("Remove multiple local plugins", "mng plugin remove --path ./plugin-a --path ./plugin-b"),
     ),
     see_also=(
         ("plugin add", "Install a plugin package"),

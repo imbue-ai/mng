@@ -191,8 +191,9 @@ $ mng plugin add --git https://github.com/user/mng-plugin.git
 
 Uninstall a plugin package.
 
-Provide exactly one of NAME (positional) or --path. For local paths,
-the package name is read from pyproject.toml.
+Provide at least one of NAME (positional) or --path (repeatable).
+For local paths, the package name is read from pyproject.toml.
+--path can be repeated to remove multiple plugins in a single command.
 
 **Usage:**
 
@@ -237,6 +238,12 @@ $ mng plugin remove mng-pair
 
 ```bash
 $ mng plugin remove --path ./my-plugin
+```
+
+**Remove multiple local plugins**
+
+```bash
+$ mng plugin remove --path ./plugin-a --path ./plugin-b
 ```
 
 ## mng plugin enable
