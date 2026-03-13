@@ -297,6 +297,13 @@ class Host(BaseHost, OnlineHostInterface):
             filename_or_io.seek(0)
             filename_or_io.truncate(0)
         try:
+            # For remote hosts, always use a dedicated paramiko SFTP channel
+            # instead of pyinfra's memoized one. pyinfra caches a single
+            # SFTPClient per connection, which is not thread-safe -- concurrent
+            # file operations deadlock. Using a fresh channel per call avoids
+            # this entirely.
+            if not self.is_local:
+                return self._get_file_via_paramiko(remote_filename, filename_or_io)
             return self.connector.host.get_file(
                 remote_filename,
                 filename_or_io,
@@ -313,6 +320,34 @@ class Host(BaseHost, OnlineHostInterface):
                 raise
             else:
                 raise
+
+    def _get_file_via_paramiko(
+        self,
+        remote_filename: str,
+        filename_or_io: str | IO[bytes],
+    ) -> bool:
+        """Download a file using a dedicated paramiko SFTP channel.
+
+        Creates a fresh SFTPClient from the shared SSH transport for each call.
+        This is thread-safe because paramiko transports can multiplex channels.
+        """
+        transport = self._get_paramiko_transport()
+        sftp = self._create_sftp_client(transport)
+        if sftp is None:
+            raise HostConnectionError("Failed to create SFTP channel from transport")
+        try:
+            if isinstance(filename_or_io, str):
+                sftp.get(remote_filename, filename_or_io)
+            else:
+                sftp.getfo(remote_filename, filename_or_io)
+            return True
+        except IOError as e:
+            error_msg = str(e)
+            if "No such file" in error_msg or "not found" in error_msg.lower():
+                raise FileNotFoundError(f"File not found: {remote_filename}") from e
+            raise
+        finally:
+            sftp.close()
 
     def _put_file(
         self,
@@ -348,13 +383,12 @@ class Host(BaseHost, OnlineHostInterface):
         if not isinstance(filename_or_io, str):
             filename_or_io.seek(0)
         try:
-            # For remote hosts with an SSH client, use a dedicated SFTP channel
+            # For remote hosts, always use a dedicated paramiko SFTP channel
             # instead of pyinfra's memoized one. pyinfra caches a single
             # SFTPClient per connection, which is not thread-safe -- concurrent
-            # put_file calls deadlock. By creating a fresh SFTPClient from the
-            # shared Transport (which IS thread-safe), each call gets its own
-            # SFTP channel and parallel uploads work.
-            if not self.is_local and self._has_ssh_client():
+            # file operations deadlock. Using a fresh channel per call avoids
+            # this entirely.
+            if not self.is_local:
                 return self._put_file_via_paramiko(filename_or_io, remote_filename)
             return self.connector.host.put_file(
                 filename_or_io,
@@ -369,17 +403,20 @@ class Host(BaseHost, OnlineHostInterface):
             else:
                 raise
 
-    def _has_ssh_client(self) -> bool:
-        """Check if the pyinfra host has a paramiko SSH client for SFTP uploads.
+    def _get_paramiko_transport(self) -> object:
+        """Get the paramiko Transport from the SSH connector.
 
-        Returns True only when the connector chain exposes a paramiko SSHClient
-        (i.e., the host is connected via SSH, not a local or fake connector).
+        Raises HostConnectionError if the host does not have an SSH client
+        or the transport is not active.
         """
-        pyinfra_connector = self.connector.host
-        if not hasattr(pyinfra_connector, "connector"):
-            return False
-        ssh_connector = pyinfra_connector.connector
-        return hasattr(ssh_connector, "client") and ssh_connector.client is not None
+        try:
+            connector = cast(Any, self.connector.host.connector)
+            transport = connector.client.get_transport()
+        except AttributeError as e:
+            raise HostConnectionError(f"Host does not support SSH file transfer: {e}") from e
+        if transport is None:
+            raise HostConnectionError("No active SSH transport")
+        return transport
 
     def _create_sftp_client(self, transport: object) -> SFTPClient | None:
         """Create an SFTPClient from a paramiko Transport.
@@ -397,16 +434,8 @@ class Host(BaseHost, OnlineHostInterface):
 
         Creates a fresh SFTPClient from the shared SSH transport for each call.
         This is thread-safe because paramiko transports can multiplex channels.
-
-        Caller must verify _has_ssh_client() before calling.
         """
-        # The pyinfra connector type hierarchy does not expose `client` on
-        # BaseConnector (only SSHConnector has it). We use _has_ssh_client()
-        # as a precondition guard, then cast to Any to access dynamically.
-        ssh_connector = cast(Any, self.connector.host.connector)
-        transport = ssh_connector.client.get_transport()
-        if transport is None:
-            raise HostConnectionError("No active SSH transport")
+        transport = self._get_paramiko_transport()
         sftp = self._create_sftp_client(transport)
         if sftp is None:
             raise HostConnectionError("Failed to create SFTP channel from transport")
