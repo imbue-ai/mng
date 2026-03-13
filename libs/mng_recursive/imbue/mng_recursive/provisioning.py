@@ -59,7 +59,7 @@ def _upload_deploy_files(
     # do this in parallel, since there can sometimes be a bunch of things to transfer
     # first, figure out all directories and do a single mkdir -p that captures all of them:
     remote_paths: list[str] = []
-    for dest_path, source in deploy_files.items():
+    for dest_path in deploy_files:
         resolved_path = _resolve_remote_path(dest_path, remote_home)
         remote_paths.append(shlex.quote(str(resolved_path.parent)))
     mkdir_result = host.execute_command(f"mkdir -p {' '.join(remote_paths)}")
@@ -71,7 +71,7 @@ def _upload_deploy_files(
     count = 0
     with ConcurrencyGroupExecutor(
         parent_cg=mng_ctx.concurrency_group, name="upload_deploy_files", max_workers=32
-    ) as executor:
+    ) as _executor:
         for dest_path, source in deploy_files.items():
             resolved_path = _resolve_remote_path(dest_path, remote_home)
 
