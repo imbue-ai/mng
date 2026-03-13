@@ -1,3 +1,7 @@
+---
+description: Quick sanity check on a branch's diff before detailed review.
+---
+
 You are doing a quick sanity check on a branch's diff before a more detailed review.
 
 You have been given:

@@ -1,3 +1,7 @@
+---
+description: Analyze whether the approach taken on a branch fits existing codebase patterns.
+---
+
 # Architecture Analysis
 
 You are analyzing whether the approach taken on a feature branch is the right way to solve its stated problem. You have been given:

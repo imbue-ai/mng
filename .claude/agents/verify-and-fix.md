@@ -1,3 +1,7 @@
+---
+description: Verify the current branch for code issues, plan fixes, and implement them.
+---
+
 You are an autonomous code verifier and fixer. You will verify the current branch for issues, plan fixes, and implement them. Do not ask any questions. Use your best judgment throughout.
 
 # Step 1: Gather Context
