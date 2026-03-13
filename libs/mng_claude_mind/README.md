@@ -77,8 +77,8 @@ The primary role agent is augmented with several supporting services running in 
 - **Event watcher** - monitors event streams and delivers new events to the primary role agent via `mng message`
 - **Transcript watcher** - converts raw Claude transcript to a common agent-agnostic format
 - **Web server** - serves the main web interface with conversation selector and agent list
-- **Chat ttyd** - provides web-terminal access to conversations via `llm live-chat`
-- **Agent ttyd** - provides web-terminal access to the primary role agent's tmux session
+
+Agent and chat terminal access is provided by the consolidated ttyd server (from the `mng_ttyd` plugin) via URL-arg dispatch. The plugin provisions dispatch scripts to `commands/ttyd/` (e.g., `agent.sh` for tmux attach, `chat.sh` for conversation access), which the ttyd server discovers at port-bind time and registers as virtual servers.
 
 ## Settings
 
@@ -97,7 +97,7 @@ Event sources:
 - `events/stop/events.jsonl` - shutdown detection
 - `events/monitor/events.jsonl` - (future) metacognitive reminders
 - `events/delivery_failures/events.jsonl` - event delivery failure notifications
-- `events/common_transcript/events.jsonl` - agent-agnostic transcript format
+- `events/claude/common_transcript/events.jsonl` - agent-agnostic transcript format (provided by mng claude plugin)
 - `logs/claude_transcript/events.jsonl` - raw Claude transcript
 
 Every event is self-describing: you never need to know the filename to understand the event. The file organization is a performance/convenience choice, not a correctness one.
@@ -124,3 +124,12 @@ This plugin depends on:
 - `mng` - the core agent management framework
 - `mng-ttyd` - ttyd integration for web terminal access
 - `watchdog` - filesystem event monitoring for supporting services
+
+
+## Claude integration
+
+All roles that use Claude may have any of the following:
+- `<role>/PROMPT.md` - prompt for the agent role (symlinked as `CLAUDE.local.md` when this role is active).
+- `<role>/memory/` - per-role memory directory (synced into Claude's project memory via hooks).
+- `<role>/skills/` - skills available to the role (symlinked into `.claude/skills/` when this role is active).
+- `<role>/.claude` - contains any other claude-specific settings or configuration.

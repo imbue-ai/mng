@@ -6,10 +6,10 @@ from typing import cast
 
 from imbue.mng_claude_mind.conftest import StubCommandResult
 from imbue.mng_claude_mind.conftest import StubHost
-from imbue.mng_claude_mind.data_types import ChatModel
 from imbue.mng_claude_mind.data_types import ClaudeMindSettings
 from imbue.mng_claude_mind.settings import load_settings_from_host
 from imbue.mng_claude_mind.settings import load_settings_from_path
+from imbue.mng_llm.data_types import ChatModel
 
 
 def test_settings_from_partial_toml() -> None:

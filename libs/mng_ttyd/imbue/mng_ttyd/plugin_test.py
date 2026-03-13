@@ -1,11 +1,15 @@
 """Unit tests for the mng_ttyd plugin."""
 
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from typing import cast
 
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng_ttyd.plugin import TTYD_COMMAND
 from imbue.mng_ttyd.plugin import TTYD_SERVER_NAME
 from imbue.mng_ttyd.plugin import TTYD_WINDOW_NAME
+from imbue.mng_ttyd.plugin import on_after_provisioning
 from imbue.mng_ttyd.plugin import override_command_options
 
 
@@ -90,6 +94,11 @@ def test_ttyd_command_uses_random_port() -> None:
     assert "ttyd -p 0" in TTYD_COMMAND
 
 
+def test_ttyd_command_enables_url_arg_dispatch() -> None:
+    """Verify that the ttyd command uses -a for URL-arg dispatch."""
+    assert "ttyd -p 0 -a" in TTYD_COMMAND
+
+
 def test_ttyd_command_writes_server_log() -> None:
     """Verify that the ttyd command writes to servers/events.jsonl for forwarding server discovery."""
     assert "servers/events.jsonl" in TTYD_COMMAND
@@ -108,3 +117,75 @@ def test_ttyd_command_watches_stderr_for_port() -> None:
 def test_ttyd_command_skips_log_when_no_state_dir() -> None:
     """Verify that the command gracefully handles MNG_AGENT_STATE_DIR being unset."""
     assert 'if [ -n "$MNG_AGENT_STATE_DIR" ]' in TTYD_COMMAND
+
+
+def test_ttyd_command_dispatches_to_ttyd_scripts() -> None:
+    """Verify that the dispatch script routes to commands/ttyd/<KEY>.sh."""
+    assert "commands/ttyd/$KEY.sh" in TTYD_COMMAND
+
+
+def test_ttyd_command_scans_ttyd_scripts_for_events() -> None:
+    """Verify that the port wrapper scans commands/ttyd/*.sh and writes events for each."""
+    assert 'commands/ttyd/"*.sh' in TTYD_COMMAND
+    assert "basename" in TTYD_COMMAND
+    assert "?arg=$_K" in TTYD_COMMAND
+
+
+# -- on_after_provisioning tests --
+
+
+def test_on_after_provisioning_writes_agent_script(tmp_path: Path) -> None:
+    """Verify that on_after_provisioning writes ttyd/agent.sh to the agent state dir."""
+    host_dir = tmp_path / "host"
+    host_dir.mkdir()
+    agent_id = "test-agent-123"
+
+    written_files: list[tuple[Path, bytes, str]] = []
+    executed_cmds: list[str] = []
+
+    class FakeHost:
+        def __init__(self) -> None:
+            self.host_dir = host_dir
+
+        def execute_command(self, cmd: str, **kwargs: Any) -> SimpleNamespace:
+            executed_cmds.append(cmd)
+            return SimpleNamespace(returncode=0)
+
+        def write_file(self, path: Path, content: bytes, mode: str = "0644") -> None:
+            written_files.append((path, content, mode))
+
+    on_after_provisioning(
+        agent=cast(Any, SimpleNamespace(id=agent_id)), host=cast(Any, FakeHost()), mng_ctx=cast(Any, SimpleNamespace())
+    )
+
+    assert len(written_files) == 1
+    script_path, content, mode = written_files[0]
+    assert script_path == host_dir / "agents" / agent_id / "commands" / "ttyd" / "agent.sh"
+    assert mode == "0755"
+    assert b"#!/bin/bash" in content
+    assert b"tmux attach" in content
+
+
+def test_on_after_provisioning_creates_ttyd_directory(tmp_path: Path) -> None:
+    """Verify that on_after_provisioning creates the commands/ttyd/ directory."""
+    host_dir = tmp_path / "host"
+    host_dir.mkdir()
+
+    executed_cmds: list[str] = []
+
+    class FakeHost:
+        def __init__(self) -> None:
+            self.host_dir = host_dir
+
+        def execute_command(self, cmd: str, **kwargs: Any) -> SimpleNamespace:
+            executed_cmds.append(cmd)
+            return SimpleNamespace(returncode=0)
+
+        def write_file(self, path: Path, content: bytes, mode: str = "0644") -> None:
+            pass
+
+    on_after_provisioning(
+        agent=cast(Any, SimpleNamespace(id="a1")), host=cast(Any, FakeHost()), mng_ctx=cast(Any, SimpleNamespace())
+    )
+
+    assert any("mkdir -p" in cmd and "commands/ttyd" in cmd for cmd in executed_cmds)

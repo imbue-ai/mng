@@ -361,8 +361,7 @@ def _get_agent_id(
                 "list",
                 "--include",
                 'name == "{}"'.format(agent_name),
-                "--format",
-                "json",
+                "--format=json",
             ],
             is_checked_after=False,
         )
