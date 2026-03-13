@@ -10,7 +10,7 @@ indefinitely. The root cause is that pyinfra/paramiko's SSH/SFTP connection
 is not thread-safe -- concurrent put_file calls on the same connection hang.
 
 Usage:
-    PYTHONUNBUFFERED=1 uv run python scripts/test_parallel_uploads.py
+    PYTHONUNBUFFERED=1 uv run python scripts/check_parallel_uploads.py
 """
 
 import os
@@ -28,6 +28,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.api.discover import discover_all_hosts_and_agents
 from imbue.mng.api.providers import get_provider_instance
+from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.loader import load_config
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.plugins import hookspecs
@@ -40,7 +41,7 @@ FILE_SIZE_BYTES = 1024  # 1 KB of random data per file
 PARALLEL_TIMEOUT_SECONDS = 30  # short timeout since we expect a hang
 
 
-def get_host(mng_ctx) -> OnlineHostInterface:
+def get_host(mng_ctx: MngContext) -> OnlineHostInterface:
     """Find the 'spica' host and return it as an online host."""
     print("  Discovering hosts (modal only)...")
     agents_by_host, _providers = discover_all_hosts_and_agents(mng_ctx, provider_names=("modal",))
@@ -92,40 +93,38 @@ def run_sequential(host: OnlineHostInterface) -> None:
         print(f"  File {idx}: {elapsed:.2f}s [{status}]")
 
 
-def run_parallel(host: OnlineHostInterface, max_workers: int) -> None:
-    """Run uploads in parallel. Detects hangs via timeout."""
+def run_parallel(host: OnlineHostInterface, max_workers: int) -> bool:
+    """Run uploads in parallel. Detects hangs via timeout. Returns True if hung."""
     print(
         f"\n--- Parallel uploads ({NUM_FILES} files, {max_workers} workers, timeout={PARALLEL_TIMEOUT_SECONDS}s) ---"
     )
     start = time.monotonic()
-    results = []
-    is_hung = False
+    results: list[tuple[int, float, str]] = []
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(write_single_file, host, i): i for i in range(NUM_FILES)}
-        try:
-            for future in as_completed(futures, timeout=PARALLEL_TIMEOUT_SECONDS):
-                results.append(future.result())
-        except FuturesTimeoutError:
-            is_hung = True
-            total = time.monotonic() - start
-            completed = len(results)
-            pending = NUM_FILES - completed
-            print(
-                f"\n  HUNG! Timed out after {total:.2f}s. {completed}/{NUM_FILES} completed, {pending} still pending."
-            )
-            print("  This confirms that parallel write_file calls deadlock.")
-            # Cancel remaining futures (won't interrupt running threads, but
-            # prevents queued ones from starting)
-            for f in futures:
-                f.cancel()
-
-    if not is_hung:
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    futures = {executor.submit(write_single_file, host, i): i for i in range(NUM_FILES)}
+    try:
+        for future in as_completed(futures, timeout=PARALLEL_TIMEOUT_SECONDS):
+            results.append(future.result())
+    except FuturesTimeoutError:
         total = time.monotonic() - start
-        results.sort(key=lambda r: r[0])
-        print(f"\nParallel total: {total:.2f}s")
-        for idx, elapsed, status in results:
-            print(f"  File {idx}: {elapsed:.2f}s [{status}]")
+        completed = len(results)
+        pending = NUM_FILES - completed
+        print(f"\n  HUNG! Timed out after {total:.2f}s. {completed}/{NUM_FILES} completed, {pending} still pending.")
+        print("  This confirms that parallel write_file calls deadlock.")
+        # Force-shutdown without waiting for deadlocked threads (they're stuck
+        # in paramiko and will never return). cancel_futures prevents queued
+        # work from starting; wait=False avoids blocking on hung threads.
+        executor.shutdown(wait=False, cancel_futures=True)
+        return True
+
+    executor.shutdown(wait=True)
+    total = time.monotonic() - start
+    results.sort(key=lambda r: r[0])
+    print(f"\nParallel total: {total:.2f}s")
+    for idx, elapsed, status in results:
+        print(f"  File {idx}: {elapsed:.2f}s [{status}]")
+    return False
 
 
 def main() -> None:
@@ -160,16 +159,18 @@ def main() -> None:
         run_sequential(host)
 
         # Parallel with 2 workers -- this is where the hang occurs
-        run_parallel(host, max_workers=2)
+        is_hung = run_parallel(host, max_workers=2)
+
+        if is_hung:
+            # Can't clean up reliably if the connection is deadlocked
+            print("\nExiting (skipping cleanup due to deadlocked connection).")
+            sys.exit(1)
 
         # Cleanup
         print("\n--- Cleanup ---")
         for i in list(range(NUM_FILES)) + [999]:
             path = Path(f"/tmp/parallel_upload_test_{i}.bin")
-            try:
-                host.execute_command(f"rm -f {path}")
-            except Exception:
-                pass
+            host.execute_command(f"rm -f {path}")
         print("Done.")
 
 
