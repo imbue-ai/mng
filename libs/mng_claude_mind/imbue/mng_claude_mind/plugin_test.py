@@ -1,19 +1,19 @@
 """Unit tests for the mng_claude_mind plugin."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from typing import cast
 
 import pytest
 
-from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
-from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mng.config.data_types import EnvVar
 from imbue.mng.interfaces.host import AgentEnvironmentOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng.primitives import CommandString
-from imbue.mng_claude_mind.plugin import CHAT_TTYD_WINDOW_NAME
+from imbue.mng_claude.plugin import ClaudeAgent
+from imbue.mng_claude.plugin import ClaudeAgentConfig
 from imbue.mng_claude_mind.plugin import CONV_WATCHER_COMMAND
 from imbue.mng_claude_mind.plugin import CONV_WATCHER_WINDOW_NAME
 from imbue.mng_claude_mind.plugin import ClaudeMindAgent
@@ -26,8 +26,8 @@ from imbue.mng_claude_mind.plugin import inject_supporting_services
 from imbue.mng_claude_mind.plugin import override_command_options
 
 # Total number of tmux windows injected by inject_supporting_services:
-# agent ttyd, conv_watcher, events, web_server, transcript, chat ttyd
-_SUPPORTING_SERVICE_COUNT = 6
+# conv_watcher, events, web_server
+_SUPPORTING_SERVICE_COUNT = 3
 
 
 class _DummyCommandClass:
@@ -190,12 +190,50 @@ def test_web_server_command_is_parseable_as_named_command() -> None:
     assert named_cmd.window_name == WEB_SERVER_WINDOW_NAME
 
 
-# -- Chat ttyd service tests --
+# -- modify_env_vars tests --
 
 
-def test_adds_chat_ttyd_service(mind_create_params: dict[str, Any]) -> None:
-    entries = [c for c in mind_create_params["extra_window"] if CHAT_TTYD_WINDOW_NAME in c]
-    assert len(entries) == 1
+def _make_host_stub() -> Any:
+    """Create a host stub that supports execute_command for settings loading."""
+    # execute_command is called by load_settings_from_host to check for minds.toml
+    stub = SimpleNamespace(
+        host_dir=Path("/home/user/.mng"),
+        execute_command=lambda cmd, **kwargs: SimpleNamespace(success=False, stdout="", stderr=""),
+    )
+    return stub
+
+
+def test_modify_env_vars_sets_uv_tool_dirs() -> None:
+    """Verify that modify_env_vars sets UV_TOOL_DIR, UV_TOOL_BIN_DIR, and MNG_LLM_MODEL."""
+    host_stub = _make_host_stub()
+    agent = ClaudeMindAgent.model_construct(
+        agent_config=ClaudeMindConfig(),
+        host=host_stub,
+        id="abc",
+        work_dir=Path("/home/user/work"),
+    )
+    env_vars = {"MNG_AGENT_STATE_DIR": "/home/user/.mng/agents/abc"}
+    agent.modify_env_vars(cast(Any, host_stub), env_vars)
+    assert env_vars["UV_TOOL_DIR"] == "/home/user/.mng/agents/abc/tools"
+    assert env_vars["UV_TOOL_BIN_DIR"] == "/home/user/.mng/agents/abc/bin"
+    assert env_vars["MNG_LLM_MODEL"] == "claude-opus-4.6"
+
+
+def test_modify_env_vars_noop_without_state_dir() -> None:
+    """Verify that modify_env_vars does nothing for UV dirs when MNG_AGENT_STATE_DIR is not set."""
+    host_stub = _make_host_stub()
+    agent = ClaudeMindAgent.model_construct(
+        agent_config=ClaudeMindConfig(),
+        host=host_stub,
+        id="abc",
+        work_dir=Path("/home/user/work"),
+    )
+    env_vars: dict[str, str] = {}
+    agent.modify_env_vars(cast(Any, host_stub), env_vars)
+    assert "UV_TOOL_DIR" not in env_vars
+    assert "UV_TOOL_BIN_DIR" not in env_vars
+    # MNG_LLM_MODEL should still be set even without state dir
+    assert env_vars["MNG_LLM_MODEL"] == "claude-opus-4.6"
 
 
 # -- assemble_command tests --

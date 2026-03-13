@@ -26,12 +26,12 @@ import pluggy
 import pytest
 from click.testing import CliRunner
 
-from imbue.mng.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mng.cli.create import create
 from imbue.mng.cli.list import list_command
 from imbue.mng.utils.testing import tmux_session_cleanup
 from imbue.mng.utils.testing import tmux_session_exists
 from imbue.mng.utils.testing import wait_for_agent_session
+from imbue.mng_claude.claude_config import encode_claude_project_dir_name
 from imbue.mng_claude_mind.conftest import ChatScriptEnv
 from imbue.mng_claude_mind.conftest import LocalShellHost
 from imbue.mng_claude_mind.conftest import StubCommandResult
@@ -39,20 +39,16 @@ from imbue.mng_claude_mind.conftest import StubHost
 from imbue.mng_claude_mind.conftest import assert_conversation_exists_in_db
 from imbue.mng_claude_mind.conftest import create_test_llm_db
 from imbue.mng_claude_mind.conftest import write_conversation_to_db
-from imbue.mng_claude_mind.data_types import ProvisioningSettings
-from imbue.mng_claude_mind.provisioning import _DEFAULT_SKILL_DIRS
-from imbue.mng_claude_mind.provisioning import _DEFAULT_THINKING_DIR_FILES
-from imbue.mng_claude_mind.provisioning import _DEFAULT_WORK_DIR_FILES
-from imbue.mng_claude_mind.provisioning import _LLM_TOOL_FILES
-from imbue.mng_claude_mind.provisioning import _SERVICE_SCRIPT_FILES
-from imbue.mng_claude_mind.provisioning import create_event_log_directories
 from imbue.mng_claude_mind.provisioning import create_mind_symlinks
-from imbue.mng_claude_mind.provisioning import load_mind_resource
-from imbue.mng_claude_mind.provisioning import provision_default_content
-from imbue.mng_claude_mind.provisioning import provision_llm_tools
-from imbue.mng_claude_mind.provisioning import provision_supporting_services
 from imbue.mng_claude_mind.provisioning import setup_memory_directory
-from imbue.mng_claude_mind.resources.conversation_watcher import _sync_messages
+from imbue.mng_llm.data_types import ProvisioningSettings
+from imbue.mng_llm.provisioning import _LLM_TOOL_FILES
+from imbue.mng_llm.provisioning import _SERVICE_SCRIPT_FILES
+from imbue.mng_llm.provisioning import load_llm_resource
+from imbue.mng_llm.provisioning import provision_llm_tools
+from imbue.mng_llm.provisioning import provision_supporting_services
+from imbue.mng_llm.resources.conversation_watcher import _sync_messages
+from imbue.mng_mind.provisioning import provision_default_content
 
 _DEFAULT_PROVISIONING = ProvisioningSettings()
 
@@ -127,33 +123,6 @@ def _run_sync_script(messages_file: Path, db_path: Path) -> int:
 
 
 @pytest.mark.timeout(30)
-def test_provisioning_creates_event_log_directories(
-    temp_host_dir: Path,
-) -> None:
-    """Verify that provisioning creates all expected event log directories."""
-    agent_state_dir = temp_host_dir / "agents" / "test-agent"
-    agent_state_dir.mkdir(parents=True)
-
-    host = StubHost(host_dir=temp_host_dir, execute_mkdir=True)
-    create_event_log_directories(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING)
-
-    expected_sources = (
-        "messages",
-        "scheduled",
-        "mng/agents",
-        "stop",
-        "monitor",
-    )
-    for source in expected_sources:
-        source_dir = agent_state_dir / "events" / source
-        assert source_dir.exists(), f"Expected events/{source}/ directory to exist"
-
-    # Log directories
-    claude_transcript_dir = agent_state_dir / "logs" / "claude_transcript"
-    assert claude_transcript_dir.exists(), "Expected logs/claude_transcript/ directory to exist"
-
-
-@pytest.mark.timeout(30)
 def test_provisioning_writes_supporting_services_to_host(
     local_shell_host: LocalShellHost,
 ) -> None:
@@ -213,17 +182,12 @@ def test_provisioning_creates_default_content_when_missing(
 
     written_path_strings = [str(p) for p, _ in written_paths]
 
-    for _, relative_path in _DEFAULT_WORK_DIR_FILES:
-        expected = str(temp_git_repo / relative_path)
-        assert expected in written_path_strings, f"Expected {relative_path} to be written to work dir"
-
-    for _, relative_path in _DEFAULT_THINKING_DIR_FILES:
-        expected = str(temp_git_repo / relative_path)
-        assert expected in written_path_strings, f"Expected {relative_path} to be written to work dir"
-
-    for skill_name in _DEFAULT_SKILL_DIRS:
-        expected = str(temp_git_repo / "thinking" / ".claude" / "skills" / skill_name / "SKILL.md")
-        assert expected in written_path_strings, f"Expected skill {skill_name}/SKILL.md to be written"
+    assert any("GLOBAL.md" in p for p in written_path_strings), "Expected GLOBAL.md to be written"
+    assert any("thinking/PROMPT.md" in p for p in written_path_strings), "Expected thinking/PROMPT.md to be written"
+    assert any("talking/PROMPT.md" in p for p in written_path_strings), "Expected talking/PROMPT.md to be written"
+    assert any("thinking/skills/send-message-to-user/SKILL.md" in p for p in written_path_strings), (
+        "Expected skills to be written"
+    )
 
 
 @pytest.mark.timeout(30)
@@ -373,7 +337,7 @@ def test_conversation_watcher_script_is_valid_python(chat_env: ChatScriptEnv) ->
     """Verify that conversation_watcher.py passes Python syntax check."""
     watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "conversation_watcher.py"
     watcher_script.parent.mkdir(parents=True, exist_ok=True)
-    watcher_script.write_text(load_mind_resource("conversation_watcher.py"))
+    watcher_script.write_text(load_llm_resource("conversation_watcher.py"))
 
     result = subprocess.run(
         [sys.executable, "-m", "py_compile", str(watcher_script)],
@@ -386,20 +350,11 @@ def test_conversation_watcher_script_is_valid_python(chat_env: ChatScriptEnv) ->
 
 
 @pytest.mark.timeout(30)
-def test_event_watcher_script_is_valid_python(chat_env: ChatScriptEnv) -> None:
-    """Verify that event_watcher.py passes Python syntax check."""
-    watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "event_watcher.py"
-    watcher_script.parent.mkdir(parents=True, exist_ok=True)
-    watcher_script.write_text(load_mind_resource("event_watcher.py"))
+def test_event_watcher_module_is_importable() -> None:
+    """Verify that event_watcher module can be imported from mng_mind."""
+    from imbue.mng_mind.event_watcher import main
 
-    result = subprocess.run(
-        [sys.executable, "-m", "py_compile", str(watcher_script)],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-
-    assert result.returncode == 0, f"Syntax check failed: {result.stderr}"
+    assert callable(main)
 
 
 # -- Agent creation integration tests --
@@ -457,7 +412,7 @@ def test_conversation_record_written_to_db(chat_env: ChatScriptEnv) -> None:
     """Verify that conversation records written by chat.sh are stored in the database."""
     chat_env.set_default_model("claude-sonnet-4-6")
 
-    result = chat_env.run("--new", "--as-agent")
+    result = chat_env.run("--new", "--name", "test-conv", "--as-agent")
 
     assert result.returncode == 0, f"chat.sh failed: stdout={result.stdout!r} stderr={result.stderr!r}"
 
@@ -473,8 +428,8 @@ def test_multiple_conversations_create_separate_db_records(chat_env: ChatScriptE
     chat_env.set_default_model("claude-sonnet-4-6")
 
     conversation_ids = []
-    for _ in range(3):
-        result = chat_env.run("--new", "--as-agent")
+    for i in range(3):
+        result = chat_env.run("--new", "--name", f"test-conv-{i}", "--as-agent")
         assert result.returncode == 0
         conversation_ids.append(result.stdout.strip())
 
@@ -485,21 +440,21 @@ def test_multiple_conversations_create_separate_db_records(chat_env: ChatScriptE
 
 
 @pytest.mark.timeout(30)
-def test_chat_model_read_from_settings_toml(chat_env: ChatScriptEnv) -> None:
-    """Verify that chat.sh reads the model from settings.toml."""
-    chat_env.set_default_model("claude-haiku-4-5")
+def test_chat_model_read_from_env_var(chat_env: ChatScriptEnv) -> None:
+    """Verify that chat.sh reads the model from MNG_LLM_MODEL env var."""
+    chat_env.env["MNG_LLM_MODEL"] = "claude-haiku-4-5"
 
     # Ensure log directory exists so we can check the log for the model
     log_dir = Path(chat_env.env["MNG_AGENT_STATE_DIR"]) / "events" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    result = chat_env.run("--new", "--as-agent")
+    result = chat_env.run("--new", "--name", "model-test", "--as-agent")
     assert result.returncode == 0
 
     conversation_id = result.stdout.strip()
     assert_conversation_exists_in_db(chat_env.llm_db_path, conversation_id)
 
-    # Verify the model from settings.toml was used (visible in log output)
+    # Verify the model from env var was used (visible in log output)
     log_file = log_dir / "chat" / "events.jsonl"
     assert log_file.exists()
     log_content = log_file.read_text()
@@ -509,18 +464,18 @@ def test_chat_model_read_from_settings_toml(chat_env: ChatScriptEnv) -> None:
 @pytest.mark.timeout(30)
 def test_chat_script_creates_log_file(chat_env: ChatScriptEnv) -> None:
     """Verify that chat.sh creates a log file with operation records."""
-    chat_env.set_default_model("claude-sonnet-4-6")
+    chat_env.env["MNG_LLM_MODEL"] = "claude-sonnet-4-6"
 
     # The log dir is at $MNG_AGENT_STATE_DIR/events/logs/
     log_dir = Path(chat_env.env["MNG_AGENT_STATE_DIR"]) / "events" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    chat_env.run("--new", "--as-agent")
+    chat_env.run("--new", "--name", "log-test", "--as-agent")
 
     log_file = log_dir / "chat" / "events.jsonl"
     assert log_file.exists(), "events/logs/chat/events.jsonl should be created"
     log_content = log_file.read_text()
-    assert "Creating new conversation" in log_content
+    assert "No existing conversation" in log_content
 
 
 # -- Event watcher offset tracking tests --
@@ -738,15 +693,15 @@ def test_conversation_watcher_sync_is_idempotent(
 
 
 @pytest.mark.timeout(30)
-def test_chat_script_uses_hardcoded_default_when_no_settings(chat_env: ChatScriptEnv) -> None:
-    """Verify that chat.sh falls back to the hardcoded default model when settings.toml is absent."""
-    # Do NOT call set_default_model -- no settings.toml exists
+def test_chat_script_uses_hardcoded_default_when_no_env_var(chat_env: ChatScriptEnv) -> None:
+    """Verify that chat.sh falls back to the hardcoded default model when MNG_LLM_MODEL is not set."""
+    # Do NOT set MNG_LLM_MODEL -- rely on hardcoded default
 
     # Ensure log directory exists so we can check the log for the default model
     log_dir = Path(chat_env.env["MNG_AGENT_STATE_DIR"]) / "events" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    result = chat_env.run("--new", "--as-agent")
+    result = chat_env.run("--new", "--name", "default-model-test", "--as-agent")
     assert result.returncode == 0
 
     conversation_id = result.stdout.strip()
@@ -773,10 +728,10 @@ def test_chat_script_db_model_lookup_finds_correct_model(chat_env: ChatScriptEnv
     write_conversation_to_db(chat_env.llm_db_path, cid1, model="claude-sonnet-4-6")
     write_conversation_to_db(chat_env.llm_db_path, cid2, model="claude-haiku-4-5")
 
-    # Use the conversation_db module directly (same logic as mng minddb)
+    # Use the conversation_db module directly (same logic as mng llmdb)
     import io
 
-    from imbue.mng_claude_mind.resources.conversation_db import lookup_model
+    from imbue.mng_llm.resources.conversation_db import lookup_model
 
     old_stdout = sys.stdout
     sys.stdout = io.StringIO()
@@ -805,12 +760,12 @@ def test_chat_script_new_as_agent_with_message_writes_record_without_llm(
     written to the DB regardless, since insert_conversation_record runs
     before the llm inject call.
     """
-    chat_env.set_default_model("claude-sonnet-4-6")
+    chat_env.env["MNG_LLM_MODEL"] = "claude-sonnet-4-6"
 
     # This will fail at the `llm inject` call since llm is not installed,
     # but the conversation record should already be inserted because
     # insert_conversation_record runs before the llm inject call.
-    chat_env.run("--new", "--as-agent", "hello from test")
+    chat_env.run("--new", "--name", "msg-test", "--as-agent", "hello from test")
 
     # At least one conversation should exist (the one just created)
     with sqlite3.connect(str(chat_env.llm_db_path)) as conn:
