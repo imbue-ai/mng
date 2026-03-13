@@ -520,15 +520,11 @@ def parse_config(
     kwargs: dict[str, Any] = {}
     kwargs["prefix"] = raw.pop("prefix", None)
     kwargs["default_host_dir"] = raw.pop("default_host_dir", None)
-    kwargs["unset_vars"] = raw.pop("unset_vars", None) if "unset_vars" in raw else None
-    kwargs["pager"] = raw.pop("pager", None) if "pager" in raw else None
-    kwargs["enabled_backends"] = raw.pop("enabled_backends", None) if "enabled_backends" in raw else None
-    kwargs["connect_command"] = raw.pop("connect_command", None) if "connect_command" in raw else None
-    kwargs["is_remote_agent_installation_allowed"] = (
-        raw.pop("is_remote_agent_installation_allowed", None)
-        if "is_remote_agent_installation_allowed" in raw
-        else None
-    )
+    kwargs["unset_vars"] = raw.pop("unset_vars", None)
+    kwargs["pager"] = raw.pop("pager", None)
+    kwargs["enabled_backends"] = raw.pop("enabled_backends", None)
+    kwargs["connect_command"] = raw.pop("connect_command", None)
+    kwargs["is_remote_agent_installation_allowed"] = raw.pop("is_remote_agent_installation_allowed", None)
     kwargs["agent_types"] = (
         _parse_agent_types(raw.pop("agent_types", {}), strict=strict) if "agent_types" in raw else {}
     )
