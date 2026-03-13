@@ -67,7 +67,6 @@ def _upload_deploy_files(
         raise MngError(f"Failed to create directories: {mkdir_result.stderr}")
 
     # then upload them all in parallel
-    futures: list[Future[None]] = []
     count = 0
     futures: list[Future[None]] = []
     with ConcurrencyGroupExecutor(

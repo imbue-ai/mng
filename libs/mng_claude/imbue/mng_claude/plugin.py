@@ -12,6 +12,7 @@ from abc import ABC
 from abc import abstractmethod
 from collections.abc import Mapping
 from collections.abc import Sequence
+from concurrent.futures import Future
 from datetime import datetime
 from datetime import timezone
 from enum import auto
@@ -26,6 +27,7 @@ from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessSetupError
+from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
@@ -34,6 +36,7 @@ from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentStartError
+from imbue.mng.errors import MngError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
 from imbue.mng.errors import SendMessageError
@@ -1209,8 +1212,11 @@ class ClaudeAgent(BaseAgent):
         if config.sync_home_settings or config.sync_claude_json or config.sync_claude_credentials:
             _warn_about_version_consistency(config, mng_ctx.concurrency_group)
 
+        file_transfers: list[tuple[Path, bytes]] = []
         # 1. Always ship settings.json
-        host.write_text_file(config_dir / "settings.json", _build_settings_json_content(config.sync_home_settings))
+        file_transfers.append(
+            (config_dir / "settings.json", _build_settings_json_content(config.sync_home_settings).encode("utf-8"))
+        )
 
         # 2. Transfer other home dir files (skills, agents, commands) if syncing is enabled
         if config.sync_home_settings:
@@ -1220,7 +1226,7 @@ class ClaudeAgent(BaseAgent):
                 # settings.json is handled separately above
                 if relative_path == Path("settings.json"):
                     continue
-                host.write_file(config_dir / relative_path, source_path.read_bytes())
+                file_transfers.append((config_dir / relative_path, source_path.read_bytes()))
 
         # 3. Always ship .claude.json
         # Resolve the work_dir on the remote host so the trust entry matches
@@ -1230,7 +1236,12 @@ class ClaudeAgent(BaseAgent):
         if realpath_result.success and realpath_result.stdout.strip():
             resolved_work_dir = Path(realpath_result.stdout.strip())
         claude_json_data = _build_claude_json_for_agent(config.sync_claude_json, resolved_work_dir, config.version)
-        host.write_text_file(config_dir / ".claude.json", json.dumps(claude_json_data, indent=2) + "\n")
+        file_transfers.append(
+            (config_dir / ".claude.json", (json.dumps(claude_json_data, indent=2) + "\n").encode("utf-8"))
+        )
+
+        # Ship the files we were supposed to ship (all at once, in parallel):
+        _parallel_file_transfer(file_transfers, host, mng_ctx)
 
         # 4. Ship credentials (API key via .claude.json, OAuth via .credentials.json)
         _provision_remote_api_key(host, config_dir, claude_json_data, config, mng_ctx.concurrency_group)
@@ -1510,6 +1521,30 @@ def _generate_claude_json(version: str | None, current_time: datetime | None = N
         "officialMarketplaceAutoInstalled": True,
         "autoUpdatesProtectedForNative": True,
     }
+
+
+def _parallel_file_transfer(transfers: Sequence[tuple[Path, bytes]], host, mng_ctx):
+    remote_folders: list[str] = []
+    for dest_path, dest_contents in transfers:
+        remote_folders.append(shlex.quote(str(dest_path.parent)))
+    mkdir_result = host.execute_command(f"mkdir -p {' '.join(remote_folders)}")
+    if not mkdir_result.success:
+        raise MngError(f"Failed to create directories: {mkdir_result.stderr}")
+
+    # then upload them all in parallel
+    count = 0
+    futures: list[Future[None]] = []
+    with ConcurrencyGroupExecutor(
+        parent_cg=mng_ctx.concurrency_group, name="upload_deploy_files", max_workers=16
+    ) as executor:
+        for dest_path, dest_contents in transfers:
+            futures.append(executor.submit(host.write_file, path=dest_path, content=dest_contents))
+            logger.trace("Uploaded deploy file: {} -> {}", dest_path, dest_path)
+            count += 1
+
+    # Re-raise any thread exceptions (e.g. abort-mode errors)
+    for future in futures:
+        future.result()
 
 
 @hookimpl
