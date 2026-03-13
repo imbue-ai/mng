@@ -1,37 +1,22 @@
 """Project-level conftest for mng_modal.
 
-Registers the Modal resource guard for tests in this package and provides
-the core mng test fixtures needed by unit tests.
+Provides test infrastructure by inheriting from mng's conftest and adding
+modal-specific resource cleanup.
 """
 
-import os
-import sys
-from pathlib import Path
+import json
+import subprocess
 from typing import Generator
-from uuid import uuid4
 
-import pluggy
 import pytest
-from urwid.widget.listbox import SimpleFocusListWalker
 
-import imbue.mng.main
-from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.conftest_hooks import register_conftest_hooks
 from imbue.imbue_common.conftest_hooks import register_marker
-from imbue.mng.agents.agent_registry import load_agents_from_plugins
-from imbue.mng.agents.agent_registry import reset_agent_registry
-from imbue.mng.config.consts import PROFILES_DIRNAME
-from imbue.mng.config.data_types import MngConfig
-from imbue.mng.config.data_types import MngContext
-from imbue.mng.plugins import hookspecs
-from imbue.mng.providers.registry import load_local_backend_only
-from imbue.mng.providers.registry import reset_backend_registry
 from imbue.mng.utils.logging import suppress_warnings
-from imbue.mng.utils.testing import assert_home_is_temp_directory
-from imbue.mng.utils.testing import isolate_home
-from imbue.mng.utils.testing import isolate_tmux_server
-from imbue.mng.utils.testing import make_mng_ctx
-from imbue.mng.utils.testing import worker_test_ids
+from imbue.mng.utils.testing import worker_modal_app_names
+from imbue.mng.utils.testing import worker_modal_environment_names
+from imbue.mng.utils.testing import worker_modal_volume_names
+from imbue.mng_modal.backend import ModalProviderBackend
 from imbue.mng_modal.register_guards import register_modal_guard
 from imbue.resource_guards.resource_guards import register_resource_guard
 
@@ -49,148 +34,159 @@ register_modal_guard()
 
 register_conftest_hooks(globals())
 
-
-# Suppress deprecated urwid module aliases (same as mng's conftest)
-_URWID_DEPRECATED_ALIASES = (
-    "urwid.web_display",
-    "urwid.lcd_display",
-    "urwid.html_fragment",
-    "urwid.monitored_list",
-    "urwid.listbox",
-    "urwid.treetools",
-)
-_ = SimpleFocusListWalker
-for _mod in _URWID_DEPRECATED_ALIASES:
-    if _mod in sys.modules:
-        del sys.modules[_mod]
-
-
-# =============================================================================
-# Core fixtures (replicated from mng's conftest for standalone testing)
-# =============================================================================
-
-
-@pytest.fixture
-def cg() -> Generator[ConcurrencyGroup, None, None]:
-    """Provide a ConcurrencyGroup for tests that need to run processes."""
-    with ConcurrencyGroup(name="test") as group:
-        yield group
-
-
-@pytest.fixture
-def mng_test_id() -> str:
-    """Generate a unique test ID for isolation."""
-    test_id = uuid4().hex
-    worker_test_ids.append(test_id)
-    return test_id
-
-
-@pytest.fixture
-def mng_test_prefix(mng_test_id: str) -> str:
-    """Get the test prefix for tmux session names."""
-    return f"mng_{mng_test_id}-"
-
-
-@pytest.fixture
-def mng_test_root_name(mng_test_id: str) -> str:
-    """Get the test root name for config isolation."""
-    return f"mng-test-{mng_test_id}"
-
-
-@pytest.fixture
-def temp_host_dir(tmp_path: Path) -> Path:
-    """Create a temporary directory for host/mng data."""
-    host_dir = tmp_path / ".mng"
-    host_dir.mkdir()
-    return host_dir
-
-
-@pytest.fixture
-def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
-    yield tmp_path
-
-
-@pytest.fixture
-def temp_profile_dir(temp_host_dir: Path) -> Path:
-    """Create a temporary profile directory."""
-    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
-
-
-@pytest.fixture
-def temp_config(temp_host_dir: Path, mng_test_prefix: str) -> MngConfig:
-    """Create a MngConfig with a temporary host directory."""
-    return MngConfig(default_host_dir=temp_host_dir, prefix=mng_test_prefix, is_error_reporting_enabled=False)
+# Inherit all fixtures from mng's conftest (same pattern as mng_claude)
+pytest_plugins = ["imbue.mng.conftest"]
 
 
 @pytest.fixture(autouse=True)
-def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
-    """Create a plugin manager with mng hookspecs and local backend only."""
-    imbue.mng.main.reset_plugin_manager()
-    reset_backend_registry()
-    reset_agent_registry()
-
-    pm = pluggy.PluginManager("mng")
-    pm.add_hookspecs(hookspecs)
-    pm.load_setuptools_entrypoints("mng")
-    load_local_backend_only(pm)
-    load_agents_from_plugins(pm)
-
-    yield pm
-
-    imbue.mng.main.reset_plugin_manager()
-    reset_backend_registry()
-    reset_agent_registry()
-
-
-@pytest.fixture
-def temp_mng_ctx(
-    temp_config: MngConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
-) -> Generator[MngContext, None, None]:
-    """Create a MngContext with a temporary host directory."""
-    group = ConcurrencyGroup(name="test")
-    with group:
-        yield make_mng_ctx(temp_config, plugin_manager, temp_profile_dir, concurrency_group=group)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_tmux_server(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
-    """Give each test its own isolated tmux server."""
-    with isolate_tmux_server(monkeypatch):
-        yield
-
-
-@pytest.fixture(autouse=True)
-def setup_test_mng_env(
-    tmp_home_dir: Path,
-    temp_host_dir: Path,
-    mng_test_prefix: str,
-    mng_test_root_name: str,
-    monkeypatch: pytest.MonkeyPatch,
-    _isolate_tmux_server: None,
-) -> Generator[None, None, None]:
-    """Set up environment variables for all tests."""
-    import toml
-
-    # Load modal token from real home before overriding HOME
-    modal_toml_path = Path(os.path.expanduser("~/.modal.toml"))
-    if modal_toml_path.exists():
-        for value in toml.load(modal_toml_path).values():
-            if value.get("active", ""):
-                monkeypatch.setenv("MODAL_TOKEN_ID", value.get("token_id", ""))
-                monkeypatch.setenv("MODAL_TOKEN_SECRET", value.get("token_secret", ""))
-                break
-
-    isolate_home(tmp_home_dir, monkeypatch)
-    monkeypatch.setenv("MNG_HOST_DIR", str(temp_host_dir))
-    monkeypatch.setenv("MNG_PREFIX", mng_test_prefix)
-    monkeypatch.setenv("MNG_ROOT_NAME", mng_test_root_name)
-
-    unison_dir = tmp_home_dir / ".unison"
-    unison_dir.mkdir(exist_ok=True)
-    monkeypatch.setenv("UNISON", str(unison_dir))
-
-    assert_home_is_temp_directory()
-
+def _reset_modal_app_registry() -> Generator[None, None, None]:
+    """Reset the Modal app registry after each test for isolation."""
     yield
+    ModalProviderBackend.reset_app_registry()
+
+
+# =============================================================================
+# Session Cleanup - Detect and clean up leaked Modal test resources
+# =============================================================================
+
+
+def _get_leaked_modal_apps() -> list[tuple[str, str]]:
+    if not worker_modal_app_names:
+        return []
+    try:
+        result = subprocess.run(
+            ["uv", "run", "modal", "app", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+        apps = json.loads(result.stdout)
+        return [
+            (app.get("App ID", ""), app.get("Description", ""))
+            for app in apps
+            if app.get("Description", "") in worker_modal_app_names and app.get("State", "") != "stopped"
+        ]
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return []
+
+
+def _stop_modal_apps(apps: list[tuple[str, str]]) -> None:
+    for app_id, _ in apps:
+        try:
+            subprocess.run(
+                ["uv", "run", "modal", "app", "stop", app_id],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
+
+
+def _get_leaked_modal_volumes() -> list[str]:
+    if not worker_modal_volume_names:
+        return []
+    try:
+        result = subprocess.run(
+            ["uv", "run", "modal", "volume", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+        volumes = json.loads(result.stdout)
+        return [v.get("Name", "") for v in volumes if v.get("Name", "") in worker_modal_volume_names]
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return []
+
+
+def _delete_modal_volumes(volume_names: list[str]) -> None:
+    for name in volume_names:
+        try:
+            subprocess.run(
+                ["uv", "run", "modal", "volume", "delete", name, "--yes"],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
+
+
+def _get_leaked_modal_environments() -> list[str]:
+    if not worker_modal_environment_names:
+        return []
+    try:
+        result = subprocess.run(
+            ["uv", "run", "modal", "environment", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+        envs = json.loads(result.stdout)
+        return [e.get("name", "") for e in envs if e.get("name", "") in worker_modal_environment_names]
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return []
+
+
+def _delete_modal_environments(environment_names: list[str]) -> None:
+    for name in environment_names:
+        try:
+            subprocess.run(
+                ["uv", "run", "modal", "environment", "delete", name, "--yes"],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def modal_session_cleanup() -> Generator[None, None, None]:
+    """Detect and clean up leaked Modal resources at the end of the test session."""
+    yield
+
+    errors: list[str] = []
+
+    leaked_apps = _get_leaked_modal_apps()
+    if leaked_apps:
+        app_info = [f"  {app_id} ({app_name})" for app_id, app_name in leaked_apps]
+        errors.append(
+            "Leftover Modal apps found!\n"
+            "Tests should destroy their Modal hosts before completing.\n" + "\n".join(app_info)
+        )
+
+    leaked_volumes = _get_leaked_modal_volumes()
+    if leaked_volumes:
+        volume_info = [f"  {name}" for name in leaked_volumes]
+        errors.append(
+            "Leftover Modal volumes found!\n"
+            "Tests should delete their Modal volumes before completing.\n" + "\n".join(volume_info)
+        )
+
+    leaked_envs = _get_leaked_modal_environments()
+    if leaked_envs:
+        env_info = [f"  {name}" for name in leaked_envs]
+        errors.append(
+            "Leftover Modal environments found!\n"
+            "Tests should delete their Modal environments before completing.\n" + "\n".join(env_info)
+        )
+
+    _stop_modal_apps(leaked_apps)
+    _delete_modal_volumes(leaked_volumes)
+    _delete_modal_environments(leaked_envs)
+
+    if errors:
+        raise AssertionError(
+            "=" * 70
+            + "\n"
+            + "MODAL SESSION CLEANUP FOUND LEAKED RESOURCES!\n"
+            + "=" * 70
+            + "\n\n"
+            + "\n\n".join(errors)
+            + "\n\n"
+            + "These resources have been cleaned up, but tests should not leak!\n"
+        )
