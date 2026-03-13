@@ -96,7 +96,7 @@ class _StreamTailState(MutableModel):
     host: OnlineHostInterface
     is_finished: Callable[[], bool]
     last_mtime: datetime | None = None
-    bytes_consumed: int = 0
+    chars_consumed: int = 0
     line_buffer: str = ""
 
     def _has_new_data_or_finished(self) -> bool:
@@ -120,8 +120,8 @@ class _StreamTailState(MutableModel):
             except FileNotFoundError:
                 continue
 
-            raw = content[self.bytes_consumed :]
-            self.bytes_consumed = len(content)
+            raw = content[self.chars_consumed :]
+            self.chars_consumed = len(content)
 
             if raw:
                 combined = self.line_buffer + raw
@@ -148,7 +148,7 @@ class _StreamTailState(MutableModel):
                 content = self.host.read_text_file(self.stdout_path)
             except FileNotFoundError:
                 return
-            remaining = self.line_buffer + content[self.bytes_consumed :]
+            remaining = self.line_buffer + content[self.chars_consumed :]
             if remaining:
                 yield from _yield_text_deltas_from_lines(remaining.split("\n"))
 
