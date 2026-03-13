@@ -16,23 +16,6 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.mng.agents.base_agent import BaseAgent
-from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
-from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
-from imbue.mng.agents.default_plugins.claude_agent import WaitingReason
-from imbue.mng.agents.default_plugins.claude_agent import _build_install_command_hint
-from imbue.mng.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
-from imbue.mng.agents.default_plugins.claude_agent import _get_claude_version
-from imbue.mng.agents.default_plugins.claude_agent import _has_api_credentials_available
-from imbue.mng.agents.default_plugins.claude_agent import _install_claude
-from imbue.mng.agents.default_plugins.claude_agent import _parse_claude_version_output
-from imbue.mng.agents.default_plugins.claude_agent import _read_macos_keychain_credential
-from imbue.mng.agents.default_plugins.claude_agent import agent_field_generators
-from imbue.mng.agents.default_plugins.claude_agent import get_files_for_deploy
-from imbue.mng.agents.default_plugins.claude_agent import on_before_create
-from imbue.mng.agents.default_plugins.claude_agent import register_cli_options
-from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
-from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
-from imbue.mng.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mng.api.testing import FakeHost
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import EnvVar
@@ -59,6 +42,23 @@ from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.utils.testing import init_git_repo
 from imbue.mng.utils.testing import make_mng_ctx
+from imbue.mng_claude.claude_config import ClaudeDirectoryNotTrustedError
+from imbue.mng_claude.claude_config import ClaudeEffortCalloutNotDismissedError
+from imbue.mng_claude.claude_config import build_readiness_hooks_config
+from imbue.mng_claude.plugin import ClaudeAgent
+from imbue.mng_claude.plugin import ClaudeAgentConfig
+from imbue.mng_claude.plugin import WaitingReason
+from imbue.mng_claude.plugin import _build_install_command_hint
+from imbue.mng_claude.plugin import _claude_json_has_primary_api_key
+from imbue.mng_claude.plugin import _get_claude_version
+from imbue.mng_claude.plugin import _has_api_credentials_available
+from imbue.mng_claude.plugin import _install_claude
+from imbue.mng_claude.plugin import _parse_claude_version_output
+from imbue.mng_claude.plugin import _read_macos_keychain_credential
+from imbue.mng_claude.plugin import agent_field_generators
+from imbue.mng_claude.plugin import get_files_for_deploy
+from imbue.mng_claude.plugin import on_before_create
+from imbue.mng_claude.plugin import register_cli_options
 
 # =============================================================================
 # Test Helpers
@@ -198,7 +198,7 @@ def _write_all_dialogs_dismissed(work_dir: Path) -> None:
     config_path.write_text(json.dumps(config))
 
 
-_CLAUDE_AGENT_MODULE = "imbue.mng.agents.default_plugins.claude_agent"
+_CLAUDE_AGENT_MODULE = "imbue.mng_claude.plugin"
 
 
 @contextmanager
@@ -2204,24 +2204,34 @@ def test_provision_raises_on_version_mismatch(
 
 
 def test_install_claude_passes_version_to_command() -> None:
-    """_install_claude should pass the version to the install script via bash -s."""
+    """_install_claude should pass the version as a positional arg to the install script."""
     host, executed_commands = _make_command_tracking_host()
 
     _install_claude(host, version="2.1.50")
 
     assert len(executed_commands) == 1
-    assert "bash -s 2.1.50" in executed_commands[0]
+    assert "install_claude.sh 2.1.50" in executed_commands[0]
 
 
 def test_install_claude_without_version() -> None:
-    """_install_claude should not pass -s flag when no version is specified."""
+    """_install_claude should not pass version arg when no version is specified."""
     host, executed_commands = _make_command_tracking_host()
 
     _install_claude(host, version=None)
 
     assert len(executed_commands) == 1
-    assert "bash -s" not in executed_commands[0]
-    assert "install.sh | bash" in executed_commands[0]
+    # The bash invocation should have no version arg after the script name
+    assert "bash /tmp/install_claude.sh &&" in executed_commands[0]
+
+
+def test_install_claude_verifies_binary_exists() -> None:
+    """_install_claude should verify the binary is executable after install."""
+    host, executed_commands = _make_command_tracking_host()
+
+    _install_claude(host, version=None)
+
+    assert len(executed_commands) == 1
+    assert "test -x $HOME/.local/bin/claude" in executed_commands[0]
 
 
 # =============================================================================
