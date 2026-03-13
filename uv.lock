@@ -26,6 +26,7 @@ members = [
     "mng-modal",
     "mng-opencode",
     "mng-pair",
+    "mng-pi-coding",
     "mng-recursive",
     "mng-schedule",
     "mng-test-coder",
@@ -2029,6 +2030,17 @@ requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
     { name = "mng", editable = "libs/mng" },
 ]
+
+[[package]]
+name = "mng-pi-coding"
+version = "0.1.0"
+source = { editable = "libs/mng_pi_coding" }
+dependencies = [
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mng", editable = "libs/mng" }]
 
 [[package]]
 name = "mng-recursive"
