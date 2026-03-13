@@ -1001,3 +1001,52 @@ def test_ensure_clean_skipped_with_explicit_base_branch(
 
         # Wait for background session so cleanup can properly kill it
         wait_for_agent_session(session_name)
+
+
+@pytest.mark.tmux
+def test_ensure_clean_skipped_with_explicit_base_branch_copy_mode(
+    cli_runner: CliRunner,
+    temp_git_repo: Path,
+    temp_host_dir: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Ensure-clean check is skipped with an explicit base branch even in copy mode (not just worktree)."""
+    # Create a second branch to use as base
+    subprocess.run(
+        ["git", "branch", "other-branch"],
+        cwd=temp_git_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    # Make the repo dirty
+    (temp_git_repo / "dirty.txt").write_text("uncommitted change")
+
+    agent_name = f"test-copy-base-clean-{int(time.time())}"
+    session_name = f"{mng_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--command",
+                "sleep 847192",
+                "--source",
+                str(temp_git_repo),
+                "--branch",
+                "other-branch:mng/*",
+                "--copy",
+                "--no-connect",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert "uncommitted changes" not in result.output
+
+        # Wait for background session so cleanup can properly kill it
+        wait_for_agent_session(session_name)
