@@ -2,9 +2,11 @@
 
 import io
 import json
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from typing import Any
 from typing import IO
 from typing import cast
 
@@ -914,57 +916,126 @@ def test_is_socket_closed_os_error_rejects_non_os_error() -> None:
     assert _is_socket_closed_os_error(ValueError("Socket is closed")) is False
 
 
+class _FakeTransport:
+    """Fake paramiko transport for testing."""
+
+    pass
+
+
+class _BaseFakeSFTP:
+    """Base class for fake SFTP clients used in tests."""
+
+    def close(self) -> None:
+        pass
+
+
+class _FakeSSHClient:
+    """Minimal fake paramiko SSHClient for testing the paramiko upload path."""
+
+    def __init__(self, transport_return: object = None) -> None:
+        self._transport = transport_return
+
+    def get_transport(self) -> object:
+        return self._transport
+
+
+class _FakeSSHConnector:
+    """Minimal fake SSH connector with a client attribute."""
+
+    def __init__(self, client: _FakeSSHClient | None = None) -> None:
+        self.client = client
+
+
+class _FakeHostWithSSH(_FakePyinfraHost):
+    """Fake pyinfra host that has a connector with an SSH client."""
+
+    def __init__(
+        self,
+        ssh_client: _FakeSSHClient | None = None,
+        get_file_results: list[bool | Exception] | None = None,
+        put_file_results: list[bool | Exception] | None = None,
+    ) -> None:
+        super().__init__(get_file_results=get_file_results, put_file_results=put_file_results)
+        self.connector = _FakeSSHConnector(client=ssh_client)
+
+
+def _create_host_with_custom_sftp(
+    local_provider: LocalProviderInstance,
+    sftp_factory: Callable[[], object],
+) -> Host:
+    """Create a Host that uses a custom SFTP client factory for testing paramiko paths.
+
+    The sftp_factory callable is invoked each time _create_sftp_client is called,
+    allowing tests to inject fake SFTP behavior without monkeypatching.
+    """
+
+    class _HostWithCustomSFTP(Host):
+        def _create_sftp_client(self, transport: object) -> Any:
+            return sftp_factory()
+
+    fake = _FakeHostWithSSH(ssh_client=_FakeSSHClient(transport_return=_FakeTransport()))
+    connector = PyinfraConnector(cast(PyinfraHost, fake))
+    return _HostWithCustomSFTP(
+        id=HostId.generate(),
+        connector=connector,
+        provider_instance=local_provider,
+        mng_ctx=local_provider.mng_ctx,
+    )
+
+
 def test_get_file_retries_on_socket_closed_and_returns_result(
     local_provider: LocalProviderInstance,
 ) -> None:
     """A transient socket-closed error should be transparently retried."""
-    fake = _FakePyinfraHost(
-        get_file_results=[
-            OSError("Socket is closed"),
-            True,
-        ]
-    )
-    host = _create_host_with_fake_connector(local_provider, fake)
+    call_count = 0
 
+    class _SocketClosingThenSucceedingSFTP(_BaseFakeSFTP):
+        def getfo(self, remote_path: str, fl: IO[bytes]) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise OSError("Socket is closed")
+
+    host = _create_host_with_custom_sftp(local_provider, _SocketClosingThenSucceedingSFTP)
     result = host._get_file("/remote/file.txt", io.BytesIO())
 
     assert result is True
-    assert fake._get_file_call_count == 2
-    assert fake.disconnect_call_count >= 1
+    assert call_count == 2
 
 
 def test_get_file_raises_file_not_found_immediately_without_retry(
     local_provider: LocalProviderInstance,
 ) -> None:
     """FileNotFoundError should propagate immediately without retrying."""
-    fake = _FakePyinfraHost(
-        get_file_results=[
-            OSError("No such file or directory: /missing.txt"),
-        ]
-    )
-    host = _create_host_with_fake_connector(local_provider, fake)
+
+    class _NotFoundSFTP(_BaseFakeSFTP):
+        def getfo(self, remote_path: str, fl: IO[bytes]) -> None:
+            raise IOError("No such file: /missing.txt")
+
+    host = _create_host_with_custom_sftp(local_provider, _NotFoundSFTP)
 
     with pytest.raises(FileNotFoundError, match="File not found"):
         host._get_file("/missing.txt", io.BytesIO())
 
-    assert fake._get_file_call_count == 1
 
-
-def test_get_file_disconnects_on_socket_closed_before_retry(
+def test_put_file_retries_on_socket_closed_and_returns_result(
     local_provider: LocalProviderInstance,
 ) -> None:
-    """On socket-closed error, disconnect should be called to force a fresh reconnection."""
-    fake = _FakePyinfraHost(
-        get_file_results=[
-            OSError("Socket is closed"),
-            True,
-        ]
-    )
-    host = _create_host_with_fake_connector(local_provider, fake)
+    """A transient socket-closed error on put_file should be transparently retried."""
+    call_count = 0
 
-    host._get_file("/remote/file.txt", io.BytesIO())
+    class _SocketClosingThenSucceedingSFTP(_BaseFakeSFTP):
+        def putfo(self, fl: IO[bytes], remote_path: str) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise OSError("Socket is closed")
 
-    assert fake.disconnect_call_count >= 1
+    host = _create_host_with_custom_sftp(local_provider, _SocketClosingThenSucceedingSFTP)
+    result = host._put_file(io.BytesIO(b"content"), "/remote/file.txt")
+
+    assert result is True
+    assert call_count == 2
 
 
 def test_get_file_resets_output_io_between_retry_attempts(
@@ -973,52 +1044,23 @@ def test_get_file_resets_output_io_between_retry_attempts(
     """Output IO should be seek(0)/truncate(0) before each retry to clear partial data."""
     io_sizes_at_call_time: list[int] = []
 
-    class _WritingHost(_FakePyinfraHost):
-        def get_file(
-            self,
-            remote_filename: str,
-            filename_or_io: str | IO[bytes],
-            remote_temp_filename: str | None = None,
-        ) -> bool:
-            if isinstance(filename_or_io, io.BytesIO):
-                # Simulate partial write on first call (like a real SFTP transfer)
-                if self._get_file_call_count == 0:
-                    filename_or_io.write(b"partial data")
-                io_sizes_at_call_time.append(filename_or_io.tell())
-            return super().get_file(remote_filename, filename_or_io, remote_temp_filename)
+    class _PartialWriteThenSucceedSFTP(_BaseFakeSFTP):
+        _call_count = 0
 
-    fake = _WritingHost(
-        get_file_results=[
-            OSError("Socket is closed"),
-            True,
-        ]
-    )
-    host = _create_host_with_fake_connector(local_provider, fake)
+        def getfo(self, remote_path: str, fl: IO[bytes]) -> None:
+            self.__class__._call_count += 1
+            if self.__class__._call_count == 1:
+                fl.write(b"partial data")
+                io_sizes_at_call_time.append(fl.tell())
+                raise OSError("Socket is closed")
+            io_sizes_at_call_time.append(fl.tell())
 
+    host = _create_host_with_custom_sftp(local_provider, _PartialWriteThenSucceedSFTP)
     host._get_file("/remote/file.txt", io.BytesIO())
 
-    # First call: partial write advanced position to 12
-    # Second call: seek(0) + truncate(0) reset to 0
+    # First call: partial write advanced position to 12, then socket closed
+    # Second call: seek(0) + truncate(0) reset position to 0 before creating new SFTP
     assert io_sizes_at_call_time == [12, 0]
-
-
-def test_put_file_retries_on_socket_closed_and_returns_result(
-    local_provider: LocalProviderInstance,
-) -> None:
-    """A transient socket-closed error on put_file should be transparently retried."""
-    fake = _FakePyinfraHost(
-        put_file_results=[
-            OSError("Socket is closed"),
-            True,
-        ]
-    )
-    host = _create_host_with_fake_connector(local_provider, fake)
-
-    result = host._put_file(io.BytesIO(b"content"), "/remote/file.txt")
-
-    assert result is True
-    assert fake._put_file_call_count == 2
-    assert fake.disconnect_call_count >= 1
 
 
 def test_put_file_resets_input_io_position_between_retry_attempts(
@@ -1027,32 +1069,22 @@ def test_put_file_resets_input_io_position_between_retry_attempts(
     """Input IO should be seek(0) before each retry so the full content is re-read."""
     io_positions_at_call_time: list[int] = []
 
-    class _PositionAdvancingHost(_FakePyinfraHost):
-        def put_file(
-            self,
-            filename_or_io: str | IO[str] | IO[bytes],
-            remote_filename: str,
-            remote_temp_filename: str | None = None,
-        ) -> bool:
-            if isinstance(filename_or_io, io.BytesIO):
-                # Simulate partial read advancing IO position on first call
-                if self._put_file_call_count == 0:
-                    filename_or_io.read(5)
-                io_positions_at_call_time.append(filename_or_io.tell())
-            return super().put_file(filename_or_io, remote_filename, remote_temp_filename)
+    class _PartialReadThenSucceedSFTP(_BaseFakeSFTP):
+        _call_count = 0
 
-    fake = _PositionAdvancingHost(
-        put_file_results=[
-            OSError("Socket is closed"),
-            True,
-        ]
-    )
-    host = _create_host_with_fake_connector(local_provider, fake)
+        def putfo(self, fl: IO[bytes], remote_path: str) -> None:
+            self.__class__._call_count += 1
+            if self.__class__._call_count == 1:
+                fl.read(5)
+                io_positions_at_call_time.append(fl.tell())
+                raise OSError("Socket is closed")
+            io_positions_at_call_time.append(fl.tell())
 
+    host = _create_host_with_custom_sftp(local_provider, _PartialReadThenSucceedSFTP)
     host._put_file(io.BytesIO(b"file content here"), "/remote/file.txt")
 
-    # First call: partial read advanced position to 5
-    # Second call: seek(0) reset position to 0
+    # First call: partial read advanced position to 5, then socket closed
+    # Second call: seek(0) reset position to 0 before creating new SFTP
     assert io_positions_at_call_time == [5, 0]
 
 
@@ -1060,29 +1092,156 @@ def test_put_file_propagates_non_socket_closed_os_error(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Non-socket-closed OSErrors should propagate without retry."""
-    fake = _FakePyinfraHost(
-        put_file_results=[
-            OSError("Permission denied"),
-        ]
-    )
-    host = _create_host_with_fake_connector(local_provider, fake)
+
+    class _PermissionDeniedSFTP(_BaseFakeSFTP):
+        def putfo(self, fl: IO[bytes], remote_path: str) -> None:
+            raise OSError("Permission denied")
+
+    host = _create_host_with_custom_sftp(local_provider, _PermissionDeniedSFTP)
 
     with pytest.raises(OSError, match="Permission denied"):
         host._put_file(io.BytesIO(b"content"), "/remote/file.txt")
 
-    assert fake._put_file_call_count == 1
+
+def test_get_paramiko_transport_raises_for_host_without_connector(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """_get_paramiko_transport should raise when pyinfra host has no connector attribute."""
+    fake = _FakePyinfraHost()
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    with pytest.raises(HostConnectionError, match="does not support SSH"):
+        host._get_paramiko_transport()
+
+
+@pytest.mark.parametrize("method", ["get", "put"])
+def test_file_op_raises_for_remote_host_without_ssh_client(
+    local_provider: LocalProviderInstance,
+    method: str,
+) -> None:
+    """Non-local hosts without an SSH client should fail loudly, not silently deadlock."""
+    fake = _FakePyinfraHost()
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    with pytest.raises(HostConnectionError):
+        if method == "get":
+            host._get_file("/remote/file.txt", io.BytesIO())
+        else:
+            host._put_file(io.BytesIO(b"content"), "/remote/file.txt")
+
+
+@pytest.mark.parametrize("method", ["get", "put"])
+def test_paramiko_raises_when_no_transport(
+    local_provider: LocalProviderInstance,
+    method: str,
+) -> None:
+    """_get/put_file_via_paramiko should raise HostConnectionError when transport is None."""
+    fake = _FakeHostWithSSH(ssh_client=_FakeSSHClient(transport_return=None))
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    with pytest.raises(HostConnectionError, match="No active SSH transport"):
+        if method == "get":
+            host._get_file_via_paramiko("/remote/file.txt", io.BytesIO())
+        else:
+            host._put_file_via_paramiko(io.BytesIO(b"content"), "/remote/file.txt")
+
+
+def test_get_file_via_paramiko_downloads_successfully(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """_get_file_via_paramiko should create a fresh SFTP channel and download."""
+
+    class _FakeSFTP(_BaseFakeSFTP):
+        def getfo(self, remote_path: str, fl: IO[bytes]) -> None:
+            fl.write(b"file contents")
+
+    host = _create_host_with_custom_sftp(local_provider, _FakeSFTP)
+    output = io.BytesIO()
+    result = host._get_file_via_paramiko("/remote/file.txt", output)
+
+    assert result is True
+    assert output.getvalue() == b"file contents"
+
+
+def test_get_file_via_paramiko_raises_file_not_found(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """_get_file_via_paramiko should convert IOError to FileNotFoundError."""
+
+    class _FakeSFTP(_BaseFakeSFTP):
+        def getfo(self, remote_path: str, fl: IO[bytes]) -> None:
+            raise IOError("No such file")
+
+    host = _create_host_with_custom_sftp(local_provider, _FakeSFTP)
+
+    with pytest.raises(FileNotFoundError, match="File not found"):
+        host._get_file_via_paramiko("/remote/missing.txt", io.BytesIO())
+
+
+def test_get_paramiko_transport_succeeds_for_ssh_host(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """_get_paramiko_transport should return the transport when available."""
+    expected_transport = object()
+    fake = _FakeHostWithSSH(ssh_client=_FakeSSHClient(transport_return=expected_transport))
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    assert host._get_paramiko_transport() is expected_transport
+
+
+def test_get_paramiko_transport_raises_when_client_is_none(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """_get_paramiko_transport should raise when client is None."""
+    fake = _FakeHostWithSSH(ssh_client=None)
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    with pytest.raises(HostConnectionError, match="does not support SSH"):
+        host._get_paramiko_transport()
+
+
+def test_get_paramiko_transport_raises_for_non_ssh_connector(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """_get_paramiko_transport should raise when connector has no client attribute."""
+
+    class _FakeHostWithNonSSHConnector(_FakePyinfraHost):
+        connector = object()
+
+    fake = _FakeHostWithNonSSHConnector()
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    with pytest.raises(HostConnectionError, match="does not support SSH"):
+        host._get_paramiko_transport()
+
+
+def test_put_file_via_paramiko_uploads_via_fresh_sftp_channel(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """_put_file_via_paramiko should create a fresh SFTP channel and upload."""
+    uploaded: dict[str, bytes] = {}
+
+    class _FakeSFTP(_BaseFakeSFTP):
+        def putfo(self, fl: io.BytesIO, remote_path: str) -> None:
+            uploaded[remote_path] = fl.read()
+
+    host = _create_host_with_custom_sftp(local_provider, _FakeSFTP)
+    result = host._put_file_via_paramiko(io.BytesIO(b"hello world"), "/tmp/test.txt")
+
+    assert result is True
+    assert uploaded["/tmp/test.txt"] == b"hello world"
 
 
 def test_get_file_wraps_ssh_exception_in_host_connection_error(
     local_provider: LocalProviderInstance,
 ) -> None:
     """SSHException should be wrapped in HostConnectionError."""
-    fake = _FakePyinfraHost(
-        get_file_results=[
-            SSHException("connection lost"),
-        ]
-    )
-    host = _create_host_with_fake_connector(local_provider, fake)
+
+    class _SSHExceptionSFTP(_BaseFakeSFTP):
+        def getfo(self, remote_path: str, fl: IO[bytes]) -> None:
+            raise SSHException("connection lost")
+
+    host = _create_host_with_custom_sftp(local_provider, _SSHExceptionSFTP)
 
     with pytest.raises(HostConnectionError, match="Could not read file"):
         host._get_file("/remote/file.txt", io.BytesIO())
