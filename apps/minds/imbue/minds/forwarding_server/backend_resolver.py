@@ -21,10 +21,7 @@ from imbue.mng.api.discovery_events import FullDiscoverySnapshotEvent
 from imbue.mng.api.discovery_events import HostSSHInfoEvent
 from imbue.mng.api.discovery_events import parse_discovery_event_line
 from imbue.mng.primitives import AgentId
-from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import DiscoveredAgent
-from imbue.mng.primitives import HostId
-from imbue.mng.primitives import ProviderInstanceName
 
 SERVERS_LOG_FILENAME: Final[str] = "servers/events.jsonl"
 
@@ -139,28 +136,18 @@ def parse_agents_from_json(json_output: str | None) -> ParsedAgentsResult:
 
     agents = data.get("agents", [])
     agent_ids: list[AgentId] = []
-    discovered: list[DiscoveredAgent] = []
     ssh_info_by_id: dict[str, RemoteSSHInfo] = {}
 
     for agent in agents:
         agent_id_str = agent.get("id")
         if agent_id_str is None:
             continue
-        agent_id = AgentId(agent_id_str)
-        agent_ids.append(agent_id)
+        agent_ids.append(AgentId(agent_id_str))
 
-        host = agent.get("host", {})
-        discovered.append(
-            DiscoveredAgent(
-                host_id=HostId(host.get("id", "host-00000000000000000000000000000000")),
-                agent_id=agent_id,
-                agent_name=AgentName(agent.get("name", agent_id_str)),
-                provider_name=ProviderInstanceName(host.get("provider_name", "local")),
-                certified_data={"labels": agent.get("labels", {})},
-            )
-        )
-
-        ssh = host.get("ssh") if host else None
+        host = agent.get("host")
+        if host is None:
+            continue
+        ssh = host.get("ssh")
         if ssh is None:
             continue
 
@@ -177,7 +164,6 @@ def parse_agents_from_json(json_output: str | None) -> ParsedAgentsResult:
 
     return ParsedAgentsResult(
         agent_ids=tuple(agent_ids),
-        discovered_agents=tuple(discovered),
         ssh_info_by_agent_id=ssh_info_by_id,
     )
 
