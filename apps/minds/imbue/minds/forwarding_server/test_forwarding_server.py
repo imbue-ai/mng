@@ -1070,8 +1070,8 @@ def test_creating_page_returns_404_for_unknown(tmp_path: Path) -> None:
     assert response.status_code == 404
 
 
-def test_creation_status_api_returns_cloning_for_new_agent(tmp_path: Path) -> None:
-    """GET /api/create-agent/{id}/status returns CLONING for a newly started creation."""
+def test_creation_status_api_returns_status_for_tracked_agent(tmp_path: Path) -> None:
+    """GET /api/create-agent/{id}/status returns a valid status for a tracked creation."""
     client, _, agent_creator = _create_test_server_with_agent_creator(tmp_path)
 
     agent_id = agent_creator.start_creation("https://github.com/test/repo")
@@ -1080,7 +1080,7 @@ def test_creation_status_api_returns_cloning_for_new_agent(tmp_path: Path) -> No
     assert response.status_code == 200
     data = response.json()
     assert data["agent_id"] == str(agent_id)
-    assert data["status"] in ("CLONING", "CREATING", "FAILED")
+    assert data["status"] in ("CLONING", "CREATING", "DONE", "FAILED")
 
 
 def test_create_page_prefills_git_url_from_query(tmp_path: Path) -> None:

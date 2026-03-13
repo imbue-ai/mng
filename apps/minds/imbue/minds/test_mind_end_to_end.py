@@ -1,13 +1,13 @@
-"""End-to-end test for mind deployment and chat using the test-coder agent type.
+"""End-to-end test for mind creation and chat using the test-coder agent type.
 
-Deploys a real mind locally using the test-coder agent type (which uses
+Creates a real mind locally using the test-coder agent type (which uses
 the matched-responses model instead of real LLMs), verifies the full pipeline
 works, and cleans up. No API keys are required.
 
 The matched-responses model's env-var-based customization (LLM_MATCHED_RESPONSE
 and LLM_MATCHED_RESPONSES_FILE) is thoroughly unit-tested in
 libs/llm_matched_responses/llm_matched_responses_test.py. This test focuses on
-verifying the deployment pipeline and that the model is correctly installed and
+verifying the creation pipeline and that the model is correctly installed and
 configured in the mind environment.
 """
 
@@ -22,10 +22,10 @@ from imbue.minds.testing import run_mng
 @pytest.mark.release
 @pytest.mark.timeout(120)
 def test_deploy_test_coder_and_verify_matched_responses_model(deployed_test_coder: dict[str, object]) -> None:
-    """Deploy a test-coder mind and verify the matched-responses model works end-to-end.
+    """Create a test-coder mind and verify the matched-responses model works end-to-end.
 
     Verifies:
-    1. The mind was deployed successfully (via the fixture)
+    1. The mind was created successfully (via the fixture)
     2. The matched-responses model is installed and responds correctly via mng exec
     3. The chat settings are configured with model = "matched-responses"
     4. The env-var-based response override works in the agent environment
