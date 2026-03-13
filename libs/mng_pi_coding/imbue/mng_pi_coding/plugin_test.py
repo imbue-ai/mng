@@ -1,6 +1,5 @@
 """Unit tests for the pi-coding plugin."""
 
-import json
 from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import patch
@@ -32,9 +31,10 @@ from imbue.mng_pi_coding.plugin import register_agent_type
 
 
 class _StubHost(FakeHost):
-    """FakeHost that stubs specific commands instead of executing them."""
+    """FakeHost that stubs specific commands and provides get_env_var."""
 
     command_results: dict[str, CommandResult] = {}
+    env_vars: dict[str, str] = {}
 
     def execute_command(
         self,
@@ -48,6 +48,9 @@ class _StubHost(FakeHost):
             if pattern in command:
                 return result
         return super().execute_command(command, user, cwd, env, timeout_seconds)
+
+    def get_env_var(self, key: str) -> str | None:
+        return self.env_vars.get(key)
 
 
 def _make_options(tmp_path: Path) -> CreateAgentOptions:
@@ -150,16 +153,15 @@ def test_register_agent_type_returns_correct_tuple() -> None:
 # =============================================================================
 
 
-def test_has_no_api_credentials_with_empty_auth(tmp_path: Path) -> None:
-    """Verify that empty auth.json returns no credentials."""
-    home = _setup_home_pi(tmp_path)
-    (home / ".pi" / "agent" / "auth.json").write_text("{}")
+def test_on_before_provisioning_warns_when_no_credentials(tmp_path: Path) -> None:
+    """Verify on_before_provisioning warns when no API credentials are found."""
+    agent = PiCodingAgent.__new__(PiCodingAgent)
+    object.__setattr__(agent, "agent_config", PiCodingAgentConfig())
+    options = _make_options(tmp_path)
+    mng_ctx = _make_test_mng_ctx(tmp_path)
 
-    with patch("imbue.mng_pi_coding.plugin.Path.home", return_value=home):
-        auth_path = home / ".pi" / "agent" / "auth.json"
-        assert auth_path.exists()
-        auth_data = json.loads(auth_path.read_text())
-        assert not auth_data
+    with patch("imbue.mng_pi_coding.plugin._has_api_credentials_available", return_value=False):
+        agent.on_before_provisioning(_StubHost(host_dir=tmp_path), options, mng_ctx)
 
 
 # =============================================================================
@@ -343,22 +345,6 @@ def test_get_provision_file_transfers_returns_empty(tmp_path: Path) -> None:
     options = _make_options(tmp_path)
     mng_ctx = _make_test_mng_ctx(tmp_path)
     assert agent.get_provision_file_transfers(host, options, mng_ctx) == []
-
-
-def test_on_before_provisioning_warns_no_credentials(tmp_path: Path) -> None:
-    _setup_home_pi(tmp_path)
-    agent = PiCodingAgent.__new__(PiCodingAgent)
-    object.__setattr__(agent, "agent_config", PiCodingAgentConfig())
-    host = _StubHost(
-        host_dir=tmp_path,
-        is_local=True,
-        command_results={"get_env_var": CommandResult(stdout="", stderr="", success=False)},
-    )
-    options = _make_options(tmp_path)
-    mng_ctx = _make_test_mng_ctx(tmp_path)
-
-    with patch("imbue.mng_pi_coding.plugin._has_api_credentials_available", return_value=False):
-        agent.on_before_provisioning(host, options, mng_ctx)
 
 
 def test_on_before_provisioning_skips_when_check_disabled(tmp_path: Path) -> None:

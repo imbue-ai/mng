@@ -91,8 +91,8 @@ def _has_api_credentials_available(
             auth_data = json.loads(auth_path.read_text())
             if auth_data:
                 return True
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            logger.debug("Could not read auth.json: {}", e)
 
     return False
 
