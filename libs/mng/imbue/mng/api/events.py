@@ -472,7 +472,7 @@ def _follow_event_file_via_host(
                         attempt + 1,
                         _MAX_RETRIES,
                     )
-                    time.sleep(_RETRY_DELAY_SECONDS)
+                    threading.Event().wait(timeout=_RETRY_DELAY_SECONDS)
                     continue
                 raise MngError(
                     f"Failed to follow event file (exit code {process.returncode}): {stderr_output.strip()}"
