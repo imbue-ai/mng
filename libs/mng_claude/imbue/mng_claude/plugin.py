@@ -1525,7 +1525,7 @@ def _generate_claude_json(version: str | None, current_time: datetime | None = N
 
 def _parallel_file_transfer(transfers: Sequence[tuple[Path, bytes]], host, mng_ctx):
     remote_folders: list[str] = []
-    for dest_path, dest_contents in transfers:
+    for dest_path, _dest_contents in transfers:
         remote_folders.append(shlex.quote(str(dest_path.parent)))
     mkdir_result = host.execute_command(f"mkdir -p {' '.join(remote_folders)}")
     if not mkdir_result.success:
