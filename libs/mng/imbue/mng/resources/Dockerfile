@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rsync \
     tini \
     tmux \
+    ttyd \
     unison \
     wget \
     xxd \

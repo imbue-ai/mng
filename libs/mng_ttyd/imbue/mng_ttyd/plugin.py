@@ -89,17 +89,42 @@ def _load_ttyd_resource(filename: str) -> str:
     return resource_files.joinpath(filename).read_text()
 
 
+def _ensure_ttyd_installed(host: OnlineHostInterface) -> None:
+    """Check if ttyd is installed on the host and install it if missing.
+
+    Uses the same pattern as REQUIRED_HOST_PACKAGES: check for the binary
+    first, then install via apt-get if not found.
+    """
+    check_result = host.execute_command("command -v ttyd >/dev/null 2>&1", timeout_seconds=10.0)
+    if check_result.success:
+        logger.debug("ttyd is already installed on the host")
+        return
+
+    logger.info("ttyd is not installed on the host, installing...")
+    install_result = host.execute_command(
+        "apt-get update -qq && apt-get install -y -qq ttyd",
+        timeout_seconds=120.0,
+    )
+    if not install_result.success:
+        logger.warning("Failed to install ttyd: {}", install_result.stderr)
+    else:
+        logger.info("ttyd installed successfully")
+
+
 @hookimpl
 def on_after_provisioning(
     agent: AgentInterface,
     host: OnlineHostInterface,
     mng_ctx: MngContext,
 ) -> None:
-    """Provision the ttyd agent terminal dispatch script.
+    """Provision ttyd on the host and write the agent terminal dispatch script.
 
-    Writes commands/ttyd/agent.sh so that the ttyd server can attach
-    to the primary agent's tmux session via URL-arg dispatch (?arg=agent).
+    Ensures ttyd is installed on the host, then writes commands/ttyd/agent.sh
+    so that the ttyd server can attach to the primary agent's tmux session
+    via URL-arg dispatch (?arg=agent).
     """
+    _ensure_ttyd_installed(host)
+
     agent_dir = host.host_dir / "agents" / str(agent.id)
     ttyd_dir = agent_dir / "commands" / "ttyd"
 

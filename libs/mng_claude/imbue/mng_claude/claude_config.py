@@ -323,6 +323,18 @@ def accept_bypass_permissions(config_path: Path) -> None:
     logger.trace("Accepted bypass permissions in Claude config")
 
 
+def acknowledge_cost_threshold(config_path: Path) -> None:
+    """Set hasAcknowledgedCostThreshold=true in the given config file. No-op if already set."""
+    with _claude_config_lock(config_path):
+        config = read_claude_config(config_path)
+        if config.get("hasAcknowledgedCostThreshold", False):
+            return
+        config["hasAcknowledgedCostThreshold"] = True
+        _write_claude_config_atomic(config_path, config)
+
+    logger.trace("Acknowledged cost threshold in Claude config")
+
+
 def check_claude_dialogs_dismissed(config_path: Path, source_path: Path) -> None:
     """Check that all known Claude startup dialogs have been dismissed.
 
@@ -349,6 +361,7 @@ def ensure_claude_dialogs_dismissed(config_path: Path, source_path: Path) -> Non
     add_claude_trust_for_path(config_path, source_path)
     dismiss_effort_callout(config_path)
     complete_onboarding(config_path)
+    acknowledge_cost_threshold(config_path)
     # bypassPermissionsModeAccepted: not set here (Claude Code resets it).
     # skipDangerousModePermissionPrompt in settings.json handles this instead.
 
