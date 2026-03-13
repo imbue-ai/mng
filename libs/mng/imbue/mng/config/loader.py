@@ -182,6 +182,11 @@ def load_config(
     if config.logging is not None:
         config_dict["logging"] = config.logging
 
+    config_dict["unset_vars"] = config.unset_vars
+    config_dict["pager"] = config.pager
+    config_dict["enabled_backends"] = config.enabled_backends
+    config_dict["connect_command"] = config.connect_command
+    config_dict["is_remote_agent_installation_allowed"] = config.is_remote_agent_installation_allowed
     config_dict["is_nested_tmux_allowed"] = config.is_nested_tmux_allowed
     # Apply MNG_HEADLESS env var override (env var > config file > default)
     headless_env = os.environ.get("MNG_HEADLESS")
@@ -519,6 +524,11 @@ def parse_config(
     kwargs: dict[str, Any] = {}
     kwargs["prefix"] = raw.pop("prefix", None)
     kwargs["default_host_dir"] = raw.pop("default_host_dir", None)
+    kwargs["unset_vars"] = raw.pop("unset_vars", None)
+    kwargs["pager"] = raw.pop("pager", None)
+    kwargs["enabled_backends"] = raw.pop("enabled_backends", None)
+    kwargs["connect_command"] = raw.pop("connect_command", None)
+    kwargs["is_remote_agent_installation_allowed"] = raw.pop("is_remote_agent_installation_allowed", None)
     kwargs["agent_types"] = (
         _parse_agent_types(raw.pop("agent_types", {}), strict=strict) if "agent_types" in raw else {}
     )
@@ -533,15 +543,11 @@ def parse_config(
         _parse_create_templates(raw.pop("create_templates", {})) if "create_templates" in raw else {}
     )
     kwargs["logging"] = _parse_logging_config(raw.pop("logging", {}), strict=strict) if "logging" in raw else None
-    kwargs["is_nested_tmux_allowed"] = (
-        raw.pop("is_nested_tmux_allowed", None) if "is_nested_tmux_allowed" in raw else None
-    )
-    kwargs["headless"] = raw.pop("headless", None) if "headless" in raw else None
-    kwargs["is_error_reporting_enabled"] = (
-        raw.pop("is_error_reporting_enabled", None) if "is_error_reporting_enabled" in raw else None
-    )
-    kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
-    kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", {}) if "pre_command_scripts" in raw else None
+    kwargs["is_nested_tmux_allowed"] = raw.pop("is_nested_tmux_allowed", None)
+    kwargs["headless"] = raw.pop("headless", None)
+    kwargs["is_error_reporting_enabled"] = raw.pop("is_error_reporting_enabled", None)
+    kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", None)
+    kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", None)
     kwargs["default_destroyed_host_persisted_seconds"] = raw.pop("default_destroyed_host_persisted_seconds", None)
 
     if len(raw) > 0:
