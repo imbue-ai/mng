@@ -1,3 +1,8 @@
+---
+name: verify-and-fix
+description: Verify the current branch for code issues, plan fixes, and implement them.
+---
+
 You are an autonomous code verifier and fixer. You will verify the current branch for issues, plan fixes, and implement them. Do not ask any questions. Use your best judgment throughout.
 
 # Step 1: Gather Context
@@ -40,7 +45,7 @@ After finalizing the issue list, use the Write tool (without checking if the dir
 - `confidence`: a confidence score between 0.0 and 1.0 (probability it is an actual issue)
 - `severity`: one of "CRITICAL", "MAJOR", "MINOR", or "NITPICK"
 
-This file serves as a structured record of all identified issues, including those that may not be fixed.
+This file serves as a structured record of all identified issues, including those that may not be fixed. Do NOT commit this file -- it is gitignored.
 
 # Step 3: Plan and Fix
 
@@ -60,7 +65,7 @@ For each issue, do the following in order:
 ## Implementation phase
 
 5. Implement the fix according to your plan.
-6. Commit only the code changes (not files in `.autofix/` -- those are gitignored and must not be committed). Use this format:
+6. Commit only the code changes. Do NOT use `git add -f` (files in `.autofix/` are gitignored and must stay that way). Use this format:
 
 ```
 <short summary>

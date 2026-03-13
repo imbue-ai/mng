@@ -89,8 +89,8 @@ trap '
 
 # ---------------------------------------------------------------------------
 # Stuck agent detection: if the stop hook has blocked 3 times at the same
-# commit, the agent is unable to make progress. Allow it through with a
-# warning rather than looping forever.
+# commit, the agent is unable to make progress. Exit with an error and
+# notify the user to investigate manually.
 # ---------------------------------------------------------------------------
 STUCK_FILE=".claude/blocked_stop_commits"
 HASH=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
