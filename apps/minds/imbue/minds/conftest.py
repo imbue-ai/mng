@@ -1,7 +1,7 @@
 """Conftest for minds package-level tests (e.g. end-to-end release tests).
 
-The deployed_test_coder fixture is module-scoped so that multiple tests
-sharing it reuse a single deployed agent, avoiding redundant creation cycles.
+The created_test_coder fixture is module-scoped so that multiple tests
+sharing it reuse a single agent, avoiding redundant creation cycles.
 """
 
 import shutil
@@ -24,7 +24,7 @@ def created_test_coder() -> Generator[dict[str, object], None, None]:
 
     Module-scoped so all tests in the module share a single agent,
     avoiding redundant creation cycles (~30s each). Handles creation and
-    cleanup so individual tests only need to exercise the deployed agent.
+    cleanup so individual tests only need to exercise the created agent.
 
     Waits for provisioning to complete (mng create backgrounds provisioning
     when called with --no-connect) before yielding.
@@ -42,7 +42,7 @@ def created_test_coder() -> Generator[dict[str, object], None, None]:
     # Initialize git repo in mind dir
     init_and_commit_git_repo(mind_dir, mind_dir.parent, allow_empty=True)
 
-    # Create the agent directly via mng create
+    # Create the agent directly via mng create (cwd must be mind_dir for --in-place)
     create_result = run_mng(
         "create",
         agent_name,
@@ -55,6 +55,7 @@ def created_test_coder() -> Generator[dict[str, object], None, None]:
         "mind=true",
         "--yes",
         "--in-place",
+        cwd=mind_dir,
     )
     assert create_result.returncode == 0, "mng create failed:\nstdout: {}\nstderr: {}".format(
         create_result.stdout, create_result.stderr

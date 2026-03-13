@@ -68,7 +68,7 @@ def _clean_env() -> dict[str, str]:
     return env
 
 
-def run_mng(*args: str, timeout: float = 60.0) -> subprocess.CompletedProcess[str]:
+def run_mng(*args: str, timeout: float = 60.0, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     """Run a `uv run mng` command and return the result."""
     return subprocess.run(
         ["uv", "run", "mng", *args],
@@ -76,6 +76,7 @@ def run_mng(*args: str, timeout: float = 60.0) -> subprocess.CompletedProcess[st
         text=True,
         timeout=timeout,
         env=_clean_env(),
+        cwd=cwd,
     )
 
 
