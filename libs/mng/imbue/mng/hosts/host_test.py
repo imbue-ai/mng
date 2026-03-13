@@ -916,6 +916,73 @@ def test_is_socket_closed_os_error_rejects_non_os_error() -> None:
     assert _is_socket_closed_os_error(ValueError("Socket is closed")) is False
 
 
+class _FakeTransport:
+    """Fake paramiko transport for testing."""
+
+    pass
+
+
+class _BaseFakeSFTP:
+    """Base class for fake SFTP clients used in tests."""
+
+    def close(self) -> None:
+        pass
+
+
+class _FakeSSHClient:
+    """Minimal fake paramiko SSHClient for testing the paramiko upload path."""
+
+    def __init__(self, transport_return: object = None) -> None:
+        self._transport = transport_return
+
+    def get_transport(self) -> object:
+        return self._transport
+
+
+class _FakeSSHConnector:
+    """Minimal fake SSH connector with a client attribute."""
+
+    def __init__(self, client: _FakeSSHClient | None = None) -> None:
+        self.client = client
+
+
+class _FakeHostWithSSH(_FakePyinfraHost):
+    """Fake pyinfra host that has a connector with an SSH client."""
+
+    def __init__(
+        self,
+        ssh_client: _FakeSSHClient | None = None,
+        get_file_results: list[bool | Exception] | None = None,
+        put_file_results: list[bool | Exception] | None = None,
+    ) -> None:
+        super().__init__(get_file_results=get_file_results, put_file_results=put_file_results)
+        self.connector = _FakeSSHConnector(client=ssh_client)
+
+
+def _create_host_with_custom_sftp(
+    local_provider: LocalProviderInstance,
+    sftp_factory: Callable[[], object],
+) -> Host:
+    """Create a Host that uses a custom SFTP client factory for testing paramiko paths.
+
+    The sftp_factory callable is invoked each time _create_sftp_client is called,
+    allowing tests to inject fake SFTP behavior without monkeypatching.
+    """
+
+    class _HostWithCustomSFTP(Host):
+        def _create_sftp_client(self, transport: object) -> Any:
+            return sftp_factory()
+
+    fake = _FakeHostWithSSH(ssh_client=_FakeSSHClient(transport_return=_FakeTransport()))
+    connector = PyinfraConnector(cast(PyinfraHost, fake))
+    return _HostWithCustomSFTP(
+        id=HostId.generate(),
+        connector=connector,
+        provider_instance=local_provider,
+        mng_ctx=local_provider.mng_ctx,
+    )
+
+
 def test_get_file_retries_on_socket_closed_and_returns_result(
     local_provider: LocalProviderInstance,
 ) -> None:
@@ -969,6 +1036,56 @@ def test_put_file_retries_on_socket_closed_and_returns_result(
 
     assert result is True
     assert call_count == 2
+
+
+def test_get_file_resets_output_io_between_retry_attempts(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """Output IO should be seek(0)/truncate(0) before each retry to clear partial data."""
+    io_sizes_at_call_time: list[int] = []
+
+    class _PartialWriteThenSucceedSFTP(_BaseFakeSFTP):
+        _call_count = 0
+
+        def getfo(self, remote_path: str, fl: IO[bytes]) -> None:
+            self.__class__._call_count += 1
+            if self.__class__._call_count == 1:
+                fl.write(b"partial data")
+                io_sizes_at_call_time.append(fl.tell())
+                raise OSError("Socket is closed")
+            io_sizes_at_call_time.append(fl.tell())
+
+    host = _create_host_with_custom_sftp(local_provider, _PartialWriteThenSucceedSFTP)
+    host._get_file("/remote/file.txt", io.BytesIO())
+
+    # First call: partial write advanced position to 12, then socket closed
+    # Second call: seek(0) + truncate(0) reset position to 0 before creating new SFTP
+    assert io_sizes_at_call_time == [12, 0]
+
+
+def test_put_file_resets_input_io_position_between_retry_attempts(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """Input IO should be seek(0) before each retry so the full content is re-read."""
+    io_positions_at_call_time: list[int] = []
+
+    class _PartialReadThenSucceedSFTP(_BaseFakeSFTP):
+        _call_count = 0
+
+        def putfo(self, fl: IO[bytes], remote_path: str) -> None:
+            self.__class__._call_count += 1
+            if self.__class__._call_count == 1:
+                fl.read(5)
+                io_positions_at_call_time.append(fl.tell())
+                raise OSError("Socket is closed")
+            io_positions_at_call_time.append(fl.tell())
+
+    host = _create_host_with_custom_sftp(local_provider, _PartialReadThenSucceedSFTP)
+    host._put_file(io.BytesIO(b"file content here"), "/remote/file.txt")
+
+    # First call: partial read advanced position to 5, then socket closed
+    # Second call: seek(0) reset position to 0 before creating new SFTP
+    assert io_positions_at_call_time == [5, 0]
 
 
 def test_put_file_propagates_non_socket_closed_os_error(
@@ -1059,73 +1176,6 @@ def test_get_file_via_paramiko_raises_file_not_found(
 
     with pytest.raises(FileNotFoundError, match="File not found"):
         host._get_file_via_paramiko("/remote/missing.txt", io.BytesIO())
-
-
-class _FakeTransport:
-    """Fake paramiko transport for testing."""
-
-    pass
-
-
-class _BaseFakeSFTP:
-    """Base class for fake SFTP clients used in tests."""
-
-    def close(self) -> None:
-        pass
-
-
-class _FakeSSHClient:
-    """Minimal fake paramiko SSHClient for testing the paramiko upload path."""
-
-    def __init__(self, transport_return: object = None) -> None:
-        self._transport = transport_return
-
-    def get_transport(self) -> object:
-        return self._transport
-
-
-class _FakeSSHConnector:
-    """Minimal fake SSH connector with a client attribute."""
-
-    def __init__(self, client: _FakeSSHClient | None = None) -> None:
-        self.client = client
-
-
-class _FakeHostWithSSH(_FakePyinfraHost):
-    """Fake pyinfra host that has a connector with an SSH client."""
-
-    def __init__(
-        self,
-        ssh_client: _FakeSSHClient | None = None,
-        get_file_results: list[bool | Exception] | None = None,
-        put_file_results: list[bool | Exception] | None = None,
-    ) -> None:
-        super().__init__(get_file_results=get_file_results, put_file_results=put_file_results)
-        self.connector = _FakeSSHConnector(client=ssh_client)
-
-
-def _create_host_with_custom_sftp(
-    local_provider: LocalProviderInstance,
-    sftp_factory: Callable[[], object],
-) -> Host:
-    """Create a Host that uses a custom SFTP client factory for testing paramiko paths.
-
-    The sftp_factory callable is invoked each time _create_sftp_client is called,
-    allowing tests to inject fake SFTP behavior without monkeypatching.
-    """
-
-    class _HostWithCustomSFTP(Host):
-        def _create_sftp_client(self, transport: object) -> Any:
-            return sftp_factory()
-
-    fake = _FakeHostWithSSH(ssh_client=_FakeSSHClient(transport_return=_FakeTransport()))
-    connector = PyinfraConnector(cast(PyinfraHost, fake))
-    return _HostWithCustomSFTP(
-        id=HostId.generate(),
-        connector=connector,
-        provider_instance=local_provider,
-        mng_ctx=local_provider.mng_ctx,
-    )
 
 
 def test_get_paramiko_transport_succeeds_for_ssh_host(
