@@ -19,6 +19,16 @@ from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import CommandString
 
+_PI_HOME_DIR_NAME: str = ".pi"
+_PI_AGENT_SUBDIR: str = "agent"
+
+
+def _get_pi_home_dir(home_dir: Path | None = None) -> Path:
+    """Return the pi agent home directory (defaults to ~/.pi/agent/)."""
+    if home_dir is None:
+        home_dir = Path.home()
+    return home_dir / _PI_HOME_DIR_NAME / _PI_AGENT_SUBDIR
+
 
 class PiCodingAgentConfig(AgentTypeConfig):
     """Config for the pi-coding agent type."""
@@ -60,12 +70,13 @@ def _install_pi(host: OnlineHostInterface) -> None:
 def _has_api_credentials_available(
     host: OnlineHostInterface,
     options: CreateAgentOptions,
+    home_dir: Path | None = None,
 ) -> bool:
     """Check whether API credentials appear to be available for pi.
 
     Pi supports many providers, but the most common is ANTHROPIC_API_KEY.
     Checks environment variables (process env for local hosts, agent env vars,
-    host env vars).
+    host env vars), and the auth.json file.
     """
     api_key_env_vars = (
         "ANTHROPIC_API_KEY",
@@ -84,8 +95,7 @@ def _has_api_credentials_available(
         if host.get_env_var(key):
             return True
 
-    # Check if auth.json has any credentials
-    auth_path = Path.home() / ".pi" / "agent" / "auth.json"
+    auth_path = _get_pi_home_dir(home_dir) / "auth.json"
     if auth_path.exists():
         try:
             auth_data = json.loads(auth_path.read_text())
@@ -163,12 +173,6 @@ class PiCodingAgent(BaseAgent):
         mng_ctx: MngContext,
     ) -> None:
         """Validate preconditions before provisioning."""
-        config = self._get_pi_config()
-
-        if not config.check_installation:
-            logger.debug("Skipped pi installation check (check_installation=False)")
-            return
-
         if not _has_api_credentials_available(host, options):
             logger.warning(
                 "No API credentials detected for pi. The agent may fail to start.\n"
@@ -190,6 +194,7 @@ class PiCodingAgent(BaseAgent):
         self,
         host: OnlineHostInterface,
         config: PiCodingAgentConfig,
+        home_dir: Path | None = None,
     ) -> None:
         """Create and populate the per-agent pi config directory.
 
@@ -203,18 +208,19 @@ class PiCodingAgent(BaseAgent):
             raise PluginMngError(f"Failed to create per-agent config dir {config_dir}: {result.stderr}")
 
         if host.is_local:
-            self._setup_local_config_dir(host, config, config_dir)
+            self._setup_local_config_dir(host, config, config_dir, home_dir)
         else:
-            self._setup_remote_config_dir(host, config, config_dir)
+            self._setup_remote_config_dir(host, config, config_dir, home_dir)
 
     def _setup_local_config_dir(
         self,
         host: OnlineHostInterface,
         config: PiCodingAgentConfig,
         config_dir: Path,
+        home_dir: Path | None = None,
     ) -> None:
         """Set up the per-agent config dir on a local host via symlinks."""
-        home_pi = Path.home() / ".pi" / "agent"
+        home_pi = _get_pi_home_dir(home_dir)
 
         if config.sync_auth:
             auth_source = home_pi / "auth.json"
@@ -251,9 +257,10 @@ class PiCodingAgent(BaseAgent):
         host: OnlineHostInterface,
         config: PiCodingAgentConfig,
         config_dir: Path,
+        home_dir: Path | None = None,
     ) -> None:
         """Set up the per-agent config dir on a remote host via file copies."""
-        home_pi = Path.home() / ".pi" / "agent"
+        home_pi = _get_pi_home_dir(home_dir)
 
         if config.sync_auth:
             auth_source = home_pi / "auth.json"
@@ -267,7 +274,6 @@ class PiCodingAgent(BaseAgent):
                 logger.info("Transferring settings.json to per-agent config dir...")
                 host.write_text_file(config_dir / "settings.json", settings_source.read_text())
 
-            # Copy resource directories
             for dir_name in ("skills", "prompts", "extensions", "themes"):
                 source = home_pi / dir_name
                 if source.exists() and source.is_dir():
