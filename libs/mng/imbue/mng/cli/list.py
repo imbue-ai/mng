@@ -61,7 +61,7 @@ _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "host.name",
     "host.provider_name",
     "host.state",
-    "labels",
+    "labels.project",
 )
 
 # Custom header labels for fields that would otherwise generate ugly auto-generated headers.
@@ -72,6 +72,7 @@ _HEADER_LABELS: Final[dict[str, str]] = {
     "host.state": "HOST STATE",
     "host.tags": "TAGS",
     "labels": "LABELS",
+    "labels.project": "PROJECT",
     "host.ssh.host": "SSH HOST",
     "idle_timeout_seconds": "IDLE TIMEOUT",
     "activity_sources": "ACTIVITY",
@@ -591,11 +592,12 @@ _MIN_COLUMN_WIDTHS: Final[dict[str, int]] = {
     "host.state": 10,
     "state": 10,
     "labels": 10,
+    "labels.project": 10,
     "host.tags": 10,
 }
 _DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 10
 # Columns that get extra space when the terminal is wider than the minimum
-_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "labels"}
+_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "labels", "labels.project"}
 _MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {}
 _COLUMN_SEPARATOR: Final[str] = "  "
 

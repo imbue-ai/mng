@@ -1136,6 +1136,7 @@ def test_get_header_label_returns_custom_label_for_known_fields() -> None:
     assert _get_header_label("host.provider_name") == "PROVIDER"
     assert _get_header_label("host.tags") == "TAGS"
     assert _get_header_label("labels") == "LABELS"
+    assert _get_header_label("labels.project") == "PROJECT"
 
 
 def test_get_header_label_returns_uppercased_field_for_unknown_fields() -> None:
