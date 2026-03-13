@@ -240,7 +240,7 @@ new_conversation() {
         local _max_rowid
         _max_rowid=0
         if [ -f "$_LLM_DB" ]; then
-            _max_rowid=$(mng llmdb max-rowid "$_LLM_DB")
+            _max_rowid=$(mng llmdb max-rowid "$_LLM_DB" 2>/dev/null)
         fi
 
         (
