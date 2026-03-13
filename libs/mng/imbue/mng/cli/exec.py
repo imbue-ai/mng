@@ -9,6 +9,7 @@ from loguru import logger
 from imbue.mng.api.exec import ExecResult
 from imbue.mng.api.exec import MultiExecResult
 from imbue.mng.api.exec import exec_command_on_agents
+from imbue.mng.cli.agent_addr import parse_identifier_as_address
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
@@ -114,6 +115,9 @@ def _exec_impl(ctx: click.Context, **kwargs: Any) -> None:
     # Build list of agent identifiers
     agent_identifiers = list(opts.agents) + list(opts.agent_list)
 
+    # Parse agent addresses: extract plain name/ID strings for the API layer
+    plain_identifiers = [parse_identifier_as_address(ident)[0] for ident in agent_identifiers]
+
     if not agent_identifiers and not opts.exec_all:
         raise UserInputError("Must specify at least one agent or use --all")
 
@@ -126,7 +130,7 @@ def _exec_impl(ctx: click.Context, **kwargs: Any) -> None:
     if output_opts.output_format == OutputFormat.JSONL:
         result = exec_command_on_agents(
             mng_ctx=mng_ctx,
-            agent_identifiers=agent_identifiers,
+            agent_identifiers=plain_identifiers,
             command=opts.command_arg,
             is_all=opts.exec_all,
             user=opts.user,
@@ -144,7 +148,7 @@ def _exec_impl(ctx: click.Context, **kwargs: Any) -> None:
     # For other formats, collect all results first
     result = exec_command_on_agents(
         mng_ctx=mng_ctx,
-        agent_identifiers=agent_identifiers,
+        agent_identifiers=plain_identifiers,
         command=opts.command_arg,
         is_all=opts.exec_all,
         user=opts.user,

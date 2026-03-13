@@ -18,6 +18,8 @@ from imbue.mng.api.discovery_events import emit_host_destroyed
 from imbue.mng.api.gc import gc as api_gc
 from imbue.mng.api.providers import get_all_provider_instances
 from imbue.mng.api.providers import get_provider_instance
+from imbue.mng.cli.agent_addr import AgentAddress
+from imbue.mng.cli.agent_addr import parse_identifier_as_address
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
@@ -40,6 +42,7 @@ from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
+from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
@@ -365,11 +368,18 @@ def _find_agents_to_destroy(
 
     Returns _DestroyTargets containing online agents and offline hosts to destroy.
     Raises AgentNotFoundError if any specified identifier does not match an agent.
+    Supports agent address syntax: NAME@HOST.PROVIDER for disambiguation.
     """
     online_agents: list[tuple[AgentInterface, OnlineHostInterface]] = []
     offline_hosts: list[_OfflineHostToDestroy] = []
     matched_identifiers: set[str] = set()
     seen_offline_hosts: set[str] = set()
+
+    # Parse addresses from identifiers
+    parsed_identifiers: list[tuple[str, str, AgentAddress]] = []
+    for raw in agent_identifiers:
+        plain_id, address = parse_identifier_as_address(raw)
+        parsed_identifiers.append((raw, plain_id, address))
 
     agents_by_host, _ = discover_all_hosts_and_agents(mng_ctx, include_destroyed=False)
 
@@ -378,15 +388,20 @@ def _find_agents_to_destroy(
             should_include: bool
             if destroy_all:
                 should_include = True
-            elif agent_identifiers:
+            elif parsed_identifiers:
                 agent_name_str = str(agent_ref.agent_name)
                 agent_id_str = str(agent_ref.agent_id)
 
                 should_include = False
-                for identifier in agent_identifiers:
-                    if identifier == agent_name_str or identifier == agent_id_str:
+                for raw, plain_id, address in parsed_identifiers:
+                    if plain_id == agent_name_str or plain_id == agent_id_str:
+                        # Check host/provider constraints from address
+                        if address.host_name is not None and host_ref.host_name != address.host_name:
+                            continue
+                        if address.provider_name is not None and host_ref.provider_name != address.provider_name:
+                            continue
                         should_include = True
-                        matched_identifiers.add(identifier)
+                        matched_identifiers.add(raw)
             else:
                 should_include = False
 
@@ -410,7 +425,7 @@ def _find_agents_to_destroy(
 
                             offline_host = host_interface.to_offline_host()
                             _handle_offline_or_unreachable_host(
-                                agent_identifiers,
+                                parsed_identifiers,
                                 destroy_all,
                                 host_id_str,
                                 host_ref,
@@ -438,7 +453,7 @@ def _find_agents_to_destroy(
 
                         # Offline host - check if ALL agents on this host are being destroyed
                         _handle_offline_or_unreachable_host(
-                            agent_identifiers,
+                            parsed_identifiers,
                             destroy_all,
                             host_id_str,
                             host_ref,
@@ -461,8 +476,26 @@ def _find_agents_to_destroy(
     return _DestroyTargets(online_agents=online_agents, offline_hosts=offline_hosts)
 
 
+def _is_agent_targeted_by_address(
+    ref: DiscoveredAgent,
+    parsed_identifiers: Sequence[tuple[str, str, AgentAddress]],
+    host_ref: DiscoveredHost,
+) -> bool:
+    """Check if a discovered agent matches any of the parsed address identifiers."""
+    agent_name_str = str(ref.agent_name)
+    agent_id_str = str(ref.agent_id)
+    for _raw, plain_id, address in parsed_identifiers:
+        if plain_id == agent_name_str or plain_id == agent_id_str:
+            if address.host_name is not None and host_ref.host_name != address.host_name:
+                continue
+            if address.provider_name is not None and host_ref.provider_name != address.provider_name:
+                continue
+            return True
+    return False
+
+
 def _handle_offline_or_unreachable_host(
-    agent_identifiers: Sequence[str],
+    parsed_identifiers: Sequence[tuple[str, str, AgentAddress]],
     destroy_all: bool,
     host_id_str: str,
     host_ref: DiscoveredHost,
@@ -474,8 +507,7 @@ def _handle_offline_or_unreachable_host(
 ) -> None:
     all_agent_refs_on_host = offline_host.discover_agents()
     all_targeted = destroy_all or all(
-        str(ref.agent_name) in agent_identifiers or str(ref.agent_id) in agent_identifiers
-        for ref in all_agent_refs_on_host
+        _is_agent_targeted_by_address(ref, parsed_identifiers, host_ref) for ref in all_agent_refs_on_host
     )
     if all_targeted:
         # Collect the host for destruction (don't destroy yet)
