@@ -857,7 +857,7 @@ class ClaudeAgent(BaseAgent):
         """Check for blocking dialogs before sending a message.
 
         Checks the permissions_waiting file (set by the PermissionRequest hook)
-        and captures the tmux pane for other dialog indicators (trust, theme, effort).
+        and captures the tmux pane for known dialog indicators.
         Raises DialogDetectedError if any are found.
         """
         if self._check_file_exists(self._get_agent_dir() / "permissions_waiting"):
