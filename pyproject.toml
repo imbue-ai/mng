@@ -73,6 +73,7 @@ addopts = [
   "--cov=imbue.mng_elena_code",
   "--cov=imbue.mng_kanpan",
   "--cov=imbue.mng_recursive",
+  "--cov=imbue.mng_notifications",
   "--cov=imbue.mng_mind_chat",
   "--cov=imbue.mng_test_coder",
   "--cov=imbue.minds",
