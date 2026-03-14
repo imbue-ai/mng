@@ -589,7 +589,7 @@ def test_send_chat_notification_returns_true_on_success(
     assert len(mock_subprocess_success.calls) == 1
     cmd = mock_subprocess_success.calls[0][0]
     assert "llm" in cmd
-    assert "chat" in cmd
+    assert "prompt" in cmd
     assert "sys-notif-test" in cmd
 
 

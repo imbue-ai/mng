@@ -330,7 +330,7 @@ def _get_system_notifications_conversation_id() -> str | None:
 
 
 def _send_chat_notification(events_dir: Path, message: str) -> bool:
-    """Send a notification as a chat message via ``llm``.
+    """Send a notification as a chat message via ``llm prompt``.
 
     Uses the system_notifications conversation (found by tag in the
     mind_conversations table) so that all system notifications appear
@@ -349,7 +349,7 @@ def _send_chat_notification(events_dir: Path, message: str) -> bool:
         result = subprocess.run(
             [
                 "llm",
-                "chat",
+                "prompt",
                 "--cid",
                 conversation_id,
                 "-m",
@@ -364,7 +364,7 @@ def _send_chat_notification(events_dir: Path, message: str) -> bool:
         if result.returncode == 0:
             logger.info("Sent chat notification via llm")
             return True
-        logger.warning("llm chat returned non-zero: {}", result.stderr)
+        logger.warning("llm prompt returned non-zero: {}", result.stderr)
     except FileNotFoundError:
         logger.warning("llm command not found, skipping chat notification")
     except subprocess.TimeoutExpired:
