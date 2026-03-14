@@ -17,11 +17,13 @@ from imbue.mng.api.events import _build_event_sources_from_grouped_files
 from imbue.mng.api.events import _build_tail_args
 from imbue.mng.api.events import _check_for_new_archived_events
 from imbue.mng.api.events import _check_for_new_content
+from imbue.mng.api.events import _create_source_mismatch_warning
 from imbue.mng.api.events import _discover_event_sources_via_volume
 from imbue.mng.api.events import _emit_historical_events
 from imbue.mng.api.events import _extract_filename
 from imbue.mng.api.events import _group_volume_files_into_sources
 from imbue.mng.api.events import _handle_online_offline_transition
+from imbue.mng.api.events import _maybe_emit_source_mismatch_warning
 from imbue.mng.api.events import _parse_discovered_files
 from imbue.mng.api.events import _pygtail_offset_file_path
 from imbue.mng.api.events import _sort_rotated_files_oldest_first
@@ -575,18 +577,18 @@ def test_build_ssh_base_args_raises_when_no_known_hosts(
 
 def test_parse_event_line_valid_json_with_all_fields() -> None:
     line = '{"timestamp":"2026-03-01T12:00:00Z","type":"test","event_id":"evt-abc123","source":"messages","message":"hello"}'
-    record = parse_event_line(line, source_hint="fallback")
+    record = parse_event_line(line, source_hint="messages")
     assert record is not None
     assert record.timestamp == "2026-03-01T12:00:00Z"
     assert record.event_id == "evt-abc123"
     assert record.source == "messages"
     assert record.data["message"] == "hello"
-    assert record.raw_line == line.strip()
+    assert record.original_source is None
 
 
 def test_parse_event_line_missing_event_id_generates_hash() -> None:
     line = '{"timestamp":"2026-03-01T12:00:00Z","type":"test","source":"messages"}'
-    record = parse_event_line(line, source_hint="fallback")
+    record = parse_event_line(line, source_hint="messages")
     assert record is not None
     assert record.event_id.startswith("hash-")
     assert len(record.event_id) > 10
@@ -1487,12 +1489,81 @@ def test_parse_event_line_backfills_source_into_data() -> None:
     assert result.data["source"] == "my-source"
 
 
-def test_parse_event_line_preserves_existing_source() -> None:
-    """When 'source' is present in JSON, it should be used as-is."""
-    line = '{"timestamp": "2025-01-01T00:00:00Z", "event_id": "evt-1", "source": "original"}'
-    result = parse_event_line(line, "fallback")
+def test_parse_event_line_corrects_mismatched_source() -> None:
+    """When 'source' differs from source_hint, it should be corrected."""
+    line = '{"timestamp": "2025-01-01T00:00:00Z", "event_id": "evt-1", "source": "wrong_source"}'
+    result = parse_event_line(line, "correct_source")
     assert result is not None
-    assert result.source == "original"
+    assert result.source == "correct_source"
+    assert result.data["source"] == "correct_source"
+    assert result.original_source == "wrong_source"
+    # raw_line should contain the corrected source
+    assert '"source":"correct_source"' in result.raw_line
+
+
+def test_parse_event_line_matching_source_has_no_original() -> None:
+    """When 'source' matches source_hint, original_source should be None."""
+    line = '{"timestamp": "2025-01-01T00:00:00Z", "event_id": "evt-1", "source": "messages"}'
+    result = parse_event_line(line, "messages")
+    assert result is not None
+    assert result.source == "messages"
+    assert result.original_source is None
+
+
+# =============================================================================
+# Source mismatch warning tests
+# =============================================================================
+
+
+def test_create_source_mismatch_warning_has_correct_fields() -> None:
+    warning = _create_source_mismatch_warning("bad_source", "good_source")
+    assert warning.source == "event_watcher"
+    assert warning.data["type"] == "warn_about_incorrect_source_field"
+    assert warning.data["original_source"] == "bad_source"
+    assert warning.data["correct_source"] == "good_source"
+    assert warning.event_id.startswith("evt-")
+    assert "bad_source" in warning.data["message"]
+    assert "good_source" in warning.data["message"]
+
+
+def test_maybe_emit_source_mismatch_warning_emits_once() -> None:
+    """Warning should only be emitted once per original source."""
+    emitted: list[EventRecord] = []
+    warned: set[str] = set()
+
+    event_with_mismatch = EventRecord(
+        raw_line="{}",
+        timestamp="2025-01-01T00:00:00Z",
+        event_id="evt-1",
+        source="correct",
+        data={"source": "correct"},
+        original_source="wrong",
+    )
+
+    _maybe_emit_source_mismatch_warning(event_with_mismatch, warned, emitted.append)
+    assert len(emitted) == 1
+    assert emitted[0].data["type"] == "warn_about_incorrect_source_field"
+
+    # Second call with same original_source should not emit
+    _maybe_emit_source_mismatch_warning(event_with_mismatch, warned, emitted.append)
+    assert len(emitted) == 1
+
+
+def test_maybe_emit_source_mismatch_warning_skips_when_no_mismatch() -> None:
+    """No warning emitted when original_source is None."""
+    emitted: list[EventRecord] = []
+    warned: set[str] = set()
+
+    event_no_mismatch = EventRecord(
+        raw_line="{}",
+        timestamp="2025-01-01T00:00:00Z",
+        event_id="evt-1",
+        source="messages",
+        data={"source": "messages"},
+    )
+
+    _maybe_emit_source_mismatch_warning(event_no_mismatch, warned, emitted.append)
+    assert len(emitted) == 0
 
 
 # =============================================================================

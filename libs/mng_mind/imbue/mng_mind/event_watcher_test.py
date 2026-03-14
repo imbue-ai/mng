@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import subprocess
 import threading
 import time
@@ -26,14 +27,17 @@ from imbue.mng_mind.event_watcher import _DEFAULT_MAX_MESSAGES_PER_MINUTE
 from imbue.mng_mind.event_watcher import _DEFAULT_MAX_SAME_SOURCE_EVENTS_PER_BATCH
 from imbue.mng_mind.event_watcher import _DeliveryState
 from imbue.mng_mind.event_watcher import _EventWatcherSettings
+from imbue.mng_mind.event_watcher import _IgnoredSourcesState
 from imbue.mng_mind.event_watcher import _SendRateTracker
 from imbue.mng_mind.event_watcher import _TokenBucket
 from imbue.mng_mind.event_watcher import _apply_special_event_handling
 from imbue.mng_mind.event_watcher import _compute_backoff_seconds
 from imbue.mng_mind.event_watcher import _deliver_batch
 from imbue.mng_mind.event_watcher import _filter_catchup_events
+from imbue.mng_mind.event_watcher import _filter_ignored_sources
 from imbue.mng_mind.event_watcher import _get_system_notifications_conversation_id
 from imbue.mng_mind.event_watcher import _load_delivery_state
+from imbue.mng_mind.event_watcher import _load_ignored_sources_if_updated
 from imbue.mng_mind.event_watcher import _load_watcher_settings
 from imbue.mng_mind.event_watcher import _run_delivery_loop
 from imbue.mng_mind.event_watcher import _save_delivery_state
@@ -589,7 +593,7 @@ def test_send_chat_notification_returns_true_on_success(
     assert len(mock_subprocess_success.calls) == 1
     cmd = mock_subprocess_success.calls[0][0]
     assert "llm" in cmd
-    assert "chat" in cmd
+    assert "prompt" in cmd
     assert "sys-notif-test" in cmd
 
 
@@ -1015,7 +1019,9 @@ class _FakeEventsProcess:
         self.returncode = -9
 
 
-def _setup_delivery_loop_dirs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+def _setup_delivery_loop_dirs(
+    tmp_path: Path,
+) -> tuple[Path, Path, Path, Path, _IgnoredSourcesState]:
     """Create state_file, events_dir, event_batches_dir, event_lists_dir for delivery loop tests."""
     state_file = tmp_path / "events" / ".event_delivery_state.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1024,7 +1030,8 @@ def _setup_delivery_loop_dirs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     event_batches_dir.mkdir(parents=True)
     event_lists_dir = tmp_path / "mind" / "event_lists"
     event_lists_dir.mkdir(parents=True)
-    return state_file, events_dir, event_batches_dir, event_lists_dir
+    ignored_sources_state = _IgnoredSourcesState(file_path=tmp_path / "ignored_sources.txt")
+    return state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state
 
 
 # -- _run_delivery_loop tests --
@@ -1032,7 +1039,9 @@ def _setup_delivery_loop_dirs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
 
 def test_delivery_loop_delivers_buffered_events(tmp_path: Path) -> None:
     """Events placed in the buffer are written to event_batches_dir and sent via send_message."""
-    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state = _setup_delivery_loop_dirs(
+        tmp_path
+    )
     settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=60)
 
     event_buffer: list[str] = []
@@ -1056,6 +1065,7 @@ def test_delivery_loop_delivers_buffered_events(tmp_path: Path) -> None:
             stop_event,
             event_batches_dir,
             event_lists_dir,
+            ignored_sources_state,
         ),
         kwargs={"send_message": capture},
         daemon=True,
@@ -1089,7 +1099,9 @@ def test_delivery_loop_delivers_buffered_events(tmp_path: Path) -> None:
 
 def test_delivery_loop_retries_on_failure(tmp_path: Path) -> None:
     """When send_message fails, events stay in the buffer for retry."""
-    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state = _setup_delivery_loop_dirs(
+        tmp_path
+    )
     settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=600, max_delivery_retries=2)
 
     event_buffer: list[str] = []
@@ -1122,6 +1134,7 @@ def test_delivery_loop_retries_on_failure(tmp_path: Path) -> None:
             stop_event,
             event_batches_dir,
             event_lists_dir,
+            ignored_sources_state,
         ),
         kwargs={"send_message": failing_then_succeeding},
         daemon=True,
@@ -1143,7 +1156,9 @@ def test_delivery_loop_retries_on_failure(tmp_path: Path) -> None:
 @pytest.mark.timeout(15)
 def test_delivery_loop_writes_notification_on_repeated_failure(tmp_path: Path) -> None:
     """After max_delivery_retries consecutive failures, a notification event is written."""
-    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state = _setup_delivery_loop_dirs(
+        tmp_path
+    )
     settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=600, max_delivery_retries=2)
 
     event_buffer: list[str] = []
@@ -1172,6 +1187,7 @@ def test_delivery_loop_writes_notification_on_repeated_failure(tmp_path: Path) -
             stop_event,
             event_batches_dir,
             event_lists_dir,
+            ignored_sources_state,
         ),
         kwargs={"send_message": failing_and_tracking},
         daemon=True,
@@ -1192,7 +1208,9 @@ def test_delivery_loop_writes_notification_on_repeated_failure(tmp_path: Path) -
 
 def test_delivery_loop_catches_up_from_saved_state(tmp_path: Path) -> None:
     """When resuming with saved state, events before the last delivered timestamp are skipped."""
-    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state = _setup_delivery_loop_dirs(
+        tmp_path
+    )
     settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=60)
 
     # Save state indicating evt-1 was already delivered
@@ -1220,6 +1238,7 @@ def test_delivery_loop_catches_up_from_saved_state(tmp_path: Path) -> None:
             stop_event,
             event_batches_dir,
             event_lists_dir,
+            ignored_sources_state,
         ),
         kwargs={"send_message": capture},
         daemon=True,
@@ -1242,7 +1261,9 @@ def test_delivery_loop_catches_up_from_saved_state(tmp_path: Path) -> None:
 
 def test_delivery_loop_stops_cleanly_on_stop_event(tmp_path: Path) -> None:
     """The delivery loop exits when stop_event is set, even with no events."""
-    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state = _setup_delivery_loop_dirs(
+        tmp_path
+    )
     settings = _EventWatcherSettings()
 
     event_buffer: list[str] = []
@@ -1261,6 +1282,7 @@ def test_delivery_loop_stops_cleanly_on_stop_event(tmp_path: Path) -> None:
             stop_event,
             event_batches_dir,
             event_lists_dir,
+            ignored_sources_state,
         ),
         daemon=True,
     )
@@ -1274,7 +1296,9 @@ def test_delivery_loop_stops_cleanly_on_stop_event(tmp_path: Path) -> None:
 
 def test_delivery_loop_aggregates_events_exceeding_batch_limit(tmp_path: Path) -> None:
     """Events from a source exceeding max_same_source_events_per_batch are aggregated."""
-    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state = _setup_delivery_loop_dirs(
+        tmp_path
+    )
     settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=60, max_same_source_events_per_batch=2)
 
     event_buffer: list[str] = []
@@ -1299,6 +1323,7 @@ def test_delivery_loop_aggregates_events_exceeding_batch_limit(tmp_path: Path) -
             stop_event,
             event_batches_dir,
             event_lists_dir,
+            ignored_sources_state,
         ),
         kwargs={"send_message": capture},
         daemon=True,
@@ -1326,6 +1351,115 @@ def test_delivery_loop_aggregates_events_exceeding_batch_limit(tmp_path: Path) -
     assert len(event_list_files) == 1
     list_lines = event_list_files[0].read_text().strip().split("\n")
     assert len(list_lines) == 3
+
+
+@pytest.mark.timeout(15)
+def test_delivery_loop_filters_ignored_sources(tmp_path: Path) -> None:
+    """Events from sources listed in ignored_sources.txt are excluded from delivery."""
+    state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state = _setup_delivery_loop_dirs(
+        tmp_path
+    )
+    settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=60)
+
+    # Write an ignored_sources.txt that filters out "scheduled"
+    ignored_sources_state.file_path.write_text("scheduled\n")
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    capture = _MessageCapture()
+
+    # Buffer has events from two sources: one ignored, one not
+    event_buffer.append(_make_event_line("evt-keep", source="messages"))
+    event_buffer.append(_make_event_line("evt-drop", timestamp="2026-03-01T12:01:00Z", source="scheduled"))
+
+    thread = threading.Thread(
+        target=_run_delivery_loop,
+        args=(
+            settings,
+            "test-agent",
+            state_file,
+            events_dir,
+            event_buffer,
+            buffer_lock,
+            stop_event,
+            event_batches_dir,
+            event_lists_dir,
+            ignored_sources_state,
+        ),
+        kwargs={"send_message": capture},
+        daemon=True,
+    )
+    thread.start()
+
+    capture.wait_for_call(timeout=5.0)
+
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    assert len(capture.calls) == 1
+
+    # Only the non-ignored event should be in the batch
+    batch_files = list(event_batches_dir.glob("*.jsonl"))
+    assert len(batch_files) == 1
+    lines = batch_files[0].read_text().strip().split("\n")
+    assert len(lines) == 1
+    assert json.loads(lines[0])["event_id"] == "evt-keep"
+
+
+@pytest.mark.timeout(15)
+def test_delivery_loop_skips_empty_batch_after_ignored_sources(tmp_path: Path) -> None:
+    """When all events in a batch are from ignored sources, no delivery happens."""
+    state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state = _setup_delivery_loop_dirs(
+        tmp_path
+    )
+    settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=60)
+
+    # Write ignored_sources.txt that filters out everything we'll send
+    ignored_sources_state.file_path.write_text("scheduled\n")
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    capture = _MessageCapture()
+
+    # All events are from the ignored source
+    event_buffer.append(_make_event_line("evt-1", source="scheduled"))
+    event_buffer.append(_make_event_line("evt-2", timestamp="2026-03-01T12:01:00Z", source="scheduled"))
+
+    thread = threading.Thread(
+        target=_run_delivery_loop,
+        args=(
+            settings,
+            "test-agent",
+            state_file,
+            events_dir,
+            event_buffer,
+            buffer_lock,
+            stop_event,
+            event_batches_dir,
+            event_lists_dir,
+            ignored_sources_state,
+        ),
+        kwargs={"send_message": capture},
+        daemon=True,
+    )
+    thread.start()
+
+    # Wait for the delivery loop to drain the buffer (events are ignored, so no delivery)
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        with buffer_lock:
+            if not event_buffer:
+                break
+        stop_event.wait(timeout=0.05)
+
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    # No messages should have been sent since all events were ignored
+    assert len(capture.calls) == 0
+    assert len(list(event_batches_dir.glob("*.jsonl"))) == 0
 
 
 # -- main() tests --
@@ -1490,3 +1624,109 @@ def test_main_creates_required_directories(tmp_path: Path, monkeypatch: pytest.M
     assert (agent_state_dir / "events").is_dir()
     assert (agent_state_dir / "mind" / "event_batches").is_dir()
     assert (agent_state_dir / "mind" / "event_lists").is_dir()
+
+
+# -- _filter_ignored_sources tests --
+
+
+def test_filter_ignored_sources_removes_matching() -> None:
+    lines = [
+        json.dumps({"source": "messages", "event_id": "e1"}),
+        json.dumps({"source": "scheduled", "event_id": "e2"}),
+        json.dumps({"source": "mng/agents", "event_id": "e3"}),
+    ]
+    result = _filter_ignored_sources(lines, frozenset({"scheduled"}))
+    assert len(result) == 2
+    assert all("scheduled" not in line for line in result)
+
+
+def test_filter_ignored_sources_empty_set_passes_all() -> None:
+    lines = [json.dumps({"source": "messages", "event_id": "e1"})]
+    result = _filter_ignored_sources(lines, frozenset())
+    assert result == lines
+
+
+def test_filter_ignored_sources_malformed_json_passes_through() -> None:
+    lines = ["not json", json.dumps({"source": "messages"})]
+    result = _filter_ignored_sources(lines, frozenset({"messages"}))
+    assert len(result) == 1
+    assert result[0] == "not json"
+
+
+def test_filter_ignored_sources_removes_multiple() -> None:
+    lines = [
+        json.dumps({"source": "a"}),
+        json.dumps({"source": "b"}),
+        json.dumps({"source": "c"}),
+    ]
+    result = _filter_ignored_sources(lines, frozenset({"a", "c"}))
+    assert len(result) == 1
+    assert json.loads(result[0])["source"] == "b"
+
+
+# -- _IgnoredSourcesState / _load_ignored_sources_if_updated tests --
+
+
+def test_load_ignored_sources_reads_file(tmp_path: Path) -> None:
+    ignored_file = tmp_path / "ignored_sources.txt"
+    ignored_file.write_text("messages\nscheduled\n")
+    state = _IgnoredSourcesState(file_path=ignored_file)
+    result = _load_ignored_sources_if_updated(state)
+    assert result == frozenset({"messages", "scheduled"})
+
+
+def test_load_ignored_sources_skips_comments_and_blanks(tmp_path: Path) -> None:
+    ignored_file = tmp_path / "ignored_sources.txt"
+    ignored_file.write_text("# comment\nmessages\n\n  \n# another\nscheduled\n")
+    state = _IgnoredSourcesState(file_path=ignored_file)
+    result = _load_ignored_sources_if_updated(state)
+    assert result == frozenset({"messages", "scheduled"})
+
+
+def test_load_ignored_sources_returns_empty_when_missing(tmp_path: Path) -> None:
+    state = _IgnoredSourcesState(file_path=tmp_path / "nonexistent.txt")
+    result = _load_ignored_sources_if_updated(state)
+    assert result == frozenset()
+
+
+def test_load_ignored_sources_caches_until_mtime_changes(tmp_path: Path) -> None:
+    ignored_file = tmp_path / "ignored_sources.txt"
+    ignored_file.write_text("messages\n")
+    state = _IgnoredSourcesState(file_path=ignored_file)
+
+    first_result = _load_ignored_sources_if_updated(state)
+    assert first_result == frozenset({"messages"})
+
+    # Same mtime, should return cached
+    second_result = _load_ignored_sources_if_updated(state)
+    assert second_result == frozenset({"messages"})
+
+
+def test_load_ignored_sources_rereads_on_mtime_change(tmp_path: Path) -> None:
+    ignored_file = tmp_path / "ignored_sources.txt"
+    ignored_file.write_text("messages\n")
+    state = _IgnoredSourcesState(file_path=ignored_file)
+
+    first_result = _load_ignored_sources_if_updated(state)
+    assert first_result == frozenset({"messages"})
+
+    # Write new content then bump mtime (some filesystems have 1s resolution)
+    ignored_file.write_text("messages\nscheduled\nmng/agents\n")
+    stat = ignored_file.stat()
+    os.utime(ignored_file, (stat.st_atime + 2, stat.st_mtime + 2))
+
+    updated_result = _load_ignored_sources_if_updated(state)
+    assert updated_result == frozenset({"messages", "scheduled", "mng/agents"})
+
+
+def test_load_ignored_sources_clears_when_file_deleted(tmp_path: Path) -> None:
+    ignored_file = tmp_path / "ignored_sources.txt"
+    ignored_file.write_text("messages\n")
+    state = _IgnoredSourcesState(file_path=ignored_file)
+
+    result = _load_ignored_sources_if_updated(state)
+    assert result == frozenset({"messages"})
+
+    ignored_file.unlink()
+    result = _load_ignored_sources_if_updated(state)
+    assert result == frozenset()

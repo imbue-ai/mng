@@ -32,7 +32,7 @@ SOURCE_MNG_AGENTS: Final[EventSource] = EventSource("mng/agents")
 SOURCE_STOP: Final[EventSource] = EventSource("stop")
 SOURCE_MONITOR: Final[EventSource] = EventSource("monitor")
 SOURCE_DELIVERY_FAILURES: Final[EventSource] = EventSource("delivery_failures")
-SOURCE_COMMON_TRANSCRIPT: Final[EventSource] = EventSource("common_transcript")
+SOURCE_COMMON_TRANSCRIPT: Final[EventSource] = EventSource("claude/common_transcript")
 
 
 class MessageEvent(EventEnvelope):

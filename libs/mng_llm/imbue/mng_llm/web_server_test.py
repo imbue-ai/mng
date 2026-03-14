@@ -313,24 +313,33 @@ def test_get_default_chat_model_reads_from_settings(web_server_module: Any, tmp_
     assert result == "claude-sonnet-4-6"
 
 
-def test_get_system_prompt_reads_files(web_server_module: Any, tmp_path: Path) -> None:
+def test_build_template_writes_llm_template(web_server_module: Any, tmp_path: Path) -> None:
     work_dir = tmp_path / "prompt_work"
     work_dir.mkdir()
     (work_dir / "GLOBAL.md").write_text("Global instructions")
     talking_dir = work_dir / "talking"
     talking_dir.mkdir()
     (talking_dir / "PROMPT.md").write_text("Talking prompt")
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
     web_server_module.AGENT_WORK_DIR = str(work_dir)
+    web_server_module.AGENT_STATE_DIR = str(state_dir)
 
-    result = web_server_module._get_system_prompt()
-    assert "Global instructions" in result
-    assert "Talking prompt" in result
+    result = web_server_module._build_template()
+    assert result is not None
+    template_content = Path(result).read_text()
+    assert template_content.startswith("system: |")
+    assert "Global instructions" in template_content
+    assert "Talking prompt" in template_content
 
 
-def test_get_system_prompt_returns_empty_when_no_work_dir(web_server_module: Any) -> None:
+def test_build_template_returns_none_when_no_work_dir(web_server_module: Any, tmp_path: Path) -> None:
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
     web_server_module.AGENT_WORK_DIR = ""
-    result = web_server_module._get_system_prompt()
-    assert result == ""
+    web_server_module.AGENT_STATE_DIR = str(state_dir)
+    result = web_server_module._build_template()
+    assert result is None
 
 
 def test_read_message_history_skips_injected_prompts(web_server_module: Any) -> None:
