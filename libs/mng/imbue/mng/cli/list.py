@@ -129,6 +129,7 @@ class ListCliOptions(CommonCliOptions):
     tag: tuple[str, ...]
     stdin: bool
     fields: str | None
+    header: tuple[str, ...]
     sort: str
     limit: int | None
     watch: int | None
@@ -197,6 +198,11 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--fields",
     help="Which fields to include (comma-separated)",
+)
+@optgroup.option(
+    "--header",
+    multiple=True,
+    help="Override column header label (format: FIELD=LABEL, repeatable)",
 )
 @optgroup.option(
     "--sort",
@@ -272,6 +278,18 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     fields = None
     if opts.fields:
         fields = [f.strip() for f in opts.fields.split(",") if f.strip()]
+
+    # Parse custom header overrides (--header FIELD=LABEL)
+    custom_headers: dict[str, str] | None = None
+    if opts.header:
+        custom_headers = {}
+        for header_spec in opts.header:
+            if "=" not in header_spec:
+                raise click.BadParameter(
+                    f"Header must be in FIELD=LABEL format, got: {header_spec}", param_hint="--header"
+                )
+            field_name, label = header_spec.split("=", 1)
+            custom_headers[field_name.strip()] = label.strip()
 
     # Build list of include filters
     include_filters = list(opts.include)
@@ -419,6 +437,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             error_behavior,
             display_fields,
             limit,
+            custom_headers=custom_headers,
         )
         return
 
@@ -434,6 +453,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         limit=limit,
         fields=fields,
         format_template=format_template,
+        custom_headers=custom_headers,
     )
 
     if opts.watch:
@@ -491,9 +511,12 @@ def _list_streaming_human(
     error_behavior: ErrorBehavior,
     fields: list[str],
     limit: int | None,
+    custom_headers: dict[str, str] | None = None,
 ) -> None:
     """Streaming human output path: display agents as each provider completes."""
-    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty(), output=sys.stdout, limit=limit)
+    renderer = _StreamingHumanRenderer(
+        fields=fields, is_tty=sys.stdout.isatty(), output=sys.stdout, limit=limit, custom_headers=custom_headers
+    )
 
     # In TTY mode, intercept stderr so warnings (from loguru etc.) are routed
     # through the renderer and kept pinned at the bottom of the table, rather
@@ -628,6 +651,7 @@ class _StreamingHumanRenderer(MutableModel):
     is_tty: bool
     output: Any
     limit: int | None = None
+    custom_headers: dict[str, str] | None = None
     _lock: Lock = PrivateAttr(default_factory=Lock)
     _count: int = PrivateAttr(default=0)
     _is_header_written: bool = PrivateAttr(default=False)
@@ -638,7 +662,7 @@ class _StreamingHumanRenderer(MutableModel):
     def start(self) -> None:
         """Compute column widths and write the initial status line (TTY only)."""
         terminal_width = shutil.get_terminal_size((120, 24)).columns
-        self._column_widths = _compute_column_widths(self.fields, terminal_width)
+        self._column_widths = _compute_column_widths(self.fields, terminal_width, self.custom_headers)
 
         if self.is_tty:
             self.output.write(_format_status_line(0))
@@ -680,7 +704,7 @@ class _StreamingHumanRenderer(MutableModel):
 
             # Write header on first agent
             if not self._is_header_written:
-                header_line = _format_streaming_header_row(self.fields, self._column_widths)
+                header_line = _format_streaming_header_row(self.fields, self._column_widths, self.custom_headers)
                 self.output.write(header_line + "\n")
                 self._is_header_written = True
 
@@ -713,15 +737,19 @@ class _StreamingHumanRenderer(MutableModel):
 
 
 @pure
-def _get_header_label(field: str) -> str:
+def _get_header_label(field: str, custom_headers: dict[str, str] | None = None) -> str:
     """Get the display label for a column header."""
+    if custom_headers and field in custom_headers:
+        return custom_headers[field]
     if field in _HEADER_LABELS:
         return _HEADER_LABELS[field]
     return field.upper().replace(".", " ")
 
 
 @pure
-def _compute_column_widths(fields: Sequence[str], terminal_width: int) -> dict[str, int]:
+def _compute_column_widths(
+    fields: Sequence[str], terminal_width: int, custom_headers: dict[str, str] | None = None
+) -> dict[str, int]:
     """Compute column widths sized to the terminal, distributing extra space to expandable columns."""
     separator_total = len(_COLUMN_SEPARATOR) * max(len(fields) - 1, 0)
 
@@ -729,7 +757,7 @@ def _compute_column_widths(fields: Sequence[str], terminal_width: int) -> dict[s
     width_by_field: dict[str, int] = {}
     for field in fields:
         min_data_width = _MIN_COLUMN_WIDTHS.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
-        header_width = len(_get_header_label(field))
+        header_width = len(_get_header_label(field, custom_headers))
         width_by_field[field] = max(min_data_width, header_width)
 
     min_total = sum(width_by_field.values()) + separator_total
@@ -757,12 +785,14 @@ def _compute_column_widths(fields: Sequence[str], terminal_width: int) -> dict[s
 
 
 @pure
-def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str, int]) -> str:
+def _format_streaming_header_row(
+    fields: Sequence[str], column_widths: dict[str, int], custom_headers: dict[str, str] | None = None
+) -> str:
     """Format the header row of streaming output with computed column widths."""
     parts: list[str] = []
     for field in fields:
         width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
-        value = _get_header_label(field)
+        value = _get_header_label(field, custom_headers)
         parts.append(value.ljust(width))
     return _COLUMN_SEPARATOR.join(parts)
 
@@ -796,6 +826,7 @@ class _ListIterationParams(BaseModel):
     limit: int | None
     fields: list[str] | None
     format_template: str | None = None
+    custom_headers: dict[str, str] | None = None
 
 
 def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> None:
@@ -840,7 +871,7 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
     if params.format_template is not None:
         _emit_template_output(agents_to_display, params.format_template, output=sys.stdout)
     elif params.output_opts.output_format == OutputFormat.HUMAN:
-        _emit_human_output(agents_to_display, params.fields)
+        _emit_human_output(agents_to_display, params.fields, params.custom_headers)
     elif params.output_opts.output_format == OutputFormat.JSON:
         _emit_json_output(agents_to_display, result.errors)
     else:
@@ -875,7 +906,11 @@ def _emit_jsonl_error(error: ErrorInfo) -> None:
     emit_final_json(error_data)
 
 
-def _emit_human_output(agents: list[AgentDetails], fields: list[str] | None = None) -> None:
+def _emit_human_output(
+    agents: list[AgentDetails],
+    fields: list[str] | None = None,
+    custom_headers: dict[str, str] | None = None,
+) -> None:
     """Emit human-readable table output with optional field selection."""
     if not agents:
         return
@@ -890,7 +925,7 @@ def _emit_human_output(agents: list[AgentDetails], fields: list[str] | None = No
 
     # Generate headers
     for field in fields:
-        headers.append(_get_header_label(field))
+        headers.append(_get_header_label(field, custom_headers))
 
     # Generate rows
     for agent in agents:
@@ -1107,6 +1142,7 @@ Supports filtering, sorting, and multiple output formats.""",
         ("Filter with CEL expression", "mng list --include 'name.contains(\"prod\")'"),
         ("Sort by name descending", "mng list --sort 'name desc'"),
         ("Sort by multiple fields", "mng list --sort 'state, name asc, create_time desc'"),
+        ("Custom column header", "mng list --fields name,labels.env --header labels.env=ENV"),
     ),
     additional_sections=(
         (

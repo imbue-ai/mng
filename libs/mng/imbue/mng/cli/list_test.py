@@ -1145,6 +1145,17 @@ def test_get_header_label_returns_uppercased_field_for_unknown_fields() -> None:
     assert _get_header_label("some.nested.field") == "SOME NESTED FIELD"
 
 
+def test_get_header_label_custom_headers_override_builtin() -> None:
+    """_get_header_label should prefer custom_headers over _HEADER_LABELS."""
+    custom = {"labels.project": "MY PROJECT", "labels.env": "ENV"}
+    assert _get_header_label("labels.project", custom) == "MY PROJECT"
+    assert _get_header_label("labels.env", custom) == "ENV"
+    # Builtin labels still work for fields not in custom_headers
+    assert _get_header_label("host.name", custom) == "HOST"
+    # Unknown fields still use the fallback
+    assert _get_header_label("some.field", custom) == "SOME FIELD"
+
+
 # =============================================================================
 # Tests for _get_field_value with tags
 # =============================================================================
@@ -1433,6 +1444,44 @@ def test_list_command_human_format_custom_fields(
     assert "generic" in result.output
     # Should not contain default fields that were not requested
     assert "PROVIDER" not in result.output
+
+
+def test_list_command_custom_header_overrides_default(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list --header labels.project=PROJ should override the default PROJECT header."""
+    agents = [
+        make_test_agent_details(name="header-test", labels={"project": "myproj"}),
+    ]
+    _patch_list_agents(monkeypatch, agents)
+
+    result = cli_runner.invoke(
+        list_command,
+        ["--sort", "name", "--header", "labels.project=PROJ"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert "PROJ" in result.output
+    assert "myproj" in result.output
+
+
+def test_list_command_header_option_rejects_invalid_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--header should reject values not in FIELD=LABEL format."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--header", "invalid-no-equals"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+    assert result.exit_code != 0
+    assert "FIELD=LABEL" in result.output
 
 
 def test_list_command_template_format_with_agents(
