@@ -89,6 +89,7 @@ class _EventWatcherSettings:
     """Parsed event watcher settings from settings.toml."""
 
     cel_filter: str = DEFAULT_CEL_FILTER
+    event_exclude_sources: tuple[str, ...] = ()
     burst_size: int = _DEFAULT_BURST_SIZE
     max_messages_per_minute: int = _DEFAULT_MAX_MESSAGES_PER_MINUTE
     max_delivery_retries: int = _DEFAULT_MAX_DELIVERY_RETRIES
@@ -103,6 +104,7 @@ def _load_watcher_settings(agent_work_dir: Path) -> _EventWatcherSettings:
         return _EventWatcherSettings()
     return _EventWatcherSettings(
         cel_filter=watchers.get("event_cel_filter", DEFAULT_CEL_FILTER),
+        event_exclude_sources=tuple(watchers.get("event_exclude_sources", ())),
         burst_size=watchers.get("event_burst_size", _DEFAULT_BURST_SIZE),
         max_messages_per_minute=watchers.get("max_event_messages_per_minute", _DEFAULT_MAX_MESSAGES_PER_MINUTE),
         max_delivery_retries=watchers.get("max_delivery_retries", _DEFAULT_MAX_DELIVERY_RETRIES),
@@ -893,9 +895,10 @@ def _run_delivery_loop(
             settings.max_same_source_events_per_batch,
         )
 
-        # Filter out events from dynamically ignored sources
+        # Filter out events from excluded and dynamically ignored sources
         ignored_sources = _load_ignored_sources_if_updated(ignored_sources_state)
-        deliverable_lines = _filter_ignored_sources(deliverable_lines, ignored_sources)
+        all_excluded = ignored_sources | frozenset(settings.event_exclude_sources)
+        deliverable_lines = _filter_ignored_sources(deliverable_lines, all_excluded)
 
         if not deliverable_lines:
             continue
@@ -1005,6 +1008,7 @@ def main(
     logger.info("Event watcher started")
     logger.info("  Agent ID: {}", agent_id)
     logger.info("  CEL filter: {}", settings.cel_filter)
+    logger.info("  Exclude sources: {}", settings.event_exclude_sources)
     logger.info("  Burst size: {}", settings.burst_size)
     logger.info("  Max messages/min: {}", settings.max_messages_per_minute)
     logger.info("  Max delivery retries: {}", settings.max_delivery_retries)

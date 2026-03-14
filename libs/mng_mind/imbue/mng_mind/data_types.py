@@ -74,6 +74,12 @@ class WatcherSettings(FrozenModel):
         description="CEL filter expression passed to 'mng events --filter'. "
         "Controls which event sources the event watcher receives.",
     )
+    event_exclude_sources: tuple[str, ...] = Field(
+        default=(),
+        description="Event sources to unconditionally exclude from delivery. "
+        "Events from these sources are dropped before the delivery loop processes them. "
+        "Set during provisioning to prevent agents from observing their own output.",
+    )
     event_burst_size: PositiveInt = Field(
         default=PositiveInt(5),
         description="Number of messages allowed in the initial burst before rate limiting kicks in.",

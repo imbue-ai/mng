@@ -72,6 +72,7 @@ def test_defaults_match_between_data_types_and_event_watcher() -> None:
     """Verify that event_watcher.py constants stay in sync with WatcherSettings defaults."""
     model_defaults = WatcherSettings()
     assert model_defaults.event_cel_filter == DEFAULT_CEL_FILTER
+    assert model_defaults.event_exclude_sources == _EventWatcherSettings().event_exclude_sources
     assert model_defaults.event_burst_size == _DEFAULT_BURST_SIZE
     assert model_defaults.max_event_messages_per_minute == _DEFAULT_MAX_MESSAGES_PER_MINUTE
     assert model_defaults.max_delivery_retries == _DEFAULT_MAX_DELIVERY_RETRIES
@@ -125,6 +126,20 @@ def test_load_settings_reads_aggregation_settings(tmp_path: Path) -> None:
     settings = _load_watcher_settings(tmp_path)
     assert settings.max_event_length == 10000
     assert settings.max_same_source_events_per_batch == 5
+
+
+def test_load_settings_reads_event_exclude_sources(tmp_path: Path) -> None:
+    write_minds_settings_toml(
+        tmp_path,
+        '[watchers]\nevent_exclude_sources = ["claude/common_transcript", "other/source"]\n',
+    )
+    settings = _load_watcher_settings(tmp_path)
+    assert settings.event_exclude_sources == ("claude/common_transcript", "other/source")
+
+
+def test_load_settings_defaults_event_exclude_sources_to_empty(tmp_path: Path) -> None:
+    settings = _load_watcher_settings(tmp_path)
+    assert settings.event_exclude_sources == ()
 
 
 # -- _DeliveryState persistence tests --
@@ -1460,6 +1475,58 @@ def test_delivery_loop_skips_empty_batch_after_ignored_sources(tmp_path: Path) -
     # No messages should have been sent since all events were ignored
     assert len(capture.calls) == 0
     assert len(list(event_batches_dir.glob("*.jsonl"))) == 0
+
+
+@pytest.mark.timeout(15)
+def test_delivery_loop_filters_event_exclude_sources(tmp_path: Path) -> None:
+    """Events from sources in event_exclude_sources are excluded from delivery."""
+    state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state = _setup_delivery_loop_dirs(
+        tmp_path
+    )
+    settings = _EventWatcherSettings(
+        burst_size=5,
+        max_messages_per_minute=60,
+        event_exclude_sources=("claude/common_transcript",),
+    )
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    capture = _MessageCapture()
+
+    # Pre-load buffer with events from both excluded and non-excluded sources
+    event_buffer.append(_make_event_line("evt-excluded", source="claude/common_transcript"))
+    event_buffer.append(_make_event_line("evt-keep", source="messages"))
+
+    thread = threading.Thread(
+        target=_run_delivery_loop,
+        args=(
+            settings,
+            "agent-test-00000000000000000001",
+            state_file,
+            events_dir,
+            event_buffer,
+            buffer_lock,
+            stop_event,
+            event_batches_dir,
+            event_lists_dir,
+            ignored_sources_state,
+        ),
+        kwargs={"send_message": capture},
+        daemon=True,
+    )
+    thread.start()
+
+    assert capture.wait_for_call(timeout=5.0), "Expected send_message to be called"
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    # Only the non-excluded event should be in the batch
+    batch_files = list(event_batches_dir.glob("*.jsonl"))
+    assert len(batch_files) == 1
+    lines = batch_files[0].read_text().strip().split("\n")
+    assert len(lines) == 1
+    assert json.loads(lines[0])["event_id"] == "evt-keep"
 
 
 # -- main() tests --
