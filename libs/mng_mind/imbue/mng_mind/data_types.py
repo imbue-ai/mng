@@ -32,7 +32,7 @@ SOURCE_MNG_AGENTS: Final[EventSource] = EventSource("mng/agents")
 SOURCE_STOP: Final[EventSource] = EventSource("stop")
 SOURCE_MONITOR: Final[EventSource] = EventSource("monitor")
 SOURCE_DELIVERY_FAILURES: Final[EventSource] = EventSource("delivery_failures")
-SOURCE_COMMON_TRANSCRIPT: Final[EventSource] = EventSource("common_transcript")
+SOURCE_COMMON_TRANSCRIPT: Final[EventSource] = EventSource("claude/common_transcript")
 
 
 class MessageEvent(EventEnvelope):
@@ -73,6 +73,12 @@ class WatcherSettings(FrozenModel):
         default=DEFAULT_CEL_FILTER,
         description="CEL filter expression passed to 'mng events --filter'. "
         "Controls which event sources the event watcher receives.",
+    )
+    event_exclude_sources: tuple[str, ...] = Field(
+        default=(),
+        description="Event sources to unconditionally exclude from delivery. "
+        "Events from these sources are dropped before the delivery loop processes them. "
+        "Set during provisioning to prevent agents from observing their own output.",
     )
     event_burst_size: PositiveInt = Field(
         default=PositiveInt(5),

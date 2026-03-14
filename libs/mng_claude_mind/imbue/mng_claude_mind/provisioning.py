@@ -6,12 +6,14 @@ from pathlib import Path
 from typing import Any
 from typing import Final
 
+import tomlkit
 from loguru import logger
 
 from imbue.imbue_common.logging import log_span
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng_llm.data_types import ProvisioningSettings
 from imbue.mng_llm.provisioning import execute_with_timing
+from imbue.mng_llm.settings import SETTINGS_FILENAME
 
 # Claude Code settings.json content, inlined because it is Claude-specific
 # and does not belong in the generic mng_mind plugin.
@@ -322,3 +324,45 @@ def build_stop_hook_config(script_path: Path) -> dict[str, Any]:
             ],
         }
     }
+
+
+def provision_event_exclude_sources(
+    host: OnlineHostInterface,
+    work_dir: Path,
+    exclude_sources: tuple[str, ...],
+) -> None:
+    """Ensure the given sources are listed in event_exclude_sources in minds.toml.
+
+    Reads the existing minds.toml (if any), merges the requested
+    exclude_sources into ``[watchers].event_exclude_sources``, and
+    writes the file back. Existing settings and formatting are preserved
+    via tomlkit.
+    """
+    settings_path = work_dir / SETTINGS_FILENAME
+
+    doc = tomlkit.document()
+    try:
+        content = host.read_text_file(settings_path)
+        doc = tomlkit.parse(content)
+    except FileNotFoundError:
+        logger.debug("No existing {} found, will create", settings_path)
+    except (tomlkit.exceptions.ParseError, OSError) as exc:
+        logger.warning("Could not read existing {}: {}", settings_path, exc)
+
+    watchers = doc.get("watchers")
+    if watchers is None:
+        watchers = tomlkit.table()
+        doc.add("watchers", watchers)
+
+    current_excludes = set(watchers.get("event_exclude_sources", []))
+    needed = set(exclude_sources)
+
+    if needed <= current_excludes:
+        logger.debug("event_exclude_sources already contains {}, skipping", needed)
+        return
+
+    current_excludes.update(needed)
+    watchers["event_exclude_sources"] = sorted(current_excludes)
+
+    with log_span("Writing event_exclude_sources to {}", settings_path):
+        host.write_text_file(settings_path, tomlkit.dumps(doc))

@@ -23,6 +23,8 @@ Environment:
   MNG_AGENT_STATE_DIR  - agent state directory (contains events/)
   MNG_AGENT_WORK_DIR   - agent working directory (contains minds.toml)
   MNG_AGENT_ID         - ID of the primary agent to send messages to
+  ROLE                 - (optional) role name; ignored_sources.txt is read
+                         from $MNG_AGENT_WORK_DIR/$ROLE/ignored_sources.txt
 """
 
 from __future__ import annotations
@@ -76,6 +78,8 @@ _DELIVERY_POLL_INTERVAL_SECONDS: Final[float] = 0.5
 _BACKOFF_BASE_SECONDS: Final[float] = 2.0
 _BACKOFF_MAX_SECONDS: Final[float] = 60.0
 
+_IGNORED_SOURCES_FILENAME: Final[str] = "ignored_sources.txt"
+
 
 # -- Settings --
 
@@ -85,6 +89,7 @@ class _EventWatcherSettings:
     """Parsed event watcher settings from settings.toml."""
 
     cel_filter: str = DEFAULT_CEL_FILTER
+    event_exclude_sources: tuple[str, ...] = ()
     burst_size: int = _DEFAULT_BURST_SIZE
     max_messages_per_minute: int = _DEFAULT_MAX_MESSAGES_PER_MINUTE
     max_delivery_retries: int = _DEFAULT_MAX_DELIVERY_RETRIES
@@ -99,6 +104,7 @@ def _load_watcher_settings(agent_work_dir: Path) -> _EventWatcherSettings:
         return _EventWatcherSettings()
     return _EventWatcherSettings(
         cel_filter=watchers.get("event_cel_filter", DEFAULT_CEL_FILTER),
+        event_exclude_sources=tuple(watchers.get("event_exclude_sources", ())),
         burst_size=watchers.get("event_burst_size", _DEFAULT_BURST_SIZE),
         max_messages_per_minute=watchers.get("max_event_messages_per_minute", _DEFAULT_MAX_MESSAGES_PER_MINUTE),
         max_delivery_retries=watchers.get("max_delivery_retries", _DEFAULT_MAX_DELIVERY_RETRIES),
@@ -107,6 +113,69 @@ def _load_watcher_settings(agent_work_dir: Path) -> _EventWatcherSettings:
             "max_same_source_events_per_batch", _DEFAULT_MAX_SAME_SOURCE_EVENTS_PER_BATCH
         ),
     )
+
+
+# -- Ignored sources --
+
+
+@dataclasses.dataclass
+class _IgnoredSourcesState:
+    """Tracks the ignored_sources.txt file and its cached contents."""
+
+    file_path: Path
+    last_mtime: float = 0.0
+    ignored_sources: frozenset[str] = frozenset()
+
+
+def _load_ignored_sources_if_updated(state: _IgnoredSourcesState) -> frozenset[str]:
+    """Re-read ignored_sources.txt if the file has been modified since last read.
+
+    Returns the current set of ignored sources (may be empty if the file
+    does not exist or is empty).
+    """
+    try:
+        current_mtime = state.file_path.stat().st_mtime
+    except OSError:
+        if state.ignored_sources:
+            logger.debug("ignored_sources.txt no longer exists, clearing ignored sources")
+            state.ignored_sources = frozenset()
+            state.last_mtime = 0.0
+        return state.ignored_sources
+
+    if current_mtime == state.last_mtime:
+        return state.ignored_sources
+
+    try:
+        content = state.file_path.read_text()
+    except OSError as exc:
+        logger.warning("Failed to read {}: {}", state.file_path, exc)
+        return state.ignored_sources
+
+    sources = frozenset(
+        line.strip() for line in content.splitlines() if line.strip() and not line.strip().startswith("#")
+    )
+    if sources != state.ignored_sources:
+        logger.info("Updated ignored sources from {}: {}", state.file_path, sorted(sources))
+    state.ignored_sources = sources
+    state.last_mtime = current_mtime
+    return sources
+
+
+def _filter_ignored_sources(lines: list[str], ignored_sources: frozenset[str]) -> list[str]:
+    """Remove events whose source is in the ignored set."""
+    if not ignored_sources:
+        return lines
+    result: list[str] = []
+    for line in lines:
+        try:
+            parsed = json.loads(line)
+            source = parsed.get("source", "")
+        except json.JSONDecodeError:
+            result.append(line)
+            continue
+        if source not in ignored_sources:
+            result.append(line)
+    return result
 
 
 # -- Delivery state --
@@ -330,7 +399,7 @@ def _get_system_notifications_conversation_id() -> str | None:
 
 
 def _send_chat_notification(events_dir: Path, message: str) -> bool:
-    """Send a notification as a chat message via ``llm``.
+    """Send a notification as a chat message via ``llm prompt``.
 
     Uses the system_notifications conversation (found by tag in the
     mind_conversations table) so that all system notifications appear
@@ -349,7 +418,7 @@ def _send_chat_notification(events_dir: Path, message: str) -> bool:
         result = subprocess.run(
             [
                 "llm",
-                "chat",
+                "prompt",
                 "--cid",
                 conversation_id,
                 "-m",
@@ -364,7 +433,7 @@ def _send_chat_notification(events_dir: Path, message: str) -> bool:
         if result.returncode == 0:
             logger.info("Sent chat notification via llm")
             return True
-        logger.warning("llm chat returned non-zero: {}", result.stderr)
+        logger.warning("llm prompt returned non-zero: {}", result.stderr)
     except FileNotFoundError:
         logger.warning("llm command not found, skipping chat notification")
     except subprocess.TimeoutExpired:
@@ -740,6 +809,7 @@ def _run_delivery_loop(
     stop_event: threading.Event,
     event_batches_dir: Path,
     event_lists_dir: Path,
+    ignored_sources_state: _IgnoredSourcesState,
     send_message: Callable[[str, str], bool] = _send_message,
 ) -> None:
     """Main delivery loop: drain buffer, rate-limit, format, and deliver to agent.
@@ -824,6 +894,11 @@ def _run_delivery_loop(
             settings.max_event_length,
             settings.max_same_source_events_per_batch,
         )
+
+        # Filter out events from excluded and dynamically ignored sources
+        ignored_sources = _load_ignored_sources_if_updated(ignored_sources_state)
+        all_excluded = ignored_sources | frozenset(settings.event_exclude_sources)
+        deliverable_lines = _filter_ignored_sources(deliverable_lines, all_excluded)
 
         if not deliverable_lines:
             continue
@@ -933,6 +1008,7 @@ def main(
     logger.info("Event watcher started")
     logger.info("  Agent ID: {}", agent_id)
     logger.info("  CEL filter: {}", settings.cel_filter)
+    logger.info("  Exclude sources: {}", settings.event_exclude_sources)
     logger.info("  Burst size: {}", settings.burst_size)
     logger.info("  Max messages/min: {}", settings.max_messages_per_minute)
     logger.info("  Max delivery retries: {}", settings.max_delivery_retries)
@@ -941,6 +1017,15 @@ def main(
     logger.info("  State file: {}", state_file)
     logger.info("  Event batches dir: {}", event_batches_dir)
     logger.info("  Event lists dir: {}", event_lists_dir)
+
+    # Resolve the ignored_sources.txt path: $MNG_AGENT_WORK_DIR/$ROLE/ignored_sources.txt
+    role = os.environ.get("ROLE", "")
+    if role:
+        ignored_sources_path = agent_work_dir / role / _IGNORED_SOURCES_FILENAME
+    else:
+        ignored_sources_path = agent_work_dir / _IGNORED_SOURCES_FILENAME
+    logger.info("  Ignored sources file: {}", ignored_sources_path)
+    ignored_sources_state = _IgnoredSourcesState(file_path=ignored_sources_path)
 
     event_buffer: list[str] = []
     buffer_lock = threading.Lock()
@@ -959,6 +1044,7 @@ def main(
             stop_event,
             event_batches_dir,
             event_lists_dir,
+            ignored_sources_state,
             send_message,
         ),
         daemon=True,

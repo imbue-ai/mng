@@ -14,7 +14,6 @@ from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng.primitives import CommandString
 from imbue.mng_claude.plugin import ClaudeAgent
-from imbue.mng_claude_mind.conftest import StubHost
 from imbue.mng_claude_mind.plugin import CONV_WATCHER_COMMAND
 from imbue.mng_claude_mind.plugin import CONV_WATCHER_WINDOW_NAME
 from imbue.mng_claude_mind.plugin import ClaudeMindAgent
@@ -28,6 +27,7 @@ from imbue.mng_claude_mind.plugin import get_agent_type_from_params
 from imbue.mng_claude_mind.plugin import inject_supporting_services
 from imbue.mng_claude_mind.plugin import override_command_options
 from imbue.mng_llm.data_types import ProvisioningSettings
+from imbue.mng_mind.conftest import StubHost
 
 # Total number of tmux windows injected by inject_supporting_services:
 # conv_watcher, events, web_server, observer

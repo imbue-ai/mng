@@ -4,7 +4,6 @@ from pathlib import Path
 
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng_claude_mind.data_types import ClaudeMindSettings
-from imbue.mng_llm.settings import SETTINGS_FILENAME as SETTINGS_FILENAME
 from imbue.mng_llm.settings import load_from_host
 from imbue.mng_llm.settings import load_from_path
 
