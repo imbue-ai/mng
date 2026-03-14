@@ -1184,9 +1184,6 @@ def test_main_stops_cleanly_via_stop_event(tmp_path: Path, monkeypatch: pytest.M
     _setup_main_env(tmp_path, monkeypatch)
     stop_event = threading.Event()
 
-    def blocking_factory(agent_id: str, cel_filter: str) -> Any:
-        return _FakeEventsProcess([])
-
     started = threading.Event()
 
     def factory_with_signal(agent_id: str, cel_filter: str) -> Any:

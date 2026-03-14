@@ -796,7 +796,7 @@ def _run_delivery_loop(
 
 
 def main(
-    start_subprocess: Callable[[str, str], subprocess.Popen[str]] = _start_events_subprocess,
+    start_subprocess: Callable[[str, str], Any] = _start_events_subprocess,
     stop_event: threading.Event | None = None,
     send_message: Callable[[str, str], bool] = _send_message,
 ) -> None:
