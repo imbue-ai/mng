@@ -37,8 +37,8 @@ user    0m1.181s
 sys     0m0.227s
 
 > time mng list
-NAME           STATE       HOST        PROVIDER    HOST STATE  LABELS
-local-hello    RUNNING     @local      local       RUNNING     project=mng
+NAME           STATE       HOST        PROVIDER    HOST STATE  PROJECT
+local-hello    RUNNING     @local      local       RUNNING     mng
 
 real    0m1.773s
 user    0m0.955s
