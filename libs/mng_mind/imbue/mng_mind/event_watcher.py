@@ -592,6 +592,7 @@ def _deliver_batch(
     event_buffer: list[str],
     buffer_lock: threading.Lock,
     event_batches_dir: Path,
+    send_message: Callable[[str, str], bool] = _send_message,
 ) -> bool:
     """Write events to a file and send the file path to the agent. Returns True on success.
 
@@ -613,7 +614,7 @@ def _deliver_batch(
 
     message = f"Please process all events in {events_file_path}"
 
-    if _send_message(agent_id, message):
+    if send_message(agent_id, message):
         rate_tracker.record_send()
         delivery_state.last_event_id = last_parsed.get("event_id", "")
         delivery_state.last_timestamp = last_parsed.get("timestamp", "")
@@ -644,6 +645,7 @@ def _run_delivery_loop(
     buffer_lock: threading.Lock,
     stop_event: threading.Event,
     event_batches_dir: Path,
+    send_message: Callable[[str, str], bool] = _send_message,
 ) -> None:
     """Main delivery loop: drain buffer, rate-limit, format, and deliver to agent.
 
@@ -754,6 +756,7 @@ def _run_delivery_loop(
             event_buffer=event_buffer,
             buffer_lock=buffer_lock,
             event_batches_dir=event_batches_dir,
+            send_message=send_message,
         )
 
         if success:
@@ -792,7 +795,11 @@ def _run_delivery_loop(
 # -- Main --
 
 
-def main() -> None:
+def main(
+    start_subprocess: Callable[[str, str], subprocess.Popen[str]] = _start_events_subprocess,
+    stop_event: threading.Event | None = None,
+    send_message: Callable[[str, str], bool] = _send_message,
+) -> None:
     agent_state_dir = Path(require_env("MNG_AGENT_STATE_DIR"))
     agent_work_dir = Path(require_env("MNG_AGENT_WORK_DIR"))
     agent_id = require_env("MNG_AGENT_ID")
@@ -813,6 +820,9 @@ def main() -> None:
     event_batches_dir = agent_state_dir / "mind" / "event_batches"
     event_batches_dir.mkdir(parents=True, exist_ok=True)
 
+    if stop_event is None:
+        stop_event = threading.Event()
+
     logger.info("Event watcher started")
     logger.info("  Agent ID: {}", agent_id)
     logger.info("  CEL filter: {}", settings.cel_filter)
@@ -822,7 +832,6 @@ def main() -> None:
     logger.info("  State file: {}", state_file)
     logger.info("  Event batches dir: {}", event_batches_dir)
 
-    stop_event = threading.Event()
     event_buffer: list[str] = []
     buffer_lock = threading.Lock()
     active_process: subprocess.Popen[str] | None = None
@@ -839,6 +848,7 @@ def main() -> None:
             buffer_lock,
             stop_event,
             event_batches_dir,
+            send_message,
         ),
         daemon=True,
     )
@@ -846,7 +856,7 @@ def main() -> None:
 
     try:
         while not stop_event.is_set():
-            active_process = _start_events_subprocess(agent_id, settings.cel_filter)
+            active_process = start_subprocess(agent_id, settings.cel_filter)
 
             # Reader thread feeds subprocess stdout into the shared buffer
             reader_thread = threading.Thread(

@@ -1,5 +1,6 @@
 """Unit tests for event_watcher.py."""
 
+import io
 import json
 import subprocess
 import threading
@@ -31,6 +32,7 @@ from imbue.mng_mind.event_watcher import _filter_catchup_events
 from imbue.mng_mind.event_watcher import _get_system_notifications_conversation_id
 from imbue.mng_mind.event_watcher import _load_delivery_state
 from imbue.mng_mind.event_watcher import _load_watcher_settings
+from imbue.mng_mind.event_watcher import _run_delivery_loop
 from imbue.mng_mind.event_watcher import _save_delivery_state
 from imbue.mng_mind.event_watcher import _send_chat_notification
 from imbue.mng_mind.event_watcher import _send_message
@@ -38,6 +40,7 @@ from imbue.mng_mind.event_watcher import _separate_chat_events
 from imbue.mng_mind.event_watcher import _should_skip_for_catchup
 from imbue.mng_mind.event_watcher import _write_events_file
 from imbue.mng_mind.event_watcher import _write_notification_event
+from imbue.mng_mind.event_watcher import main
 
 # -- Controllable clock for deterministic TokenBucket tests --
 
@@ -743,3 +746,485 @@ def test_separate_chat_events_malformed_json_passes_through() -> None:
     result = _separate_chat_events(lines, held)
     assert len(result) == 1
     assert result[0] == "not json at all"
+
+
+# -- Test helpers for _run_delivery_loop and main --
+
+
+def _make_event_line(event_id: str, timestamp: str = "2026-03-01T12:00:00Z", source: str = "scheduled") -> str:
+    return json.dumps({"event_id": event_id, "timestamp": timestamp, "source": source})
+
+
+class _MessageCapture:
+    """Records send_message calls and returns a configurable result.
+
+    Use ``wait_for_call()`` to block until at least one call has been made,
+    avoiding time.sleep polling in tests.
+    """
+
+    def __init__(self, *, succeed: bool = True) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._succeed = succeed
+        self._called = threading.Event()
+
+    def __call__(self, agent_id: str, message: str) -> bool:
+        self.calls.append((agent_id, message))
+        self._called.set()
+        return self._succeed
+
+    def wait_for_call(self, timeout: float = 5.0) -> bool:
+        """Block until at least one call has been recorded. Returns True if a call arrived."""
+        return self._called.wait(timeout=timeout)
+
+
+class _FakeEventsProcess:
+    """A fake subprocess.Popen that emits JSONL event lines on stdout then exits.
+
+    stdout yields lines immediately (like a real process writing to a pipe).
+    wait() blocks until stdout has been consumed, then returns.
+    """
+
+    def __init__(self, event_lines: list[str]) -> None:
+        stdout_data = "\n".join(event_lines) + "\n" if event_lines else ""
+        self.stdout = io.StringIO(stdout_data)
+        self.stderr = io.StringIO("")
+        self.returncode: int = 0
+        self._waited = threading.Event()
+
+    def wait(self, timeout: float | None = None) -> int:
+        # Simulate "process exits after stdout is consumed":
+        # give a brief moment for the reader thread to consume stdout,
+        # then return.
+        self._waited.wait(timeout=0.2)
+        self.returncode = 0
+        self._waited.set()
+        return 0
+
+    def poll(self) -> int | None:
+        if self._waited.is_set():
+            return 0
+        return None
+
+    def terminate(self) -> None:
+        self._waited.set()
+        self.returncode = -15
+
+    def kill(self) -> None:
+        self._waited.set()
+        self.returncode = -9
+
+
+def _setup_delivery_loop_dirs(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """Create state_file, events_dir, event_batches_dir for delivery loop tests."""
+    state_file = tmp_path / "events" / ".event_delivery_state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    events_dir = tmp_path / "events"
+    event_batches_dir = tmp_path / "mind" / "event_batches"
+    event_batches_dir.mkdir(parents=True)
+    return state_file, events_dir, event_batches_dir
+
+
+# -- _run_delivery_loop tests --
+
+
+def test_delivery_loop_delivers_buffered_events(tmp_path: Path) -> None:
+    """Events placed in the buffer are written to event_batches_dir and sent via send_message."""
+    state_file, events_dir, event_batches_dir = _setup_delivery_loop_dirs(tmp_path)
+    settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=60)
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    capture = _MessageCapture()
+
+    # Pre-load buffer with events
+    event_buffer.append(_make_event_line("evt-1"))
+    event_buffer.append(_make_event_line("evt-2", timestamp="2026-03-01T12:01:00Z"))
+
+    thread = threading.Thread(
+        target=_run_delivery_loop,
+        args=(
+            settings,
+            "test-agent",
+            state_file,
+            events_dir,
+            event_buffer,
+            buffer_lock,
+            stop_event,
+            event_batches_dir,
+        ),
+        kwargs={"send_message": capture},
+        daemon=True,
+    )
+    thread.start()
+
+    capture.wait_for_call(timeout=5.0)
+
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    assert len(capture.calls) == 1
+    agent_id, message = capture.calls[0]
+    assert agent_id == "test-agent"
+    assert "Please process all events in " in message
+    assert message.endswith(".jsonl")
+
+    # Verify events file was written
+    batch_files = list(event_batches_dir.glob("*.jsonl"))
+    assert len(batch_files) == 1
+    lines = batch_files[0].read_text().strip().split("\n")
+    assert len(lines) == 2
+    assert json.loads(lines[0])["event_id"] == "evt-1"
+    assert json.loads(lines[1])["event_id"] == "evt-2"
+
+    # Verify delivery state was persisted
+    loaded = _load_delivery_state(state_file)
+    assert loaded.last_event_id == "evt-2"
+    assert loaded.last_timestamp == "2026-03-01T12:01:00Z"
+
+
+def test_delivery_loop_retries_on_failure(tmp_path: Path) -> None:
+    """When send_message fails, events stay in the buffer for retry."""
+    state_file, events_dir, event_batches_dir = _setup_delivery_loop_dirs(tmp_path)
+    settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=600, max_delivery_retries=2)
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+
+    # Use a send_message that fails the first 2 times then succeeds
+    call_count = 0
+    succeeded = threading.Event()
+
+    def failing_then_succeeding(agent_id: str, message: str) -> bool:
+        nonlocal call_count
+        call_count += 1
+        if call_count > 2:
+            succeeded.set()
+            return True
+        return False
+
+    event_buffer.append(_make_event_line("evt-retry"))
+
+    thread = threading.Thread(
+        target=_run_delivery_loop,
+        args=(
+            settings,
+            "test-agent",
+            state_file,
+            events_dir,
+            event_buffer,
+            buffer_lock,
+            stop_event,
+            event_batches_dir,
+        ),
+        kwargs={"send_message": failing_then_succeeding},
+        daemon=True,
+    )
+    thread.start()
+
+    succeeded.wait(timeout=10.0)
+
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    assert call_count >= 3, f"Expected at least 3 send attempts, got {call_count}"
+
+    # Verify delivery eventually succeeded: state file should be written
+    loaded = _load_delivery_state(state_file)
+    assert loaded.last_event_id == "evt-retry"
+
+
+@pytest.mark.timeout(15)
+def test_delivery_loop_writes_notification_on_repeated_failure(tmp_path: Path) -> None:
+    """After max_delivery_retries consecutive failures, a notification event is written."""
+    state_file, events_dir, event_batches_dir = _setup_delivery_loop_dirs(tmp_path)
+    settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=600, max_delivery_retries=2)
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+
+    event_buffer.append(_make_event_line("evt-fail"))
+
+    notification_file = events_dir / "delivery_failures" / "events.jsonl"
+    notification_written = threading.Event()
+
+    def failing_and_tracking(agent_id: str, message: str) -> bool:
+        if notification_file.exists():
+            notification_written.set()
+        return False
+
+    thread = threading.Thread(
+        target=_run_delivery_loop,
+        args=(
+            settings,
+            "test-agent",
+            state_file,
+            events_dir,
+            event_buffer,
+            buffer_lock,
+            stop_event,
+            event_batches_dir,
+        ),
+        kwargs={"send_message": failing_and_tracking},
+        daemon=True,
+    )
+    thread.start()
+
+    # Wait for enough failures to trigger notification
+    notification_written.wait(timeout=10.0)
+
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    assert notification_file.exists(), "Expected notification event file to be created"
+    notification = json.loads(notification_file.read_text().strip().split("\n")[0])
+    assert "failed" in notification["message"].lower()
+    assert notification["level"] == "ERROR"
+
+
+def test_delivery_loop_catches_up_from_saved_state(tmp_path: Path) -> None:
+    """When resuming with saved state, events before the last delivered timestamp are skipped."""
+    state_file, events_dir, event_batches_dir = _setup_delivery_loop_dirs(tmp_path)
+    settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=60)
+
+    # Save state indicating evt-1 was already delivered
+    _save_delivery_state(state_file, _DeliveryState(last_event_id="evt-1", last_timestamp="2026-03-01T12:00:00Z"))
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    capture = _MessageCapture()
+
+    # Buffer has an old event (should be skipped) and a new event
+    event_buffer.append(_make_event_line("evt-1", timestamp="2026-03-01T12:00:00Z"))
+    event_buffer.append(_make_event_line("evt-old", timestamp="2026-03-01T11:00:00Z"))
+    event_buffer.append(_make_event_line("evt-new", timestamp="2026-03-01T13:00:00Z"))
+
+    thread = threading.Thread(
+        target=_run_delivery_loop,
+        args=(
+            settings,
+            "test-agent",
+            state_file,
+            events_dir,
+            event_buffer,
+            buffer_lock,
+            stop_event,
+            event_batches_dir,
+        ),
+        kwargs={"send_message": capture},
+        daemon=True,
+    )
+    thread.start()
+
+    capture.wait_for_call(timeout=5.0)
+
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    assert len(capture.calls) == 1
+    # The delivered batch should only contain the new event
+    batch_files = list(event_batches_dir.glob("*.jsonl"))
+    assert len(batch_files) == 1
+    lines = batch_files[0].read_text().strip().split("\n")
+    assert len(lines) == 1
+    assert json.loads(lines[0])["event_id"] == "evt-new"
+
+
+def test_delivery_loop_stops_cleanly_on_stop_event(tmp_path: Path) -> None:
+    """The delivery loop exits when stop_event is set, even with no events."""
+    state_file, events_dir, event_batches_dir = _setup_delivery_loop_dirs(tmp_path)
+    settings = _EventWatcherSettings()
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+
+    thread = threading.Thread(
+        target=_run_delivery_loop,
+        args=(
+            settings,
+            "test-agent",
+            state_file,
+            events_dir,
+            event_buffer,
+            buffer_lock,
+            stop_event,
+            event_batches_dir,
+        ),
+        daemon=True,
+    )
+    thread.start()
+
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    assert not thread.is_alive(), "Delivery loop should have exited"
+
+
+# -- main() tests --
+
+
+def _setup_main_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Set up the environment variables and directory structure for main() tests.
+
+    Returns the agent_state_dir path.
+    """
+    agent_state_dir = tmp_path / "agents" / "agent-test"
+    work_dir = tmp_path / "work"
+    work_dir.mkdir(parents=True)
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(agent_state_dir))
+    monkeypatch.setenv("MNG_AGENT_WORK_DIR", str(work_dir))
+    monkeypatch.setenv("MNG_AGENT_ID", "agent-test-00000000000000000001")
+    return agent_state_dir
+
+
+@pytest.mark.timeout(15)
+def test_main_delivers_events_from_subprocess(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """main() reads events from the subprocess, writes them to event_batches, and sends a message."""
+    agent_state_dir = _setup_main_env(tmp_path, monkeypatch)
+    capture = _MessageCapture()
+    stop_event = threading.Event()
+
+    events = [
+        _make_event_line("evt-a", timestamp="2026-03-01T12:00:00Z"),
+        _make_event_line("evt-b", timestamp="2026-03-01T12:01:00Z"),
+    ]
+
+    call_count = 0
+
+    def fake_start_subprocess(agent_id: str, cel_filter: str) -> Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _FakeEventsProcess(events)
+        # On second call (after restart), stop main
+        stop_event.set()
+        return _FakeEventsProcess([])
+
+    thread = threading.Thread(
+        target=main,
+        kwargs={
+            "start_subprocess": fake_start_subprocess,
+            "stop_event": stop_event,
+            "send_message": capture,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    capture.wait_for_call(timeout=5.0)
+
+    stop_event.set()
+    thread.join(timeout=3.0)
+
+    assert len(capture.calls) >= 1
+    agent_id, message = capture.calls[0]
+    assert agent_id == "agent-test-00000000000000000001"
+    assert "Please process all events in " in message
+    assert message.endswith(".jsonl")
+
+    # Verify event batch files were created
+    event_batches_dir = agent_state_dir / "mind" / "event_batches"
+    batch_files = list(event_batches_dir.glob("*.jsonl"))
+    assert len(batch_files) >= 1
+
+    # Verify the batch contains the events
+    all_event_ids = set()
+    for f in batch_files:
+        for line in f.read_text().strip().split("\n"):
+            all_event_ids.add(json.loads(line)["event_id"])
+    assert "evt-a" in all_event_ids
+    assert "evt-b" in all_event_ids
+
+    # Verify delivery state was persisted
+    state_file = agent_state_dir / "events" / ".event_delivery_state.json"
+    assert state_file.exists()
+    loaded = _load_delivery_state(state_file)
+    assert loaded.last_event_id in ("evt-a", "evt-b")
+
+
+@pytest.mark.timeout(15)
+def test_main_restarts_subprocess_on_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """main() restarts the events subprocess when it exits."""
+    _setup_main_env(tmp_path, monkeypatch)
+    capture = _MessageCapture()
+    stop_event = threading.Event()
+
+    call_count = 0
+
+    def counting_factory(agent_id: str, cel_filter: str) -> Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            # Stop after the restart to avoid waiting through multiple 5s delays
+            stop_event.set()
+        return _FakeEventsProcess([])
+
+    thread = threading.Thread(
+        target=main,
+        kwargs={
+            "start_subprocess": counting_factory,
+            "stop_event": stop_event,
+            "send_message": capture,
+        },
+        daemon=True,
+    )
+    thread.start()
+    thread.join(timeout=10.0)
+
+    # call_count >= 2 proves the subprocess was started, exited, and restarted
+    assert call_count >= 2, f"Expected subprocess to be started at least 2 times, got {call_count}"
+
+
+def test_main_stops_cleanly_via_stop_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """main() exits cleanly when stop_event is set."""
+    _setup_main_env(tmp_path, monkeypatch)
+    stop_event = threading.Event()
+
+    def blocking_factory(agent_id: str, cel_filter: str) -> Any:
+        return _FakeEventsProcess([])
+
+    started = threading.Event()
+
+    def factory_with_signal(agent_id: str, cel_filter: str) -> Any:
+        started.set()
+        return _FakeEventsProcess([])
+
+    thread = threading.Thread(
+        target=main,
+        kwargs={
+            "start_subprocess": factory_with_signal,
+            "stop_event": stop_event,
+            "send_message": _MessageCapture(),
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    started.wait(timeout=3.0)
+    stop_event.set()
+    thread.join(timeout=3.0)
+
+    assert not thread.is_alive(), "main() should have exited after stop_event was set"
+
+
+def test_main_creates_required_directories(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """main() creates the events/ and mind/event_batches/ directories."""
+    agent_state_dir = _setup_main_env(tmp_path, monkeypatch)
+    stop_event = threading.Event()
+
+    def immediate_stop_factory(agent_id: str, cel_filter: str) -> Any:
+        stop_event.set()
+        return _FakeEventsProcess([])
+
+    main(
+        start_subprocess=immediate_stop_factory,
+        stop_event=stop_event,
+        send_message=_MessageCapture(),
+    )
+
+    assert (agent_state_dir / "events").is_dir()
+    assert (agent_state_dir / "mind" / "event_batches").is_dir()
