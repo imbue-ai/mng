@@ -25,6 +25,7 @@ from imbue.mng_claude_mind.plugin import WEB_SERVER_WINDOW_NAME
 from imbue.mng_claude_mind.plugin import get_agent_type_from_params
 from imbue.mng_claude_mind.plugin import inject_supporting_services
 from imbue.mng_claude_mind.plugin import override_command_options
+from imbue.mng_llm.data_types import ProvisioningSettings
 
 # Total number of tmux windows injected by inject_supporting_services:
 # conv_watcher, events, web_server
@@ -260,8 +261,6 @@ def test_get_role_from_env_raises_when_missing() -> None:
 
 def test_configure_role_settings_writes_auto_memory_directory() -> None:
     """Verify that _configure_role_settings sets autoMemoryDirectory in settings.local.json."""
-    from imbue.mng_llm.data_types import ProvisioningSettings
-
     host = StubHost()
     agent = ClaudeMindAgent.model_construct(
         agent_config=ClaudeMindConfig(),
@@ -285,8 +284,6 @@ def test_configure_role_settings_writes_auto_memory_directory() -> None:
 
 def test_configure_role_settings_includes_readiness_hooks() -> None:
     """Verify that _configure_role_settings also includes readiness hooks."""
-    from imbue.mng_llm.data_types import ProvisioningSettings
-
     host = StubHost()
     agent = ClaudeMindAgent.model_construct(
         agent_config=ClaudeMindConfig(),
