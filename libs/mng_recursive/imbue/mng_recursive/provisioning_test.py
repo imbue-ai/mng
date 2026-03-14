@@ -101,8 +101,7 @@ def test_upload_deploy_files_with_path_source(tmp_path: Path, test_concurrency_g
         Path("~/.mng/config.toml"): source_file,
     }
 
-    with ctx.concurrency_group:
-        count = _upload_deploy_files(host, deploy_files, "/home/testuser", ctx)
+    count = _upload_deploy_files(host, deploy_files, "/home/testuser", ctx)
 
     assert count == 1
     host.execute_command.assert_called()
@@ -120,8 +119,7 @@ def test_upload_deploy_files_with_string_source(test_concurrency_group: Concurre
         Path("~/.mng/config.toml"): 'key = "value"',
     }
 
-    with ctx.concurrency_group:
-        count = _upload_deploy_files(host, deploy_files, "/home/testuser", ctx)
+    count = _upload_deploy_files(host, deploy_files, "/home/testuser", ctx)
 
     assert count == 1
     host.write_text_file.assert_called_once_with(
@@ -138,8 +136,7 @@ def test_upload_deploy_files_skips_missing_path(tmp_path: Path, test_concurrency
         Path("~/.mng/config.toml"): tmp_path / "nonexistent.toml",
     }
 
-    with ctx.concurrency_group:
-        count = _upload_deploy_files(host, deploy_files, "/home/testuser", ctx)
+    count = _upload_deploy_files(host, deploy_files, "/home/testuser", ctx)
 
     assert count == 0
     host.write_file.assert_not_called()
@@ -154,8 +151,7 @@ def test_upload_deploy_files_creates_parent_dirs(test_concurrency_group: Concurr
         Path("~/.mng/profiles/abc/settings.toml"): "content",
     }
 
-    with ctx.concurrency_group:
-        _upload_deploy_files(host, deploy_files, "/home/testuser", ctx)
+    _upload_deploy_files(host, deploy_files, "/home/testuser", ctx)
 
     # Check that mkdir -p was called for the parent directory
     mkdir_calls = [call for call in host.execute_command.call_args_list if "mkdir -p" in str(call)]
