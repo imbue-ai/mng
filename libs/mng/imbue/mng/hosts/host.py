@@ -92,15 +92,28 @@ def _try_acquire_flock(lock_file: io.TextIOWrapper) -> bool:
 
 
 @pure
-def _is_socket_closed_os_error(exception: BaseException) -> bool:
-    return isinstance(exception, OSError) and "Socket is closed" in str(exception)
+def _is_transient_ssh_error(exception: BaseException) -> bool:
+    """Check if the exception is a transient SSH connection error worth retrying.
+
+    Matches:
+    - OSError with "Socket is closed" (stale socket from pyinfra)
+    - SSHException (e.g. "SSH session not active" when transport dies)
+    - EOFError (remote end closed connection)
+    """
+    if isinstance(exception, OSError) and "Socket is closed" in str(exception):
+        return True
+    if isinstance(exception, SSHException):
+        return True
+    if isinstance(exception, EOFError):
+        return True
+    return False
 
 
-# Shared retry decorator for file operations that encounter intermittent
-# "Socket is closed" errors.  Retries after (0, 1, 3, 6) seconds for a
-# total backoff window of ~10 seconds.
-_retry_on_socket_closed = retry(
-    retry=retry_if_exception(_is_socket_closed_os_error),
+# Shared retry decorator for file operations that encounter transient SSH
+# connection errors.  Retries after (0, 1, 3, 6) seconds for a total
+# backoff window of ~10 seconds.
+_retry_on_transient_ssh_error = retry(
+    retry=retry_if_exception(_is_transient_ssh_error),
     stop=stop_after_attempt(5),
     wait=wait_chain(
         wait_fixed(0),
@@ -284,7 +297,7 @@ class Host(BaseHost, OnlineHostInterface):
             except (EOFError, SSHException) as e:
                 raise HostConnectionError("Could not read file due to connection error") from e
 
-    @_retry_on_socket_closed
+    @_retry_on_transient_ssh_error
     def _get_file_with_socket_retry(
         self,
         remote_filename: str,
@@ -320,6 +333,10 @@ class Host(BaseHost, OnlineHostInterface):
                 raise
             else:
                 raise
+        except (SSHException, EOFError) as e:
+            logger.debug("SSH error while reading {}: {}, disconnecting for retry", remote_filename, e)
+            self.connector.host.disconnect()
+            raise
 
     def _get_file_via_paramiko(
         self,
@@ -371,7 +388,7 @@ class Host(BaseHost, OnlineHostInterface):
             except (EOFError, SSHException) as e:
                 raise HostConnectionError("Could not write file due to connection error") from e
 
-    @_retry_on_socket_closed
+    @_retry_on_transient_ssh_error
     def _put_file_with_socket_retry(
         self,
         filename_or_io: str | IO[str] | IO[bytes],
@@ -402,6 +419,10 @@ class Host(BaseHost, OnlineHostInterface):
                 raise
             else:
                 raise
+        except (SSHException, EOFError) as e:
+            logger.debug("SSH error while writing {}: {}, disconnecting for retry", remote_filename, e)
+            self.connector.host.disconnect()
+            raise
 
     def _get_paramiko_transport(self) -> object:
         """Get the paramiko Transport from the SSH connector.

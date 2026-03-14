@@ -28,7 +28,7 @@ from imbue.mng.hosts.host import ONBOARDING_TEXT
 from imbue.mng.hosts.host import ONBOARDING_TEXT_TMUX_USER
 from imbue.mng.hosts.host import _build_start_agent_shell_command
 from imbue.mng.hosts.host import _format_env_file
-from imbue.mng.hosts.host import _is_socket_closed_os_error
+from imbue.mng.hosts.host import _is_transient_ssh_error
 from imbue.mng.hosts.host import _parse_boot_time_output
 from imbue.mng.hosts.host import _parse_uptime_output
 from imbue.mng.interfaces.data_types import PyinfraConnector
@@ -904,16 +904,24 @@ def _create_host_with_fake_connector(
     )
 
 
-def test_is_socket_closed_os_error_matches_socket_closed_message() -> None:
-    assert _is_socket_closed_os_error(OSError("Socket is closed")) is True
+def test_is_transient_ssh_error_matches_socket_closed_message() -> None:
+    assert _is_transient_ssh_error(OSError("Socket is closed")) is True
 
 
-def test_is_socket_closed_os_error_rejects_other_os_error() -> None:
-    assert _is_socket_closed_os_error(OSError("No such file or directory")) is False
+def test_is_transient_ssh_error_rejects_other_os_error() -> None:
+    assert _is_transient_ssh_error(OSError("No such file or directory")) is False
 
 
-def test_is_socket_closed_os_error_rejects_non_os_error() -> None:
-    assert _is_socket_closed_os_error(ValueError("Socket is closed")) is False
+def test_is_transient_ssh_error_rejects_non_os_error() -> None:
+    assert _is_transient_ssh_error(ValueError("Socket is closed")) is False
+
+
+def test_is_transient_ssh_error_matches_ssh_exception() -> None:
+    assert _is_transient_ssh_error(SSHException("SSH session not active")) is True
+
+
+def test_is_transient_ssh_error_matches_eof_error() -> None:
+    assert _is_transient_ssh_error(EOFError()) is True
 
 
 class _FakeTransport:
@@ -1235,16 +1243,93 @@ def test_put_file_via_paramiko_uploads_via_fresh_sftp_channel(
 def test_get_file_wraps_ssh_exception_in_host_connection_error(
     local_provider: LocalProviderInstance,
 ) -> None:
-    """SSHException should be wrapped in HostConnectionError."""
+    """SSHException should be wrapped in HostConnectionError.
 
-    class _SSHExceptionSFTP(_BaseFakeSFTP):
-        def getfo(self, remote_path: str, fl: IO[bytes]) -> None:
+    Overrides _get_file_with_socket_retry to raise SSHException directly
+    (bypassing the retry decorator) so this test stays fast while still
+    exercising _get_file's wrapping logic.
+    """
+
+    class _HostWithImmediateSSHFailure(Host):
+        def _get_file_with_socket_retry(
+            self,
+            remote_filename: str,
+            filename_or_io: str | IO[bytes],
+            remote_temp_filename: str | None,
+        ) -> bool:
             raise SSHException("connection lost")
 
-    host = _create_host_with_custom_sftp(local_provider, _SSHExceptionSFTP)
+    fake = _FakeHostWithSSH(ssh_client=_FakeSSHClient(transport_return=_FakeTransport()))
+    connector = PyinfraConnector(cast(PyinfraHost, fake))
+    host = _HostWithImmediateSSHFailure(
+        id=HostId.generate(),
+        connector=connector,
+        provider_instance=local_provider,
+        mng_ctx=local_provider.mng_ctx,
+    )
 
     with pytest.raises(HostConnectionError, match="Could not read file"):
         host._get_file("/remote/file.txt", io.BytesIO())
+
+
+def test_get_file_retries_on_ssh_exception_and_returns_result(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """A transient SSHException should be retried with disconnect/reconnect."""
+    call_count = 0
+
+    class _SSHExceptionThenSucceedSFTP(_BaseFakeSFTP):
+        def getfo(self, remote_path: str, fl: IO[bytes]) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise SSHException("SSH session not active")
+
+    host = _create_host_with_custom_sftp(local_provider, _SSHExceptionThenSucceedSFTP)
+    result = host._get_file("/remote/file.txt", io.BytesIO())
+
+    assert result is True
+    assert call_count == 2
+
+
+def test_put_file_retries_on_ssh_exception_and_returns_result(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """A transient SSHException on put_file should be retried with disconnect/reconnect."""
+    call_count = 0
+
+    class _SSHExceptionThenSucceedSFTP(_BaseFakeSFTP):
+        def putfo(self, fl: IO[bytes], remote_path: str) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise SSHException("SSH session not active")
+
+    host = _create_host_with_custom_sftp(local_provider, _SSHExceptionThenSucceedSFTP)
+    result = host._put_file(io.BytesIO(b"content"), "/remote/file.txt")
+
+    assert result is True
+    assert call_count == 2
+
+
+def test_get_file_retries_on_eof_error_and_returns_result(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """A transient EOFError should be retried with disconnect/reconnect."""
+    call_count = 0
+
+    class _EOFErrorThenSucceedSFTP(_BaseFakeSFTP):
+        def getfo(self, remote_path: str, fl: IO[bytes]) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise EOFError()
+
+    host = _create_host_with_custom_sftp(local_provider, _EOFErrorThenSucceedSFTP)
+    result = host._get_file("/remote/file.txt", io.BytesIO())
+
+    assert result is True
+    assert call_count == 2
 
 
 # =========================================================================
