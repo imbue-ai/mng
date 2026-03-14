@@ -7,7 +7,9 @@ from typing import cast
 
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng_ttyd.plugin import TTYD_COMMAND
+from imbue.mng_ttyd.plugin import TTYD_INSTALL_COMMAND
 from imbue.mng_ttyd.plugin import TTYD_SERVER_NAME
+from imbue.mng_ttyd.plugin import TTYD_VERSION
 from imbue.mng_ttyd.plugin import TTYD_WINDOW_NAME
 from imbue.mng_ttyd.plugin import on_after_provisioning
 from imbue.mng_ttyd.plugin import override_command_options
@@ -192,7 +194,7 @@ def test_on_after_provisioning_creates_ttyd_directory(tmp_path: Path) -> None:
 
 
 def test_on_after_provisioning_installs_ttyd_when_missing(tmp_path: Path) -> None:
-    """Verify that on_after_provisioning installs ttyd when it is not already present."""
+    """Verify that on_after_provisioning downloads ttyd binary when it is not already present."""
     host_dir = tmp_path / "host"
     host_dir.mkdir()
 
@@ -202,7 +204,7 @@ def test_on_after_provisioning_installs_ttyd_when_missing(tmp_path: Path) -> Non
         agent=cast(Any, SimpleNamespace(id="a1")), host=cast(Any, host), mng_ctx=cast(Any, SimpleNamespace())
     )
 
-    assert any("apt-get" in cmd and "ttyd" in cmd for cmd in host.executed_cmds)
+    assert any(cmd == TTYD_INSTALL_COMMAND for cmd in host.executed_cmds)
 
 
 def test_on_after_provisioning_skips_install_when_ttyd_present(tmp_path: Path) -> None:
@@ -216,4 +218,13 @@ def test_on_after_provisioning_skips_install_when_ttyd_present(tmp_path: Path) -
         agent=cast(Any, SimpleNamespace(id="a1")), host=cast(Any, host), mng_ctx=cast(Any, SimpleNamespace())
     )
 
-    assert not any("apt-get" in cmd and "ttyd" in cmd for cmd in host.executed_cmds)
+    assert not any(cmd == TTYD_INSTALL_COMMAND for cmd in host.executed_cmds)
+
+
+def test_ttyd_install_command_downloads_from_github() -> None:
+    """Verify that the install command downloads the correct ttyd version from GitHub releases."""
+    assert "github.com/tsl0922/ttyd/releases/download" in TTYD_INSTALL_COMMAND
+    assert TTYD_VERSION in TTYD_INSTALL_COMMAND
+    assert "/usr/local/bin/ttyd" in TTYD_INSTALL_COMMAND
+    assert "uname -m" in TTYD_INSTALL_COMMAND
+    assert "chmod +x" in TTYD_INSTALL_COMMAND
