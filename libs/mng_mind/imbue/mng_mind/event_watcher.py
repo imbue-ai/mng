@@ -76,6 +76,8 @@ _DELIVERY_POLL_INTERVAL_SECONDS: Final[float] = 0.5
 _BACKOFF_BASE_SECONDS: Final[float] = 2.0
 _BACKOFF_MAX_SECONDS: Final[float] = 60.0
 
+_IGNORED_SOURCES_FILENAME: Final[str] = "ignored_sources.txt"
+
 
 # -- Settings --
 
@@ -107,6 +109,69 @@ def _load_watcher_settings(agent_work_dir: Path) -> _EventWatcherSettings:
             "max_same_source_events_per_batch", _DEFAULT_MAX_SAME_SOURCE_EVENTS_PER_BATCH
         ),
     )
+
+
+# -- Ignored sources --
+
+
+@dataclasses.dataclass
+class _IgnoredSourcesState:
+    """Tracks the ignored_sources.txt file and its cached contents."""
+
+    file_path: Path
+    last_mtime: float = 0.0
+    ignored_sources: frozenset[str] = frozenset()
+
+
+def _load_ignored_sources_if_updated(state: _IgnoredSourcesState) -> frozenset[str]:
+    """Re-read ignored_sources.txt if the file has been modified since last read.
+
+    Returns the current set of ignored sources (may be empty if the file
+    does not exist or is empty).
+    """
+    try:
+        current_mtime = state.file_path.stat().st_mtime
+    except OSError:
+        if state.ignored_sources:
+            logger.debug("ignored_sources.txt no longer exists, clearing ignored sources")
+            state.ignored_sources = frozenset()
+            state.last_mtime = 0.0
+        return state.ignored_sources
+
+    if current_mtime == state.last_mtime:
+        return state.ignored_sources
+
+    try:
+        content = state.file_path.read_text()
+    except OSError as exc:
+        logger.warning("Failed to read {}: {}", state.file_path, exc)
+        return state.ignored_sources
+
+    sources = frozenset(
+        line.strip() for line in content.splitlines() if line.strip() and not line.strip().startswith("#")
+    )
+    if sources != state.ignored_sources:
+        logger.info("Updated ignored sources from {}: {}", state.file_path, sorted(sources))
+    state.ignored_sources = sources
+    state.last_mtime = current_mtime
+    return sources
+
+
+def _filter_ignored_sources(lines: list[str], ignored_sources: frozenset[str]) -> list[str]:
+    """Remove events whose source is in the ignored set."""
+    if not ignored_sources:
+        return lines
+    result: list[str] = []
+    for line in lines:
+        try:
+            parsed = json.loads(line)
+            source = parsed.get("source", "")
+        except json.JSONDecodeError:
+            result.append(line)
+            continue
+        if source not in ignored_sources:
+            result.append(line)
+    return result
 
 
 # -- Delivery state --
@@ -740,6 +805,7 @@ def _run_delivery_loop(
     stop_event: threading.Event,
     event_batches_dir: Path,
     event_lists_dir: Path,
+    ignored_sources_state: _IgnoredSourcesState,
     send_message: Callable[[str, str], bool] = _send_message,
 ) -> None:
     """Main delivery loop: drain buffer, rate-limit, format, and deliver to agent.
@@ -824,6 +890,10 @@ def _run_delivery_loop(
             settings.max_event_length,
             settings.max_same_source_events_per_batch,
         )
+
+        # Filter out events from dynamically ignored sources
+        ignored_sources = _load_ignored_sources_if_updated(ignored_sources_state)
+        deliverable_lines = _filter_ignored_sources(deliverable_lines, ignored_sources)
 
         if not deliverable_lines:
             continue
@@ -942,6 +1012,15 @@ def main(
     logger.info("  Event batches dir: {}", event_batches_dir)
     logger.info("  Event lists dir: {}", event_lists_dir)
 
+    # Resolve the ignored_sources.txt path: $MNG_AGENT_WORK_DIR/$ROLE/ignored_sources.txt
+    role = os.environ.get("ROLE", "")
+    if role:
+        ignored_sources_path = agent_work_dir / role / _IGNORED_SOURCES_FILENAME
+    else:
+        ignored_sources_path = agent_work_dir / _IGNORED_SOURCES_FILENAME
+    logger.info("  Ignored sources file: {}", ignored_sources_path)
+    ignored_sources_state = _IgnoredSourcesState(file_path=ignored_sources_path)
+
     event_buffer: list[str] = []
     buffer_lock = threading.Lock()
     active_process: subprocess.Popen[str] | None = None
@@ -959,6 +1038,7 @@ def main(
             stop_event,
             event_batches_dir,
             event_lists_dir,
+            ignored_sources_state,
             send_message,
         ),
         daemon=True,
