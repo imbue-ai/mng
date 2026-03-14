@@ -19,7 +19,6 @@ from imbue.mng_mind.data_types import WatcherSettings
 from imbue.mng_mind.event_watcher import DEFAULT_CEL_FILTER
 from imbue.mng_mind.event_watcher import _CHAT_PAIR_TIMEOUT_SECONDS
 from imbue.mng_mind.event_watcher import _DEFAULT_BURST_SIZE
-from imbue.mng_mind.event_watcher import _DEFAULT_HIGH_RATE_WARNING_THRESHOLD
 from imbue.mng_mind.event_watcher import _DEFAULT_MAX_DELIVERY_RETRIES
 from imbue.mng_mind.event_watcher import _DEFAULT_MAX_MESSAGES_PER_MINUTE
 from imbue.mng_mind.event_watcher import _DeliveryState
@@ -65,7 +64,6 @@ def test_defaults_match_between_data_types_and_event_watcher() -> None:
     assert model_defaults.event_cel_filter == DEFAULT_CEL_FILTER
     assert model_defaults.event_burst_size == _DEFAULT_BURST_SIZE
     assert model_defaults.max_event_messages_per_minute == _DEFAULT_MAX_MESSAGES_PER_MINUTE
-    assert model_defaults.high_rate_warning_threshold_per_minute == _DEFAULT_HIGH_RATE_WARNING_THRESHOLD
     assert model_defaults.max_delivery_retries == _DEFAULT_MAX_DELIVERY_RETRIES
 
 
@@ -77,7 +75,6 @@ def test_load_settings_defaults_when_no_file(tmp_path: Path) -> None:
     assert settings.cel_filter == _EventWatcherSettings().cel_filter
     assert settings.burst_size == 5
     assert settings.max_messages_per_minute == 10
-    assert settings.high_rate_warning_threshold == 8
 
 
 def test_load_settings_reads_custom_values(tmp_path: Path) -> None:
@@ -86,14 +83,12 @@ def test_load_settings_reads_custom_values(tmp_path: Path) -> None:
         "[watchers]\n"
         'event_cel_filter = "source == \\"messages\\""\n'
         "event_burst_size = 3\n"
-        "max_event_messages_per_minute = 20\n"
-        "high_rate_warning_threshold_per_minute = 15\n",
+        "max_event_messages_per_minute = 20\n",
     )
     settings = _load_watcher_settings(tmp_path)
     assert settings.cel_filter == 'source == "messages"'
     assert settings.burst_size == 3
     assert settings.max_messages_per_minute == 20
-    assert settings.high_rate_warning_threshold == 15
 
 
 def test_load_settings_handles_partial_config(tmp_path: Path) -> None:
@@ -351,14 +346,14 @@ def test_send_message_returns_false_on_os_error(monkeypatch: pytest.MonkeyPatch)
 # -- _write_events_file tests --
 
 
-def test_write_events_file_creates_file_with_jsonl_content() -> None:
+def test_write_events_file_creates_file_with_jsonl_content(tmp_path: Path) -> None:
     event_lines = [
         '{"event_id":"evt-1","timestamp":"2026-03-01T00:00:00Z"}',
         '{"event_id":"evt-2","timestamp":"2026-03-01T00:01:00Z"}',
     ]
-    file_path = _write_events_file(event_lines)
+    file_path = _write_events_file(event_lines, directory=str(tmp_path))
     assert file_path is not None
-    assert file_path.startswith("/tmp/")
+    assert file_path.startswith(str(tmp_path))
     assert file_path.endswith(".events")
 
     content = Path(file_path).read_text()
@@ -366,9 +361,6 @@ def test_write_events_file_creates_file_with_jsonl_content() -> None:
     assert len(lines) == 2
     assert json.loads(lines[0])["event_id"] == "evt-1"
     assert json.loads(lines[1])["event_id"] == "evt-2"
-
-    # Clean up
-    Path(file_path).unlink()
 
 
 def test_write_events_file_returns_none_on_write_failure() -> None:
@@ -490,6 +482,17 @@ def test_write_notification_event_creates_file(tmp_path: Path) -> None:
     assert event["message"] == "Test notification"
     assert "event_id" in event
     assert "timestamp" in event
+
+
+def test_write_notification_event_handles_write_error(tmp_path: Path) -> None:
+    """_write_notification_event should not raise when the events file open fails."""
+    events_dir = tmp_path / "events"
+    # Create the directory but make events.jsonl a directory so open() fails
+    delivery_dir = events_dir / "delivery_failures"
+    delivery_dir.mkdir(parents=True)
+    # Make events.jsonl a directory so that open() raises IsADirectoryError
+    (delivery_dir / "events.jsonl").mkdir()
+    _write_notification_event(events_dir, "Test notification")
 
 
 # -- _get_system_notifications_conversation_id tests --

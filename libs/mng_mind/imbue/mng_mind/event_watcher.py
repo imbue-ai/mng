@@ -58,7 +58,6 @@ from imbue.mng_recursive.watcher_common import setup_watcher_logging
 
 _DEFAULT_BURST_SIZE: Final[int] = 5
 _DEFAULT_MAX_MESSAGES_PER_MINUTE: Final[int] = 10
-_DEFAULT_HIGH_RATE_WARNING_THRESHOLD: Final[int] = 8
 _DEFAULT_MAX_DELIVERY_RETRIES: Final[int] = 3
 
 _DELIVERY_STATE_FILENAME: Final[str] = ".event_delivery_state.json"
@@ -85,7 +84,6 @@ class _EventWatcherSettings:
     cel_filter: str = DEFAULT_CEL_FILTER
     burst_size: int = _DEFAULT_BURST_SIZE
     max_messages_per_minute: int = _DEFAULT_MAX_MESSAGES_PER_MINUTE
-    high_rate_warning_threshold: int = _DEFAULT_HIGH_RATE_WARNING_THRESHOLD
     max_delivery_retries: int = _DEFAULT_MAX_DELIVERY_RETRIES
 
 
@@ -98,9 +96,6 @@ def _load_watcher_settings(agent_work_dir: Path) -> _EventWatcherSettings:
         cel_filter=watchers.get("event_cel_filter", DEFAULT_CEL_FILTER),
         burst_size=watchers.get("event_burst_size", _DEFAULT_BURST_SIZE),
         max_messages_per_minute=watchers.get("max_event_messages_per_minute", _DEFAULT_MAX_MESSAGES_PER_MINUTE),
-        high_rate_warning_threshold=watchers.get(
-            "high_rate_warning_threshold_per_minute", _DEFAULT_HIGH_RATE_WARNING_THRESHOLD
-        ),
         max_delivery_retries=watchers.get("max_delivery_retries", _DEFAULT_MAX_DELIVERY_RETRIES),
     )
 
@@ -628,8 +623,8 @@ def _deliver_batch(
     logger.warning("Failed to deliver {} event(s), will retry", len(deliverable_lines))
     try:
         Path(events_file_path).unlink(missing_ok=True)
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.debug("Failed to clean up events file {}: {}", events_file_path, exc)
     with buffer_lock:
         event_buffer[0:0] = deliverable_lines
     return False
@@ -815,7 +810,6 @@ def main() -> None:
     logger.info("  CEL filter: {}", settings.cel_filter)
     logger.info("  Burst size: {}", settings.burst_size)
     logger.info("  Max messages/min: {}", settings.max_messages_per_minute)
-    logger.info("  Rate warning threshold: {}/min", settings.high_rate_warning_threshold)
     logger.info("  Max delivery retries: {}", settings.max_delivery_retries)
     logger.info("  State file: {}", state_file)
 

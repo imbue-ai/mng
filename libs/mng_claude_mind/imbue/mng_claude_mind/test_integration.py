@@ -500,7 +500,6 @@ def test_event_watcher_reads_settings_for_watched_sources(
         'event_cel_filter = "source == \\"messages\\""\n'
         "event_burst_size = 3\n"
         "max_event_messages_per_minute = 20\n"
-        "high_rate_warning_threshold_per_minute = 15\n"
     )
     settings_path = work_dir / "minds.toml"
     settings_path.write_text(settings_content)
@@ -517,7 +516,6 @@ print(json.dumps({{
     'cel_filter': w.get('event_cel_filter', ''),
     'burst_size': w.get('event_burst_size', 5),
     'max_messages_per_minute': w.get('max_event_messages_per_minute', 10),
-    'high_rate_warning_threshold': w.get('high_rate_warning_threshold_per_minute', 8),
 }}))
 """
     result = subprocess.run(
@@ -532,7 +530,6 @@ print(json.dumps({{
     assert parsed["cel_filter"] == 'source == "messages"'
     assert parsed["burst_size"] == 3
     assert parsed["max_messages_per_minute"] == 20
-    assert parsed["high_rate_warning_threshold"] == 15
 
 
 # -- Tmux window injection integration tests --

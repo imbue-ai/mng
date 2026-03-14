@@ -82,10 +82,6 @@ class WatcherSettings(FrozenModel):
         default=PositiveInt(10),
         description="Maximum event messages delivered to the agent per minute (sustained rate).",
     )
-    high_rate_warning_threshold_per_minute: PositiveInt = Field(
-        default=PositiveInt(8),
-        description="When messages per minute exceeds this, include a rate warning in the delivery envelope.",
-    )
     max_delivery_retries: PositiveInt = Field(
         default=PositiveInt(3),
         description="Maximum consecutive delivery failures before notifying the user. "
