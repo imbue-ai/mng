@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +17,7 @@ from imbue.mng.api.observe import append_agent_state_change_event
 from imbue.mng.api.observe import append_observe_event
 from imbue.mng.api.observe import get_agent_states_events_dir
 from imbue.mng.api.observe import get_agent_states_events_path
+from imbue.mng.api.observe import get_default_events_base_dir
 from imbue.mng.api.observe import get_observe_events_dir
 from imbue.mng.api.observe import get_observe_events_path
 from imbue.mng.api.observe import get_observe_lock_path
@@ -34,31 +36,36 @@ from imbue.mng.utils.testing import make_test_discovered_host
 # === Path Helper Tests ===
 
 
-def test_get_observe_events_dir_returns_correct_path(temp_config: MngConfig) -> None:
-    events_dir = get_observe_events_dir(temp_config)
-    assert events_dir == temp_config.default_host_dir / "events" / "mng" / "agents"
+def test_get_default_events_base_dir_expands_home(temp_config: MngConfig) -> None:
+    events_base_dir = get_default_events_base_dir(temp_config)
+    assert events_base_dir == temp_config.default_host_dir.expanduser()
 
 
-def test_get_observe_events_path_returns_jsonl_file(temp_config: MngConfig) -> None:
-    events_path = get_observe_events_path(temp_config)
+def test_get_observe_events_dir_returns_correct_path(temp_host_dir: Path) -> None:
+    events_dir = get_observe_events_dir(temp_host_dir)
+    assert events_dir == temp_host_dir / "events" / "mng" / "agents"
+
+
+def test_get_observe_events_path_returns_jsonl_file(temp_host_dir: Path) -> None:
+    events_path = get_observe_events_path(temp_host_dir)
     assert events_path.name == "events.jsonl"
     assert events_path.parent.name == "agents"
 
 
-def test_get_agent_states_events_dir_returns_correct_path(temp_config: MngConfig) -> None:
-    events_dir = get_agent_states_events_dir(temp_config)
-    assert events_dir == temp_config.default_host_dir / "events" / "mng" / "agent_states"
+def test_get_agent_states_events_dir_returns_correct_path(temp_host_dir: Path) -> None:
+    events_dir = get_agent_states_events_dir(temp_host_dir)
+    assert events_dir == temp_host_dir / "events" / "mng" / "agent_states"
 
 
-def test_get_agent_states_events_path_returns_jsonl_file(temp_config: MngConfig) -> None:
-    events_path = get_agent_states_events_path(temp_config)
+def test_get_agent_states_events_path_returns_jsonl_file(temp_host_dir: Path) -> None:
+    events_path = get_agent_states_events_path(temp_host_dir)
     assert events_path.name == "events.jsonl"
     assert events_path.parent.name == "agent_states"
 
 
-def test_get_observe_lock_path_returns_correct_path(temp_config: MngConfig) -> None:
-    lock_path = get_observe_lock_path(temp_config)
-    assert lock_path == temp_config.default_host_dir / "observe_lock"
+def test_get_observe_lock_path_returns_correct_path(temp_host_dir: Path) -> None:
+    lock_path = get_observe_lock_path(temp_host_dir)
+    assert lock_path == temp_host_dir / "observe_lock"
 
 
 # === Event Construction Tests ===
@@ -114,12 +121,12 @@ def test_make_agent_state_change_event_with_none_old_state() -> None:
 # === File I/O Tests ===
 
 
-def test_append_observe_event_creates_file_and_writes_valid_json(temp_config: MngConfig) -> None:
+def test_append_observe_event_creates_file_and_writes_valid_json(temp_host_dir: Path) -> None:
     agent = make_test_agent_details()
     event = make_agent_state_event(agent)
-    append_observe_event(temp_config, event)
+    append_observe_event(temp_host_dir, event)
 
-    events_path = get_observe_events_path(temp_config)
+    events_path = get_observe_events_path(temp_host_dir)
     assert events_path.exists()
 
     lines = events_path.read_text().strip().splitlines()
@@ -129,33 +136,33 @@ def test_append_observe_event_creates_file_and_writes_valid_json(temp_config: Mn
     assert data["source"] == "mng/agents"
 
 
-def test_append_observe_event_appends_multiple_events(temp_config: MngConfig) -> None:
+def test_append_observe_event_appends_multiple_events(temp_host_dir: Path) -> None:
     for idx in range(3):
         agent = make_test_agent_details(name=f"agent-{idx}")
         event = make_agent_state_event(agent)
-        append_observe_event(temp_config, event)
+        append_observe_event(temp_host_dir, event)
 
-    events_path = get_observe_events_path(temp_config)
+    events_path = get_observe_events_path(temp_host_dir)
     lines = events_path.read_text().strip().splitlines()
     assert len(lines) == 3
 
 
-def test_append_observe_event_creates_parent_directories(temp_config: MngConfig) -> None:
-    events_path = get_observe_events_path(temp_config)
+def test_append_observe_event_creates_parent_directories(temp_host_dir: Path) -> None:
+    events_path = get_observe_events_path(temp_host_dir)
     assert not events_path.parent.exists()
 
     agent = make_test_agent_details()
     event = make_agent_state_event(agent)
-    append_observe_event(temp_config, event)
+    append_observe_event(temp_host_dir, event)
     assert events_path.parent.exists()
 
 
-def test_append_agent_state_change_event_creates_file_and_writes_valid_json(temp_config: MngConfig) -> None:
+def test_append_agent_state_change_event_creates_file_and_writes_valid_json(temp_host_dir: Path) -> None:
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
     event = make_agent_state_change_event(agent, "STOPPED")
-    append_agent_state_change_event(temp_config, event)
+    append_agent_state_change_event(temp_host_dir, event)
 
-    events_path = get_agent_states_events_path(temp_config)
+    events_path = get_agent_states_events_path(temp_host_dir)
     assert events_path.exists()
 
     lines = events_path.read_text().strip().splitlines()
@@ -167,62 +174,62 @@ def test_append_agent_state_change_event_creates_file_and_writes_valid_json(temp
     assert data["new_state"] == "RUNNING"
 
 
-def test_append_agent_state_change_event_creates_parent_directories(temp_config: MngConfig) -> None:
-    events_path = get_agent_states_events_path(temp_config)
+def test_append_agent_state_change_event_creates_parent_directories(temp_host_dir: Path) -> None:
+    events_path = get_agent_states_events_path(temp_host_dir)
     assert not events_path.parent.exists()
 
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
     event = make_agent_state_change_event(agent, None)
-    append_agent_state_change_event(temp_config, event)
+    append_agent_state_change_event(temp_host_dir, event)
     assert events_path.parent.exists()
 
 
 # === History Loading Tests ===
 
 
-def test_load_base_state_from_history_returns_empty_when_no_file(temp_config: MngConfig) -> None:
-    agent_state = load_base_state_from_history(temp_config)
+def test_load_base_state_from_history_returns_empty_when_no_file(temp_host_dir: Path) -> None:
+    agent_state = load_base_state_from_history(temp_host_dir)
     assert agent_state == {}
 
 
-def test_load_base_state_from_history_loads_latest_full_state(temp_config: MngConfig) -> None:
+def test_load_base_state_from_history_loads_latest_full_state(temp_host_dir: Path) -> None:
     agent1 = make_test_agent_details(name="agent-1", state=AgentLifecycleState.RUNNING)
     agent2 = make_test_agent_details(name="agent-2", state=AgentLifecycleState.STOPPED)
     event = make_full_agent_state_event([agent1, agent2])
-    append_observe_event(temp_config, event)
+    append_observe_event(temp_host_dir, event)
 
-    agent_state = load_base_state_from_history(temp_config)
+    agent_state = load_base_state_from_history(temp_host_dir)
     assert len(agent_state) == 2
     assert agent_state[str(agent1.id)] == "RUNNING"
     assert agent_state[str(agent2.id)] == "STOPPED"
 
 
-def test_load_base_state_from_history_uses_latest_full_state(temp_config: MngConfig) -> None:
+def test_load_base_state_from_history_uses_latest_full_state(temp_host_dir: Path) -> None:
     agent1 = make_test_agent_details(name="agent-1", state=AgentLifecycleState.RUNNING)
     event1 = make_full_agent_state_event([agent1])
-    append_observe_event(temp_config, event1)
+    append_observe_event(temp_host_dir, event1)
 
     agent2 = make_test_agent_details(name="agent-2", state=AgentLifecycleState.STOPPED)
     event2 = make_full_agent_state_event([agent2])
-    append_observe_event(temp_config, event2)
+    append_observe_event(temp_host_dir, event2)
 
-    agent_state = load_base_state_from_history(temp_config)
+    agent_state = load_base_state_from_history(temp_host_dir)
     assert len(agent_state) == 1
     assert str(agent2.id) in agent_state
     assert agent_state[str(agent2.id)] == "STOPPED"
 
 
-def test_load_base_state_from_history_ignores_non_full_state_events(temp_config: MngConfig) -> None:
+def test_load_base_state_from_history_ignores_non_full_state_events(temp_host_dir: Path) -> None:
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
     individual_event = make_agent_state_event(agent)
-    append_observe_event(temp_config, individual_event)
+    append_observe_event(temp_host_dir, individual_event)
 
-    agent_state = load_base_state_from_history(temp_config)
+    agent_state = load_base_state_from_history(temp_host_dir)
     assert agent_state == {}
 
 
-def test_load_base_state_from_history_handles_malformed_lines(temp_config: MngConfig) -> None:
-    events_path = get_observe_events_path(temp_config)
+def test_load_base_state_from_history_handles_malformed_lines(temp_host_dir: Path) -> None:
+    events_path = get_observe_events_path(temp_host_dir)
     events_path.parent.mkdir(parents=True, exist_ok=True)
 
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
@@ -233,7 +240,7 @@ def test_load_base_state_from_history_handles_malformed_lines(temp_config: MngCo
         f.write("not valid json\n")
         f.write(event_json + "\n")
 
-    agent_state = load_base_state_from_history(temp_config)
+    agent_state = load_base_state_from_history(temp_host_dir)
     assert len(agent_state) == 1
     assert agent_state[str(agent.id)] == "RUNNING"
 
@@ -241,36 +248,49 @@ def test_load_base_state_from_history_handles_malformed_lines(temp_config: MngCo
 # === Lock Tests ===
 
 
-def test_acquire_and_release_observe_lock(temp_config: MngConfig) -> None:
-    fd = acquire_observe_lock(temp_config)
+def test_acquire_and_release_observe_lock(temp_host_dir: Path) -> None:
+    fd = acquire_observe_lock(temp_host_dir)
     assert fd >= 0
     release_observe_lock(fd)
 
 
-def test_acquire_observe_lock_fails_when_already_held(temp_config: MngConfig) -> None:
-    fd = acquire_observe_lock(temp_config)
+def test_acquire_observe_lock_fails_when_already_held(temp_host_dir: Path) -> None:
+    fd = acquire_observe_lock(temp_host_dir)
     try:
         with pytest.raises(ObserveLockError):
-            acquire_observe_lock(temp_config)
+            acquire_observe_lock(temp_host_dir)
     finally:
         release_observe_lock(fd)
 
 
-def test_acquire_observe_lock_succeeds_after_release(temp_config: MngConfig) -> None:
-    fd = acquire_observe_lock(temp_config)
+def test_acquire_observe_lock_succeeds_after_release(temp_host_dir: Path) -> None:
+    fd = acquire_observe_lock(temp_host_dir)
     release_observe_lock(fd)
 
-    fd2 = acquire_observe_lock(temp_config)
+    fd2 = acquire_observe_lock(temp_host_dir)
     release_observe_lock(fd2)
 
 
-def test_observe_lock_creates_lock_file(temp_config: MngConfig) -> None:
-    lock_path = get_observe_lock_path(temp_config)
+def test_observe_lock_creates_lock_file(temp_host_dir: Path) -> None:
+    lock_path = get_observe_lock_path(temp_host_dir)
     assert not lock_path.exists()
 
-    fd = acquire_observe_lock(temp_config)
+    fd = acquire_observe_lock(temp_host_dir)
     assert lock_path.exists()
     release_observe_lock(fd)
+
+
+def test_separate_dirs_can_lock_independently(tmp_path: Path) -> None:
+    """Two different output directories can each hold a lock simultaneously."""
+    dir_a = tmp_path / "observer-a"
+    dir_a.mkdir()
+    dir_b = tmp_path / "observer-b"
+    dir_b.mkdir()
+
+    fd_a = acquire_observe_lock(dir_a)
+    fd_b = acquire_observe_lock(dir_b)
+    release_observe_lock(fd_a)
+    release_observe_lock(fd_b)
 
 
 # === Serialization Roundtrip Tests ===
@@ -317,9 +337,18 @@ def test_agent_state_change_event_serializes_to_valid_json() -> None:
 # === AgentObserver Tests ===
 
 
+def _make_observer(temp_mng_ctx: MngContext, noop_binary: str) -> AgentObserver:
+    """Create an AgentObserver with events_base_dir derived from the test config."""
+    return AgentObserver(
+        mng_ctx=temp_mng_ctx,
+        events_base_dir=get_default_events_base_dir(temp_mng_ctx.config),
+        mng_binary=noop_binary,
+    )
+
+
 def test_agent_observer_handle_full_snapshot_tracks_hosts(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that _handle_full_snapshot correctly populates known hosts from host records."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     host1 = make_test_discovered_host()
     host2 = make_test_discovered_host()
     agent1 = make_test_discovered_agent()
@@ -336,7 +365,7 @@ def test_agent_observer_handle_full_snapshot_tracks_hosts(temp_mng_ctx: MngConte
 
 def test_agent_observer_handle_full_snapshot_removes_stale_hosts(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that hosts from a prior snapshot are removed when not in a new snapshot."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     host_a = make_test_discovered_host()
     host_b = make_test_discovered_host()
 
@@ -353,7 +382,7 @@ def test_agent_observer_handle_full_snapshot_removes_stale_hosts(temp_mng_ctx: M
 
 def test_agent_observer_on_activity_event_queues_host(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that _on_activity_event adds the host to the activity queue."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     observer._on_activity_event('{"type":"SOME_EVENT"}', is_stdout=True, host_id_str="host-123")
     assert observer._activity_queue.qsize() == 1
     assert observer._activity_queue.get_nowait() == "host-123"
@@ -361,14 +390,14 @@ def test_agent_observer_on_activity_event_queues_host(temp_mng_ctx: MngContext, 
 
 def test_agent_observer_on_activity_event_ignores_stderr(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that stderr output is ignored."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     observer._on_activity_event("some stderr", is_stdout=False, host_id_str="host-123")
     assert observer._activity_queue.qsize() == 0
 
 
 def test_agent_observer_on_activity_event_ignores_empty_lines(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that empty/whitespace lines are ignored."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     observer._on_activity_event("", is_stdout=True, host_id_str="host-123")
     observer._on_activity_event("   \n", is_stdout=True, host_id_str="host-123")
     assert observer._activity_queue.qsize() == 0
@@ -376,12 +405,12 @@ def test_agent_observer_on_activity_event_ignores_empty_lines(temp_mng_ctx: MngC
 
 def test_agent_observer_emit_agent_state_writes_event_to_file(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that _emit_agent_state writes an AGENT_STATE event to the events file."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     agent = make_test_agent_details(name="observed-agent")
 
     observer._emit_agent_state(agent)
 
-    events_path = get_observe_events_path(temp_mng_ctx.config)
+    events_path = get_observe_events_path(observer.events_base_dir)
     assert events_path.exists()
     lines = events_path.read_text().strip().splitlines()
     assert len(lines) == 1
@@ -392,7 +421,7 @@ def test_agent_observer_emit_agent_state_writes_event_to_file(temp_mng_ctx: MngC
 
 def test_agent_observer_emit_agent_state_updates_tracking(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that _emit_agent_state updates the last known state tracking."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     agent = make_test_agent_details()
 
     observer._emit_agent_state(agent)
@@ -404,12 +433,12 @@ def test_agent_observer_emit_agent_state_emits_state_change_for_new_agent(
     temp_mng_ctx: MngContext, noop_binary: str
 ) -> None:
     """Verify that _emit_agent_state emits a state change event for a newly seen agent."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     agent = make_test_agent_details(name="new-agent", state=AgentLifecycleState.RUNNING)
 
     observer._emit_agent_state(agent)
 
-    states_path = get_agent_states_events_path(temp_mng_ctx.config)
+    states_path = get_agent_states_events_path(observer.events_base_dir)
     assert states_path.exists()
     lines = states_path.read_text().strip().splitlines()
     assert len(lines) == 1
@@ -424,7 +453,7 @@ def test_agent_observer_emit_agent_state_no_state_change_when_same_state(
     temp_mng_ctx: MngContext, noop_binary: str
 ) -> None:
     """Verify that no state change event is emitted when the lifecycle state field is the same."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
 
     # First emit triggers state change (None -> RUNNING)
@@ -433,14 +462,14 @@ def test_agent_observer_emit_agent_state_no_state_change_when_same_state(
     observer._emit_agent_state(agent)
 
     # Only the initial state change should be emitted (None -> RUNNING), not a duplicate
-    states_path = get_agent_states_events_path(temp_mng_ctx.config)
+    states_path = get_agent_states_events_path(observer.events_base_dir)
     lines = states_path.read_text().strip().splitlines()
     assert len(lines) == 1
 
 
 def test_agent_observer_emit_agent_state_detects_state_transition(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that _emit_agent_state emits a state change when state transitions from a known value."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     agent_running = make_test_agent_details(name="transitioning", state=AgentLifecycleState.RUNNING)
 
     # First emit: None -> RUNNING
@@ -451,7 +480,7 @@ def test_agent_observer_emit_agent_state_detects_state_transition(temp_mng_ctx: 
     observer._last_agent_state_by_id[str(agent_stopped.id)] = "RUNNING"
     observer._emit_agent_state(agent_stopped)
 
-    states_path = get_agent_states_events_path(temp_mng_ctx.config)
+    states_path = get_agent_states_events_path(observer.events_base_dir)
     lines = states_path.read_text().strip().splitlines()
     assert len(lines) == 2
 
@@ -465,7 +494,7 @@ def test_agent_observer_emit_agent_state_detects_state_transition(temp_mng_ctx: 
 
 def test_agent_observer_stop_sets_stop_event(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that stop() signals the observer to halt."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     assert not observer._stop_event.is_set()
     observer.stop()
     assert observer._stop_event.is_set()
@@ -473,25 +502,25 @@ def test_agent_observer_stop_sets_stop_event(temp_mng_ctx: MngContext, noop_bina
 
 def test_agent_observer_on_list_stream_output_ignores_non_stdout(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that stderr output from list --stream is ignored."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     observer._on_list_stream_output("some error message", is_stdout=False)
     assert len(observer._known_hosts) == 0
 
 
 def test_agent_observer_on_list_stream_output_ignores_invalid_json(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that invalid JSON lines from list --stream are gracefully ignored."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     observer._on_list_stream_output("not valid json at all", is_stdout=True)
     assert len(observer._known_hosts) == 0
 
 
 def test_agent_observer_do_full_state_snapshot_writes_event(temp_mng_ctx: MngContext, noop_binary: str) -> None:
     """Verify that _do_full_state_snapshot writes an AGENTS_FULL_STATE event."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
 
     observer._do_full_state_snapshot()
 
-    events_path = get_observe_events_path(temp_mng_ctx.config)
+    events_path = get_observe_events_path(observer.events_base_dir)
     assert events_path.exists()
     lines = events_path.read_text().strip().splitlines()
     assert len(lines) == 1
@@ -503,7 +532,7 @@ def test_agent_observer_process_snapshot_agents_emits_state_changes(
     temp_mng_ctx: MngContext, noop_binary: str
 ) -> None:
     """Verify that _process_snapshot_agents detects state field changes and emits to agent_states."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     agent = make_test_agent_details(name="snapshot-agent", state=AgentLifecycleState.STOPPED)
 
     # Pre-populate with a different state to simulate a transition
@@ -512,13 +541,13 @@ def test_agent_observer_process_snapshot_agents_emits_state_changes(
     observer._process_snapshot_agents([agent])
 
     # Should have written a full state event
-    events_path = get_observe_events_path(temp_mng_ctx.config)
+    events_path = get_observe_events_path(observer.events_base_dir)
     agents_lines = events_path.read_text().strip().splitlines()
     assert len(agents_lines) == 1
     assert json.loads(agents_lines[0])["type"] == "AGENTS_FULL_STATE"
 
     # Should have emitted a state change event (RUNNING -> STOPPED)
-    states_path = get_agent_states_events_path(temp_mng_ctx.config)
+    states_path = get_agent_states_events_path(observer.events_base_dir)
     assert states_path.exists()
     states_lines = states_path.read_text().strip().splitlines()
     assert len(states_lines) == 1
@@ -533,7 +562,7 @@ def test_agent_observer_process_snapshot_agents_no_change_when_same_state(
     temp_mng_ctx: MngContext, noop_binary: str
 ) -> None:
     """Verify that _process_snapshot_agents does not emit a state change when state is unchanged."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     agent = make_test_agent_details(name="stable-agent", state=AgentLifecycleState.RUNNING)
 
     # Pre-populate with the same state
@@ -542,12 +571,12 @@ def test_agent_observer_process_snapshot_agents_no_change_when_same_state(
     observer._process_snapshot_agents([agent])
 
     # Full state event should still be written
-    events_path = get_observe_events_path(temp_mng_ctx.config)
+    events_path = get_observe_events_path(observer.events_base_dir)
     agents_lines = events_path.read_text().strip().splitlines()
     assert len(agents_lines) == 1
 
     # No state change event should be written
-    states_path = get_agent_states_events_path(temp_mng_ctx.config)
+    states_path = get_agent_states_events_path(observer.events_base_dir)
     assert not states_path.exists()
 
 
@@ -555,12 +584,12 @@ def test_agent_observer_emit_state_change_writes_to_agent_states_stream(
     temp_mng_ctx: MngContext, noop_binary: str
 ) -> None:
     """Verify that _emit_state_change writes an AGENT_STATE_CHANGE event to the agent_states file."""
-    observer = AgentObserver(mng_ctx=temp_mng_ctx, mng_binary=noop_binary)
+    observer = _make_observer(temp_mng_ctx, noop_binary)
     agent = make_test_agent_details(name="transitioning-agent", state=AgentLifecycleState.STOPPED)
 
     observer._emit_state_change(agent, "RUNNING")
 
-    states_path = get_agent_states_events_path(temp_mng_ctx.config)
+    states_path = get_agent_states_events_path(observer.events_base_dir)
     assert states_path.exists()
     lines = states_path.read_text().strip().splitlines()
     assert len(lines) == 1

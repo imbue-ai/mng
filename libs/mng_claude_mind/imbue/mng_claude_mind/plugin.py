@@ -56,6 +56,11 @@ EVENT_WATCHER_COMMAND: Final[str] = "mng mindevents"
 WEB_SERVER_WINDOW_NAME: Final[str] = "web_server"
 WEB_SERVER_COMMAND: Final[str] = "mng llmweb"
 
+# Observer: runs 'mng observe' writing events to the agent's state directory
+# so each mind has its own local copy of agent state events.
+OBSERVER_WINDOW_NAME: Final[str] = "observer"
+OBSERVER_COMMAND: Final[str] = 'mng observe --events-dir "$MNG_AGENT_STATE_DIR"'
+
 
 class ClaudeMindConfig(ClaudeAgentConfig):
     """Config for the claude-mind agent type.
@@ -239,6 +244,7 @@ def inject_supporting_services(params: dict[str, Any]) -> None:
         f'{CONV_WATCHER_WINDOW_NAME}="{CONV_WATCHER_COMMAND}"',
         f'{EVENT_WATCHER_WINDOW_NAME}="{EVENT_WATCHER_COMMAND}"',
         f'{WEB_SERVER_WINDOW_NAME}="{WEB_SERVER_COMMAND}"',
+        f'{OBSERVER_WINDOW_NAME}="{OBSERVER_COMMAND}"',
     )
 
 

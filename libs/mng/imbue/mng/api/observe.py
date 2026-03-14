@@ -96,36 +96,39 @@ class AgentStateChangeEvent(EventEnvelope):
 
 
 @pure
-def get_observe_events_dir(config: MngConfig) -> Path:
+def get_default_events_base_dir(config: MngConfig) -> Path:
+    """Return the default base directory for observe events (the expanded default_host_dir)."""
+    return config.default_host_dir.expanduser()
+
+
+@pure
+def get_observe_events_dir(events_base_dir: Path) -> Path:
     """Return the directory for agent observation event files."""
-    host_dir = Path(config.default_host_dir).expanduser()
-    return host_dir / "events" / "mng" / "agents"
+    return events_base_dir / "events" / "mng" / "agents"
 
 
 @pure
-def get_observe_events_path(config: MngConfig) -> Path:
+def get_observe_events_path(events_base_dir: Path) -> Path:
     """Return the path to the agent observation events JSONL file."""
-    return get_observe_events_dir(config) / "events.jsonl"
+    return get_observe_events_dir(events_base_dir) / "events.jsonl"
 
 
 @pure
-def get_agent_states_events_dir(config: MngConfig) -> Path:
+def get_agent_states_events_dir(events_base_dir: Path) -> Path:
     """Return the directory for agent state change event files."""
-    host_dir = Path(config.default_host_dir).expanduser()
-    return host_dir / "events" / "mng" / "agent_states"
+    return events_base_dir / "events" / "mng" / "agent_states"
 
 
 @pure
-def get_agent_states_events_path(config: MngConfig) -> Path:
+def get_agent_states_events_path(events_base_dir: Path) -> Path:
     """Return the path to the agent state change events JSONL file."""
-    return get_agent_states_events_dir(config) / "events.jsonl"
+    return get_agent_states_events_dir(events_base_dir) / "events.jsonl"
 
 
 @pure
-def get_observe_lock_path(config: MngConfig) -> Path:
+def get_observe_lock_path(events_base_dir: Path) -> Path:
     """Return the path to the observe lock file."""
-    host_dir = Path(config.default_host_dir).expanduser()
-    return host_dir / OBSERVE_LOCK_FILENAME
+    return events_base_dir / OBSERVE_LOCK_FILENAME
 
 
 # === Event Construction ===
@@ -196,21 +199,21 @@ def _append_event_to_file(events_path: Path, event: EventEnvelope) -> None:
         f.write(line)
 
 
-def append_observe_event(config: MngConfig, event: EventEnvelope) -> None:
+def append_observe_event(events_base_dir: Path, event: EventEnvelope) -> None:
     """Append a single observation event to the agents JSONL file."""
-    _append_event_to_file(get_observe_events_path(config), event)
+    _append_event_to_file(get_observe_events_path(events_base_dir), event)
 
 
-def append_agent_state_change_event(config: MngConfig, event: AgentStateChangeEvent) -> None:
+def append_agent_state_change_event(events_base_dir: Path, event: AgentStateChangeEvent) -> None:
     """Append a state change event to the agent_states JSONL file."""
-    _append_event_to_file(get_agent_states_events_path(config), event)
+    _append_event_to_file(get_agent_states_events_path(events_base_dir), event)
 
 
 # === History Loading ===
 
 
 def load_base_state_from_history(
-    config: MngConfig,
+    events_base_dir: Path,
 ) -> dict[str, str]:
     """Load base agent state from the most recent full state event in history.
 
@@ -219,7 +222,7 @@ def load_base_state_from_history(
 
     Returns a dict mapping agent ID -> lifecycle state value string.
     """
-    events_path = get_observe_events_path(config)
+    events_path = get_observe_events_path(events_base_dir)
     if not events_path.exists():
         return {}
 
@@ -255,26 +258,29 @@ def load_base_state_from_history(
 
 
 class ObserveLockError(MngError):
-    """Raised when another mng observe instance is already running."""
+    """Raised when another mng observe instance is already writing to the same directory."""
 
-    def __init__(self) -> None:
-        super().__init__("Another 'mng observe' instance is already running. Only one instance can run at a time.")
+    def __init__(self, events_base_dir: Path) -> None:
+        super().__init__(
+            f"Another 'mng observe' instance is already writing to {events_base_dir}. "
+            "Only one instance per output directory can run at a time."
+        )
 
 
-def acquire_observe_lock(config: MngConfig) -> int:
+def acquire_observe_lock(events_base_dir: Path) -> int:
     """Acquire an exclusive file lock for the observe process.
 
     Returns the file descriptor (caller must keep it open to hold the lock).
     Raises ObserveLockError if another instance already holds the lock.
     """
-    lock_path = get_observe_lock_path(config)
+    lock_path = get_observe_lock_path(events_base_dir)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         os.close(fd)
-        raise ObserveLockError() from None
+        raise ObserveLockError(events_base_dir) from None
     return fd
 
 
@@ -312,6 +318,7 @@ class AgentObserver(MutableModel):
     """
 
     mng_ctx: MngContext = Field(frozen=True)
+    events_base_dir: Path = Field(frozen=True, description="Base directory for event output files and lock")
     mng_binary: str = Field(default="mng", frozen=True)
 
     _cg: ConcurrencyGroup = PrivateAttr(default_factory=lambda: ConcurrencyGroup(name="agent-observer"))
@@ -327,7 +334,7 @@ class AgentObserver(MutableModel):
         with self._cg:
             # Load base state from event history so we can detect state changes since last run
             with log_span("Loading base state from history"):
-                self._last_agent_state_by_id = load_base_state_from_history(self.mng_ctx.config)
+                self._last_agent_state_by_id = load_base_state_from_history(self.events_base_dir)
                 logger.debug(
                     "Loaded base state for {} agent(s) from history",
                     len(self._last_agent_state_by_id),
@@ -535,7 +542,7 @@ class AgentObserver(MutableModel):
 
         # Emit the full state event (includes all agents regardless of change)
         event = make_full_agent_state_event(agents)
-        append_observe_event(self.mng_ctx.config, event)
+        append_observe_event(self.events_base_dir, event)
         logger.debug(
             "Emitted full agent state event with {} agent(s)",
             len(agents),
@@ -548,7 +555,7 @@ class AgentObserver(MutableModel):
     def _emit_agent_state(self, agent: AgentDetails) -> None:
         """Emit a single agent state event, check for state field change, and update tracking."""
         event = make_agent_state_event(agent)
-        append_observe_event(self.mng_ctx.config, event)
+        append_observe_event(self.events_base_dir, event)
         logger.debug("Emitted agent state event for {} (state={})", agent.name, agent.state.value)
 
         agent_id_str = str(agent.id)
@@ -564,7 +571,7 @@ class AgentObserver(MutableModel):
     def _emit_state_change(self, agent: AgentDetails, old_state: str | None) -> None:
         """Emit a state change event to the agent_states stream."""
         state_change_event = make_agent_state_change_event(agent, old_state)
-        append_agent_state_change_event(self.mng_ctx.config, state_change_event)
+        append_agent_state_change_event(self.events_base_dir, state_change_event)
         logger.debug(
             "Emitted agent state change for {} ({} -> {})",
             agent.name,

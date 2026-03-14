@@ -21,6 +21,8 @@ from imbue.mng_claude_mind.plugin import ClaudeMindAgent
 from imbue.mng_claude_mind.plugin import ClaudeMindConfig
 from imbue.mng_claude_mind.plugin import EVENT_WATCHER_COMMAND
 from imbue.mng_claude_mind.plugin import EVENT_WATCHER_WINDOW_NAME
+from imbue.mng_claude_mind.plugin import OBSERVER_COMMAND
+from imbue.mng_claude_mind.plugin import OBSERVER_WINDOW_NAME
 from imbue.mng_claude_mind.plugin import WEB_SERVER_WINDOW_NAME
 from imbue.mng_claude_mind.plugin import get_agent_type_from_params
 from imbue.mng_claude_mind.plugin import inject_supporting_services
@@ -28,8 +30,8 @@ from imbue.mng_claude_mind.plugin import override_command_options
 from imbue.mng_llm.data_types import ProvisioningSettings
 
 # Total number of tmux windows injected by inject_supporting_services:
-# conv_watcher, events, web_server
-_SUPPORTING_SERVICE_COUNT = 3
+# conv_watcher, events, web_server, observer
+_SUPPORTING_SERVICE_COUNT = 4
 
 
 class _DummyCommandClass:
@@ -72,6 +74,12 @@ def test_adds_event_watcher_service(mind_create_params: dict[str, Any]) -> None:
 def test_adds_web_server_service(mind_create_params: dict[str, Any]) -> None:
     entries = [c for c in mind_create_params["extra_window"] if WEB_SERVER_WINDOW_NAME in c]
     assert len(entries) == 1
+
+
+def test_adds_observer_service(mind_create_params: dict[str, Any]) -> None:
+    entries = [c for c in mind_create_params["extra_window"] if OBSERVER_WINDOW_NAME in c]
+    assert len(entries) == 1
+    assert OBSERVER_COMMAND in entries[0]
 
 
 def test_adds_supporting_services_for_positional_agent_type() -> None:
