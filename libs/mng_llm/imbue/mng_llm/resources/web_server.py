@@ -569,8 +569,19 @@ def _get_default_chat_model() -> str:
     return "claude-opus-4.6"
 
 
-def _get_system_prompt() -> str:
-    """Build the system prompt from GLOBAL.md and talking/PROMPT.md."""
+def _build_template() -> str | None:
+    """Build an llm template file from GLOBAL.md and talking/PROMPT.md.
+
+    Writes the template atomically (write to tmp, then rename) to
+    ``$MNG_AGENT_STATE_DIR/plugin/llm/template.yml``, matching the
+    approach used by chat.sh.
+
+    Returns the template file path on success, or None if no system prompt
+    files were found.
+    """
+    if not AGENT_STATE_DIR:
+        return None
+
     parts: list[str] = []
     if AGENT_WORK_DIR:
         global_md = Path(AGENT_WORK_DIR) / "GLOBAL.md"
@@ -585,7 +596,25 @@ def _get_system_prompt() -> str:
                 parts.append(talking_prompt.read_text())
             except OSError as e:
                 _log(f"Failed to read talking/PROMPT.md: {e}")
-    return "\n\n".join(parts)
+
+    if not parts:
+        return None
+
+    system_prompt = "\n\n".join(parts)
+    template_dir = Path(AGENT_STATE_DIR) / "plugin" / "llm"
+    template_path = template_dir / "template.yml"
+    tmp_path = template_dir / "template.yml.tmp"
+
+    try:
+        template_dir.mkdir(parents=True, exist_ok=True)
+        indented = "\n".join("  " + line for line in system_prompt.splitlines())
+        tmp_path.write_text(f"system: |\n{indented}\n")
+        tmp_path.rename(template_path)
+        _log(f"Built template at {template_path} ({len(system_prompt)} chars)")
+        return str(template_path)
+    except OSError as e:
+        _log(f"Failed to write template file: {e}")
+        return None
 
 
 def _read_message_history(conversation_id: str) -> list[dict[str, str]]:
@@ -778,9 +807,9 @@ def _handle_chat_send(conversation_id: str, message: str, wfile: Any) -> None:
     if not is_new_conversation:
         cmd.extend(["--cid", conversation_id])
 
-    system_prompt = _get_system_prompt()
-    if system_prompt:
-        cmd.extend(["-s", system_prompt])
+    template_path = _build_template()
+    if template_path:
+        cmd.extend(["-t", template_path])
 
     cmd.append(message)
 

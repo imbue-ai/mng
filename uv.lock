@@ -1889,6 +1889,7 @@ dependencies = [
     { name = "mng-mind" },
     { name = "mng-recursive" },
     { name = "mng-ttyd" },
+    { name = "tomlkit" },
     { name = "watchdog" },
 ]
 
@@ -1900,6 +1901,7 @@ requires-dist = [
     { name = "mng-mind", editable = "libs/mng_mind" },
     { name = "mng-recursive", editable = "libs/mng_recursive" },
     { name = "mng-ttyd", editable = "libs/mng_ttyd" },
+    { name = "tomlkit", specifier = ">=0.12.0" },
     { name = "watchdog", specifier = ">=4.0" },
 ]
 

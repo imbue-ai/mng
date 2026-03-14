@@ -174,7 +174,7 @@ def test_converts_user_text_message(tmp_path: Path, stub_mng_log_sh: str) -> Non
     assert events[0]["type"] == "user_message"
     assert events[0]["content"] == "Hello"
     assert events[0]["event_id"] == "uuid-1-user"
-    assert events[0]["source"] == "common_transcript"
+    assert events[0]["source"] == "claude/common_transcript"
 
 
 def test_converts_assistant_message(tmp_path: Path, stub_mng_log_sh: str) -> None:

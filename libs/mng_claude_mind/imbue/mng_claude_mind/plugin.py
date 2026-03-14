@@ -24,6 +24,7 @@ from imbue.mng_claude.plugin import ClaudeAgentConfig
 from imbue.mng_claude_mind.provisioning import build_stop_hook_config
 from imbue.mng_claude_mind.provisioning import create_mind_symlinks
 from imbue.mng_claude_mind.provisioning import provision_claude_settings
+from imbue.mng_claude_mind.provisioning import provision_event_exclude_sources
 from imbue.mng_claude_mind.provisioning import provision_stop_hook_script
 from imbue.mng_claude_mind.provisioning import run_link_skills_script
 from imbue.mng_claude_mind.provisioning import setup_memory_directory
@@ -40,6 +41,7 @@ from imbue.mng_llm.provisioning import install_llm_toolchain
 from imbue.mng_llm.provisioning import provision_llm_tools
 from imbue.mng_llm.provisioning import provision_supporting_services
 from imbue.mng_llm.provisioning import resolve_work_dir_abs
+from imbue.mng_mind.data_types import SOURCE_COMMON_TRANSCRIPT
 from imbue.mng_mind.provisioning import provision_link_skills_script_file
 from imbue.mng_recursive.provisioning import provision_mng_for_agent
 
@@ -222,6 +224,8 @@ class ClaudeMindAgent(ClaudeAgent):
 
         config = self.agent_config
         active_role = self._get_role_from_env(options)
+
+        provision_event_exclude_sources(host, self.work_dir, exclude_sources=(SOURCE_COMMON_TRANSCRIPT,))
 
         settings = load_settings_from_host(host, self.work_dir)
         provisioning = settings.provisioning

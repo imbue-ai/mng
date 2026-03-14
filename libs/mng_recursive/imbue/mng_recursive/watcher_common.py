@@ -59,10 +59,8 @@ def get_mng_command() -> list[str]:
 
 DEFAULT_CEL_FILTER: Final[str] = (
     # only include events that are:
-    # not from the common_transcript (to avoid seeing our own thoughts)
-    'source != "common_transcript"'
-    # and not from delivery_failures (which is about the delivery of messages to the core thinking loop, so it would never see these anyway)
-    ' && source != "delivery_failures"'
+    # not from delivery_failures (which is about the delivery of messages to the core thinking loop, so it would never see these anyway)
+    'source != "delivery_failures"'
     # and they're not about servers coming online (that's just startup noise from mng)
     ' && source != "servers"'
     # and either:

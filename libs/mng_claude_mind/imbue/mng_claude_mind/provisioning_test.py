@@ -9,16 +9,15 @@ from typing import cast
 import pytest
 
 from imbue.mng_claude.claude_config import encode_claude_project_dir_name
-from imbue.mng_claude_mind.conftest import StubCommandResult
-from imbue.mng_claude_mind.conftest import StubHost
-from imbue.mng_claude_mind.conftest import create_mind_conversations_table_in_test_db
-from imbue.mng_claude_mind.conftest import write_conversation_to_db
 from imbue.mng_claude_mind.provisioning import build_stop_hook_config
 from imbue.mng_claude_mind.provisioning import create_mind_symlinks
 from imbue.mng_claude_mind.provisioning import provision_claude_settings
+from imbue.mng_claude_mind.provisioning import provision_event_exclude_sources
 from imbue.mng_claude_mind.provisioning import provision_stop_hook_script
 from imbue.mng_claude_mind.provisioning import run_link_skills_script
 from imbue.mng_claude_mind.provisioning import setup_memory_directory
+from imbue.mng_llm.conftest import create_mind_conversations_table_in_test_db
+from imbue.mng_llm.conftest import write_conversation_to_db
 from imbue.mng_llm.data_types import ProvisioningSettings
 from imbue.mng_llm.provisioning import MIND_CONVERSATIONS_TABLE_SQL
 from imbue.mng_llm.provisioning import _LLM_TOOL_FILES
@@ -35,6 +34,8 @@ from imbue.mng_llm.provisioning import provision_supporting_services
 from imbue.mng_llm.provisioning import resolve_work_dir_abs
 from imbue.mng_llm.resources import context_tool as context_tool_module
 from imbue.mng_llm.resources import extra_context_tool as extra_context_tool_module
+from imbue.mng_mind.conftest import StubCommandResult
+from imbue.mng_mind.conftest import StubHost
 from imbue.mng_mind.provisioning import provision_link_skills_script_file
 from imbue.mng_recursive.watcher_common import MngNotInstalledError
 from imbue.mng_recursive.watcher_common import get_mng_command
@@ -1337,3 +1338,81 @@ def test_get_mng_command_raises_when_binary_missing(tmp_path: Path, monkeypatch:
 
     with pytest.raises(MngNotInstalledError, match="Per-agent mng binary not found"):
         get_mng_command()
+
+
+# -- provision_event_exclude_sources tests --
+
+
+def test_provision_event_exclude_sources_writes_to_new_file() -> None:
+    """When no minds.toml exists, creates one with event_exclude_sources."""
+    host = StubHost()
+    work_dir = Path("/work")
+
+    provision_event_exclude_sources(cast(Any, host), work_dir, ("claude/common_transcript",))
+
+    assert len(host.written_text_files) == 1
+    path, content = host.written_text_files[0]
+    assert "minds.toml" in str(path)
+    assert 'event_exclude_sources = ["claude/common_transcript"]' in content
+
+
+def test_provision_event_exclude_sources_preserves_existing_settings() -> None:
+    """When minds.toml has existing settings, they are preserved."""
+    host = StubHost(
+        text_file_contents={"minds.toml": '[chat]\nmodel = "claude-sonnet-4-6"\n'},
+    )
+    work_dir = Path("/work")
+
+    provision_event_exclude_sources(cast(Any, host), work_dir, ("claude/common_transcript",))
+
+    assert len(host.written_text_files) == 1
+    _, content = host.written_text_files[0]
+    assert "claude-sonnet-4-6" in content
+    assert 'event_exclude_sources = ["claude/common_transcript"]' in content
+
+
+def test_provision_event_exclude_sources_merges_with_existing() -> None:
+    """When event_exclude_sources already has entries, the new ones are merged in."""
+    host = StubHost(
+        text_file_contents={
+            "minds.toml": '[watchers]\nevent_exclude_sources = ["other/source"]\n',
+        },
+    )
+    work_dir = Path("/work")
+
+    provision_event_exclude_sources(cast(Any, host), work_dir, ("claude/common_transcript",))
+
+    assert len(host.written_text_files) == 1
+    _, content = host.written_text_files[0]
+    assert "claude/common_transcript" in content
+    assert "other/source" in content
+
+
+def test_provision_event_exclude_sources_skips_when_already_present() -> None:
+    """When the desired source is already excluded, no write happens."""
+    host = StubHost(
+        text_file_contents={
+            "minds.toml": '[watchers]\nevent_exclude_sources = ["claude/common_transcript"]\n',
+        },
+    )
+    work_dir = Path("/work")
+
+    provision_event_exclude_sources(cast(Any, host), work_dir, ("claude/common_transcript",))
+
+    assert len(host.written_text_files) == 0
+
+
+def test_provision_event_exclude_sources_preserves_comments() -> None:
+    """Comments in existing minds.toml are preserved when adding exclude sources."""
+    toml_with_comments = '# Main chat config\n[chat]\nmodel = "claude-sonnet-4-6"\n'
+    host = StubHost(
+        text_file_contents={"minds.toml": toml_with_comments},
+    )
+    work_dir = Path("/work")
+
+    provision_event_exclude_sources(cast(Any, host), work_dir, ("claude/common_transcript",))
+
+    assert len(host.written_text_files) == 1
+    _, content = host.written_text_files[0]
+    assert "# Main chat config" in content
+    assert "claude/common_transcript" in content

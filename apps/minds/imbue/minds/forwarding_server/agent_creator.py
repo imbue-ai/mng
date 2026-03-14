@@ -37,8 +37,8 @@ from imbue.minds.forwarding_server.vendor_mng import vendor_mng
 from imbue.minds.primitives import AgentName
 from imbue.minds.primitives import GitUrl
 from imbue.mng.primitives import AgentId
-from imbue.mng_claude_mind.settings import SETTINGS_FILENAME
 from imbue.mng_claude_mind.settings import load_settings_from_path
+from imbue.mng_llm.settings import SETTINGS_FILENAME
 
 OutputCallback = Callable[[str, bool], None]
 
