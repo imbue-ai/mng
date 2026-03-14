@@ -60,6 +60,8 @@ from imbue.mng_recursive.watcher_common import setup_watcher_logging
 _DEFAULT_BURST_SIZE: Final[int] = 5
 _DEFAULT_MAX_MESSAGES_PER_MINUTE: Final[int] = 10
 _DEFAULT_MAX_DELIVERY_RETRIES: Final[int] = 3
+_DEFAULT_MAX_EVENT_LENGTH: Final[int] = 50_000
+_DEFAULT_MAX_SAME_SOURCE_EVENTS_PER_BATCH: Final[int] = 20
 
 _DELIVERY_STATE_FILENAME: Final[str] = ".event_delivery_state.json"
 
@@ -86,6 +88,8 @@ class _EventWatcherSettings:
     burst_size: int = _DEFAULT_BURST_SIZE
     max_messages_per_minute: int = _DEFAULT_MAX_MESSAGES_PER_MINUTE
     max_delivery_retries: int = _DEFAULT_MAX_DELIVERY_RETRIES
+    max_event_length: int = _DEFAULT_MAX_EVENT_LENGTH
+    max_same_source_events_per_batch: int = _DEFAULT_MAX_SAME_SOURCE_EVENTS_PER_BATCH
 
 
 def _load_watcher_settings(agent_work_dir: Path) -> _EventWatcherSettings:
@@ -98,6 +102,10 @@ def _load_watcher_settings(agent_work_dir: Path) -> _EventWatcherSettings:
         burst_size=watchers.get("event_burst_size", _DEFAULT_BURST_SIZE),
         max_messages_per_minute=watchers.get("max_event_messages_per_minute", _DEFAULT_MAX_MESSAGES_PER_MINUTE),
         max_delivery_retries=watchers.get("max_delivery_retries", _DEFAULT_MAX_DELIVERY_RETRIES),
+        max_event_length=watchers.get("max_event_length", _DEFAULT_MAX_EVENT_LENGTH),
+        max_same_source_events_per_batch=watchers.get(
+            "max_same_source_events_per_batch", _DEFAULT_MAX_SAME_SOURCE_EVENTS_PER_BATCH
+        ),
     )
 
 
@@ -582,6 +590,92 @@ def _write_events_file(event_lines: list[str], directory: Path) -> Path | None:
         return None
 
 
+def _apply_special_event_handling(
+    deliverable_lines: list[str],
+    event_lists_dir: Path,
+    max_event_length: int,
+    max_same_source_events_per_batch: int,
+) -> list[str]:
+    """Apply aggregation to event lines that exceed configured limits.
+
+    Two conditions trigger aggregation for all events from a given source:
+    1. Any single event line from that source exceeds ``max_event_length`` characters.
+    2. The source has more than ``max_same_source_events_per_batch`` events in the batch.
+
+    When triggered, all events from that source are written to a JSONL file
+    under ``event_lists_dir`` and replaced by a single aggregate event whose
+    ``aggregate_events`` field contains the file path.
+    """
+    parsed_items: list[tuple[str, str]] = []
+    lines_by_source: dict[str, list[str]] = {}
+    max_ts_by_source: dict[str, str] = {}
+
+    for line in deliverable_lines:
+        try:
+            parsed = json.loads(line)
+            source = parsed.get("source", "")
+            ts = parsed.get("timestamp", "")
+        except json.JSONDecodeError:
+            parsed_items.append((line, ""))
+            continue
+        parsed_items.append((line, source))
+        if source:
+            lines_by_source.setdefault(source, []).append(line)
+            if ts > max_ts_by_source.get(source, ""):
+                max_ts_by_source[source] = ts
+
+    sources_to_aggregate: set[str] = set()
+    for source, source_lines in lines_by_source.items():
+        if len(source_lines) > max_same_source_events_per_batch:
+            sources_to_aggregate.add(source)
+            continue
+        for source_line in source_lines:
+            if len(source_line) > max_event_length:
+                sources_to_aggregate.add(source)
+                break
+
+    if not sources_to_aggregate:
+        return deliverable_lines
+
+    aggregate_replacements: dict[str, str] = {}
+    for source in list(sources_to_aggregate):
+        source_lines = lines_by_source[source]
+        aggregate_file = _write_events_file(source_lines, event_lists_dir)
+        if aggregate_file is None:
+            logger.warning("Failed to write aggregate file for source '{}', including events inline", source)
+            sources_to_aggregate.discard(source)
+            continue
+
+        ts = max_ts_by_source.get(source, "")
+        if not ts:
+            now = datetime.now(timezone.utc)
+            ts = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond * 1000:09d}Z"
+
+        aggregate_event = {
+            "timestamp": ts,
+            "type": "aggregate",
+            "event_id": f"evt-{uuid4().hex}",
+            "source": source,
+            "aggregate_events": [str(aggregate_file)],
+        }
+        aggregate_replacements[source] = json.dumps(aggregate_event, separators=(",", ":"))
+
+    if not sources_to_aggregate:
+        return deliverable_lines
+
+    result: list[str] = []
+    inserted_sources: set[str] = set()
+    for line, source in parsed_items:
+        if source in sources_to_aggregate:
+            if source not in inserted_sources:
+                result.append(aggregate_replacements[source])
+                inserted_sources.add(source)
+        else:
+            result.append(line)
+
+    return result
+
+
 def _deliver_batch(
     deliverable_lines: list[str],
     last_parsed: dict[str, Any],
@@ -645,6 +739,7 @@ def _run_delivery_loop(
     buffer_lock: threading.Lock,
     stop_event: threading.Event,
     event_batches_dir: Path,
+    event_lists_dir: Path,
     send_message: Callable[[str, str], bool] = _send_message,
 ) -> None:
     """Main delivery loop: drain buffer, rate-limit, format, and deliver to agent.
@@ -721,6 +816,14 @@ def _run_delivery_loop(
 
             # Separate chat events: hold user messages until assistant responds
             deliverable_lines = _separate_chat_events(deliverable_lines, held_user_messages)
+
+        # Apply special event handling (aggregation for oversized or too-many events)
+        deliverable_lines = _apply_special_event_handling(
+            deliverable_lines,
+            event_lists_dir,
+            settings.max_event_length,
+            settings.max_same_source_events_per_batch,
+        )
 
         if not deliverable_lines:
             continue
@@ -820,6 +923,10 @@ def main(
     event_batches_dir = agent_state_dir / "mind" / "event_batches"
     event_batches_dir.mkdir(parents=True, exist_ok=True)
 
+    # Directory for aggregated event list files
+    event_lists_dir = agent_state_dir / "mind" / "event_lists"
+    event_lists_dir.mkdir(parents=True, exist_ok=True)
+
     if stop_event is None:
         stop_event = threading.Event()
 
@@ -829,8 +936,11 @@ def main(
     logger.info("  Burst size: {}", settings.burst_size)
     logger.info("  Max messages/min: {}", settings.max_messages_per_minute)
     logger.info("  Max delivery retries: {}", settings.max_delivery_retries)
+    logger.info("  Max event length: {}", settings.max_event_length)
+    logger.info("  Max same-source events/batch: {}", settings.max_same_source_events_per_batch)
     logger.info("  State file: {}", state_file)
     logger.info("  Event batches dir: {}", event_batches_dir)
+    logger.info("  Event lists dir: {}", event_lists_dir)
 
     event_buffer: list[str] = []
     buffer_lock = threading.Lock()
@@ -848,6 +958,7 @@ def main(
             buffer_lock,
             stop_event,
             event_batches_dir,
+            event_lists_dir,
             send_message,
         ),
         daemon=True,

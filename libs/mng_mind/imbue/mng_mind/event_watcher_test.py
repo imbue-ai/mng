@@ -21,11 +21,14 @@ from imbue.mng_mind.event_watcher import DEFAULT_CEL_FILTER
 from imbue.mng_mind.event_watcher import _CHAT_PAIR_TIMEOUT_SECONDS
 from imbue.mng_mind.event_watcher import _DEFAULT_BURST_SIZE
 from imbue.mng_mind.event_watcher import _DEFAULT_MAX_DELIVERY_RETRIES
+from imbue.mng_mind.event_watcher import _DEFAULT_MAX_EVENT_LENGTH
 from imbue.mng_mind.event_watcher import _DEFAULT_MAX_MESSAGES_PER_MINUTE
+from imbue.mng_mind.event_watcher import _DEFAULT_MAX_SAME_SOURCE_EVENTS_PER_BATCH
 from imbue.mng_mind.event_watcher import _DeliveryState
 from imbue.mng_mind.event_watcher import _EventWatcherSettings
 from imbue.mng_mind.event_watcher import _SendRateTracker
 from imbue.mng_mind.event_watcher import _TokenBucket
+from imbue.mng_mind.event_watcher import _apply_special_event_handling
 from imbue.mng_mind.event_watcher import _compute_backoff_seconds
 from imbue.mng_mind.event_watcher import _deliver_batch
 from imbue.mng_mind.event_watcher import _filter_catchup_events
@@ -68,6 +71,8 @@ def test_defaults_match_between_data_types_and_event_watcher() -> None:
     assert model_defaults.event_burst_size == _DEFAULT_BURST_SIZE
     assert model_defaults.max_event_messages_per_minute == _DEFAULT_MAX_MESSAGES_PER_MINUTE
     assert model_defaults.max_delivery_retries == _DEFAULT_MAX_DELIVERY_RETRIES
+    assert model_defaults.max_event_length == _DEFAULT_MAX_EVENT_LENGTH
+    assert model_defaults.max_same_source_events_per_batch == _DEFAULT_MAX_SAME_SOURCE_EVENTS_PER_BATCH
 
 
 # -- _load_watcher_settings tests --
@@ -106,6 +111,18 @@ def test_load_settings_handles_corrupt_file(tmp_path: Path) -> None:
     write_minds_settings_toml(tmp_path, "this is not valid toml {{{")
     settings = _load_watcher_settings(tmp_path)
     assert settings.burst_size == 5
+
+
+def test_load_settings_reads_aggregation_settings(tmp_path: Path) -> None:
+    write_minds_settings_toml(
+        tmp_path,
+        "[watchers]\n"
+        "max_event_length = 10000\n"
+        "max_same_source_events_per_batch = 5\n",
+    )
+    settings = _load_watcher_settings(tmp_path)
+    assert settings.max_event_length == 10000
+    assert settings.max_same_source_events_per_batch == 5
 
 
 # -- _DeliveryState persistence tests --
@@ -748,6 +765,192 @@ def test_separate_chat_events_malformed_json_passes_through() -> None:
     assert result[0] == "not json at all"
 
 
+# -- _apply_special_event_handling tests --
+
+
+def test_apply_special_event_handling_passes_through_when_no_limits_exceeded(tmp_path: Path) -> None:
+    """Events pass through unchanged when no aggregation thresholds are exceeded."""
+    event_lists_dir = tmp_path / "event_lists"
+    event_lists_dir.mkdir()
+    lines = [
+        json.dumps({"event_id": "evt-1", "timestamp": "2026-03-01T12:00:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-2", "timestamp": "2026-03-01T12:01:00Z", "source": "messages"}),
+    ]
+    result = _apply_special_event_handling(
+        lines, event_lists_dir, max_event_length=100_000, max_same_source_events_per_batch=100
+    )
+    assert result == lines
+
+
+def test_apply_special_event_handling_aggregates_when_source_exceeds_count(tmp_path: Path) -> None:
+    """Events from a source are aggregated when count exceeds max_same_source_events_per_batch."""
+    event_lists_dir = tmp_path / "event_lists"
+    event_lists_dir.mkdir()
+    lines = [
+        json.dumps({"event_id": "evt-1", "timestamp": "2026-03-01T12:00:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-2", "timestamp": "2026-03-01T12:01:00Z", "source": "messages"}),
+        json.dumps({"event_id": "evt-3", "timestamp": "2026-03-01T12:02:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-4", "timestamp": "2026-03-01T12:03:00Z", "source": "scheduled"}),
+    ]
+    result = _apply_special_event_handling(
+        lines, event_lists_dir, max_event_length=100_000, max_same_source_events_per_batch=2
+    )
+
+    assert len(result) == 2
+
+    # First event should be the aggregate (replacing the first scheduled event position)
+    aggregate = json.loads(result[0])
+    assert aggregate["type"] == "aggregate"
+    assert aggregate["source"] == "scheduled"
+    assert len(aggregate["aggregate_events"]) == 1
+
+    # Second event should be the messages event (passed through)
+    messages_event = json.loads(result[1])
+    assert messages_event["event_id"] == "evt-2"
+
+    # Verify the aggregate file contains all 3 scheduled events
+    aggregate_file = Path(aggregate["aggregate_events"][0])
+    assert aggregate_file.exists()
+    file_lines = aggregate_file.read_text().strip().split("\n")
+    assert len(file_lines) == 3
+    assert json.loads(file_lines[0])["event_id"] == "evt-1"
+    assert json.loads(file_lines[1])["event_id"] == "evt-3"
+    assert json.loads(file_lines[2])["event_id"] == "evt-4"
+
+
+def test_apply_special_event_handling_aggregates_when_event_exceeds_length(tmp_path: Path) -> None:
+    """All events from a source are aggregated when any single event exceeds max_event_length."""
+    event_lists_dir = tmp_path / "event_lists"
+    event_lists_dir.mkdir()
+
+    short_event = json.dumps({"event_id": "evt-1", "timestamp": "2026-03-01T12:00:00Z", "source": "mng/agents"})
+    long_event = json.dumps(
+        {"event_id": "evt-2", "timestamp": "2026-03-01T12:01:00Z", "source": "mng/agents", "data": "x" * 1000}
+    )
+    other_event = json.dumps({"event_id": "evt-3", "timestamp": "2026-03-01T12:02:00Z", "source": "messages"})
+
+    lines = [short_event, long_event, other_event]
+    result = _apply_special_event_handling(
+        lines, event_lists_dir, max_event_length=500, max_same_source_events_per_batch=100
+    )
+
+    assert len(result) == 2
+
+    aggregate = json.loads(result[0])
+    assert aggregate["type"] == "aggregate"
+    assert aggregate["source"] == "mng/agents"
+
+    messages_event = json.loads(result[1])
+    assert messages_event["event_id"] == "evt-3"
+
+    # Aggregate file should contain both mng/agents events
+    aggregate_file = Path(aggregate["aggregate_events"][0])
+    file_lines = aggregate_file.read_text().strip().split("\n")
+    assert len(file_lines) == 2
+
+
+def test_apply_special_event_handling_uses_max_timestamp_from_aggregated_events(tmp_path: Path) -> None:
+    """The aggregate event's timestamp is the max timestamp of the aggregated events."""
+    event_lists_dir = tmp_path / "event_lists"
+    event_lists_dir.mkdir()
+
+    lines = [
+        json.dumps({"event_id": "evt-1", "timestamp": "2026-03-01T12:00:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-2", "timestamp": "2026-03-01T14:00:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-3", "timestamp": "2026-03-01T13:00:00Z", "source": "scheduled"}),
+    ]
+    result = _apply_special_event_handling(
+        lines, event_lists_dir, max_event_length=100_000, max_same_source_events_per_batch=2
+    )
+
+    aggregate = json.loads(result[0])
+    assert aggregate["timestamp"] == "2026-03-01T14:00:00Z"
+
+
+def test_apply_special_event_handling_preserves_malformed_lines(tmp_path: Path) -> None:
+    """Malformed JSON lines pass through unchanged."""
+    event_lists_dir = tmp_path / "event_lists"
+    event_lists_dir.mkdir()
+
+    lines = [
+        "not json",
+        json.dumps({"event_id": "evt-1", "timestamp": "2026-03-01T12:00:00Z", "source": "scheduled"}),
+    ]
+    result = _apply_special_event_handling(
+        lines, event_lists_dir, max_event_length=100_000, max_same_source_events_per_batch=100
+    )
+    assert result == lines
+
+
+def test_apply_special_event_handling_falls_back_on_write_failure(tmp_path: Path) -> None:
+    """If aggregate file cannot be written, events are included inline."""
+    event_lists_dir = Path("/nonexistent_dir_xyz/event_lists")
+
+    lines = [
+        json.dumps({"event_id": "evt-1", "timestamp": "2026-03-01T12:00:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-2", "timestamp": "2026-03-01T12:01:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-3", "timestamp": "2026-03-01T12:02:00Z", "source": "scheduled"}),
+    ]
+    result = _apply_special_event_handling(
+        lines, event_lists_dir, max_event_length=100_000, max_same_source_events_per_batch=2
+    )
+    assert result == lines
+
+
+def test_apply_special_event_handling_multiple_sources_aggregated(tmp_path: Path) -> None:
+    """Multiple sources can be aggregated independently in the same batch."""
+    event_lists_dir = tmp_path / "event_lists"
+    event_lists_dir.mkdir()
+
+    lines = [
+        json.dumps({"event_id": "evt-s1", "timestamp": "2026-03-01T12:00:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-m1", "timestamp": "2026-03-01T12:01:00Z", "source": "monitor"}),
+        json.dumps({"event_id": "evt-s2", "timestamp": "2026-03-01T12:02:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-s3", "timestamp": "2026-03-01T12:03:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-m2", "timestamp": "2026-03-01T12:04:00Z", "source": "monitor"}),
+        json.dumps({"event_id": "evt-m3", "timestamp": "2026-03-01T12:05:00Z", "source": "monitor"}),
+    ]
+    result = _apply_special_event_handling(
+        lines, event_lists_dir, max_event_length=100_000, max_same_source_events_per_batch=2
+    )
+
+    assert len(result) == 2
+    agg_scheduled = json.loads(result[0])
+    agg_monitor = json.loads(result[1])
+    assert agg_scheduled["type"] == "aggregate"
+    assert agg_scheduled["source"] == "scheduled"
+    assert agg_monitor["type"] == "aggregate"
+    assert agg_monitor["source"] == "monitor"
+
+    # Verify both aggregate files exist and have correct event counts
+    sched_file = Path(agg_scheduled["aggregate_events"][0])
+    monitor_file = Path(agg_monitor["aggregate_events"][0])
+    assert len(sched_file.read_text().strip().split("\n")) == 3
+    assert len(monitor_file.read_text().strip().split("\n")) == 3
+
+
+def test_apply_special_event_handling_aggregate_replaces_at_first_occurrence(tmp_path: Path) -> None:
+    """The aggregate event replaces the position of the first event from that source."""
+    event_lists_dir = tmp_path / "event_lists"
+    event_lists_dir.mkdir()
+
+    lines = [
+        json.dumps({"event_id": "evt-other", "timestamp": "2026-03-01T12:00:00Z", "source": "messages"}),
+        json.dumps({"event_id": "evt-s1", "timestamp": "2026-03-01T12:01:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-s2", "timestamp": "2026-03-01T12:02:00Z", "source": "scheduled"}),
+        json.dumps({"event_id": "evt-s3", "timestamp": "2026-03-01T12:03:00Z", "source": "scheduled"}),
+    ]
+    result = _apply_special_event_handling(
+        lines, event_lists_dir, max_event_length=100_000, max_same_source_events_per_batch=2
+    )
+
+    assert len(result) == 2
+    # First: messages event (non-aggregated, original position)
+    assert json.loads(result[0])["event_id"] == "evt-other"
+    # Second: aggregate event (replaces first scheduled position)
+    assert json.loads(result[1])["type"] == "aggregate"
+
+
 # -- Test helpers for _run_delivery_loop and main --
 
 
@@ -814,14 +1017,16 @@ class _FakeEventsProcess:
         self.returncode = -9
 
 
-def _setup_delivery_loop_dirs(tmp_path: Path) -> tuple[Path, Path, Path]:
-    """Create state_file, events_dir, event_batches_dir for delivery loop tests."""
+def _setup_delivery_loop_dirs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    """Create state_file, events_dir, event_batches_dir, event_lists_dir for delivery loop tests."""
     state_file = tmp_path / "events" / ".event_delivery_state.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     events_dir = tmp_path / "events"
     event_batches_dir = tmp_path / "mind" / "event_batches"
     event_batches_dir.mkdir(parents=True)
-    return state_file, events_dir, event_batches_dir
+    event_lists_dir = tmp_path / "mind" / "event_lists"
+    event_lists_dir.mkdir(parents=True)
+    return state_file, events_dir, event_batches_dir, event_lists_dir
 
 
 # -- _run_delivery_loop tests --
@@ -829,7 +1034,7 @@ def _setup_delivery_loop_dirs(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 def test_delivery_loop_delivers_buffered_events(tmp_path: Path) -> None:
     """Events placed in the buffer are written to event_batches_dir and sent via send_message."""
-    state_file, events_dir, event_batches_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
     settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=60)
 
     event_buffer: list[str] = []
@@ -852,6 +1057,7 @@ def test_delivery_loop_delivers_buffered_events(tmp_path: Path) -> None:
             buffer_lock,
             stop_event,
             event_batches_dir,
+            event_lists_dir,
         ),
         kwargs={"send_message": capture},
         daemon=True,
@@ -885,7 +1091,7 @@ def test_delivery_loop_delivers_buffered_events(tmp_path: Path) -> None:
 
 def test_delivery_loop_retries_on_failure(tmp_path: Path) -> None:
     """When send_message fails, events stay in the buffer for retry."""
-    state_file, events_dir, event_batches_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
     settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=600, max_delivery_retries=2)
 
     event_buffer: list[str] = []
@@ -917,6 +1123,7 @@ def test_delivery_loop_retries_on_failure(tmp_path: Path) -> None:
             buffer_lock,
             stop_event,
             event_batches_dir,
+            event_lists_dir,
         ),
         kwargs={"send_message": failing_then_succeeding},
         daemon=True,
@@ -938,7 +1145,7 @@ def test_delivery_loop_retries_on_failure(tmp_path: Path) -> None:
 @pytest.mark.timeout(15)
 def test_delivery_loop_writes_notification_on_repeated_failure(tmp_path: Path) -> None:
     """After max_delivery_retries consecutive failures, a notification event is written."""
-    state_file, events_dir, event_batches_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
     settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=600, max_delivery_retries=2)
 
     event_buffer: list[str] = []
@@ -966,6 +1173,7 @@ def test_delivery_loop_writes_notification_on_repeated_failure(tmp_path: Path) -
             buffer_lock,
             stop_event,
             event_batches_dir,
+            event_lists_dir,
         ),
         kwargs={"send_message": failing_and_tracking},
         daemon=True,
@@ -986,7 +1194,7 @@ def test_delivery_loop_writes_notification_on_repeated_failure(tmp_path: Path) -
 
 def test_delivery_loop_catches_up_from_saved_state(tmp_path: Path) -> None:
     """When resuming with saved state, events before the last delivered timestamp are skipped."""
-    state_file, events_dir, event_batches_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
     settings = _EventWatcherSettings(burst_size=5, max_messages_per_minute=60)
 
     # Save state indicating evt-1 was already delivered
@@ -1013,6 +1221,7 @@ def test_delivery_loop_catches_up_from_saved_state(tmp_path: Path) -> None:
             buffer_lock,
             stop_event,
             event_batches_dir,
+            event_lists_dir,
         ),
         kwargs={"send_message": capture},
         daemon=True,
@@ -1035,7 +1244,7 @@ def test_delivery_loop_catches_up_from_saved_state(tmp_path: Path) -> None:
 
 def test_delivery_loop_stops_cleanly_on_stop_event(tmp_path: Path) -> None:
     """The delivery loop exits when stop_event is set, even with no events."""
-    state_file, events_dir, event_batches_dir = _setup_delivery_loop_dirs(tmp_path)
+    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
     settings = _EventWatcherSettings()
 
     event_buffer: list[str] = []
@@ -1053,6 +1262,7 @@ def test_delivery_loop_stops_cleanly_on_stop_event(tmp_path: Path) -> None:
             buffer_lock,
             stop_event,
             event_batches_dir,
+            event_lists_dir,
         ),
         daemon=True,
     )
@@ -1062,6 +1272,64 @@ def test_delivery_loop_stops_cleanly_on_stop_event(tmp_path: Path) -> None:
     thread.join(timeout=2.0)
 
     assert not thread.is_alive(), "Delivery loop should have exited"
+
+
+def test_delivery_loop_aggregates_events_exceeding_batch_limit(tmp_path: Path) -> None:
+    """Events from a source exceeding max_same_source_events_per_batch are aggregated."""
+    state_file, events_dir, event_batches_dir, event_lists_dir = _setup_delivery_loop_dirs(tmp_path)
+    settings = _EventWatcherSettings(
+        burst_size=5, max_messages_per_minute=60, max_same_source_events_per_batch=2
+    )
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    capture = _MessageCapture()
+
+    # Pre-load buffer with 3 events from the same source (exceeds limit of 2)
+    event_buffer.append(_make_event_line("evt-1", source="scheduled"))
+    event_buffer.append(_make_event_line("evt-2", timestamp="2026-03-01T12:01:00Z", source="scheduled"))
+    event_buffer.append(_make_event_line("evt-3", timestamp="2026-03-01T12:02:00Z", source="scheduled"))
+
+    thread = threading.Thread(
+        target=_run_delivery_loop,
+        args=(
+            settings,
+            "test-agent",
+            state_file,
+            events_dir,
+            event_buffer,
+            buffer_lock,
+            stop_event,
+            event_batches_dir,
+            event_lists_dir,
+        ),
+        kwargs={"send_message": capture},
+        daemon=True,
+    )
+    thread.start()
+
+    capture.wait_for_call(timeout=5.0)
+
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    assert len(capture.calls) == 1
+
+    # The batch file should contain a single aggregate event
+    batch_files = list(event_batches_dir.glob("*.jsonl"))
+    assert len(batch_files) == 1
+    batch_lines = batch_files[0].read_text().strip().split("\n")
+    assert len(batch_lines) == 1
+    aggregate = json.loads(batch_lines[0])
+    assert aggregate["type"] == "aggregate"
+    assert aggregate["source"] == "scheduled"
+
+    # The event list file should contain the 3 original events
+    event_list_files = list(event_lists_dir.glob("*.jsonl"))
+    assert len(event_list_files) == 1
+    list_lines = event_list_files[0].read_text().strip().split("\n")
+    assert len(list_lines) == 3
 
 
 # -- main() tests --
@@ -1225,3 +1493,4 @@ def test_main_creates_required_directories(tmp_path: Path, monkeypatch: pytest.M
 
     assert (agent_state_dir / "events").is_dir()
     assert (agent_state_dir / "mind" / "event_batches").is_dir()
+    assert (agent_state_dir / "mind" / "event_lists").is_dir()

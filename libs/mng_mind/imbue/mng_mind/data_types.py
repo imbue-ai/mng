@@ -87,3 +87,14 @@ class WatcherSettings(FrozenModel):
         description="Maximum consecutive delivery failures before notifying the user. "
         "Uses exponential backoff between retries.",
     )
+    max_event_length: PositiveInt = Field(
+        default=PositiveInt(50_000),
+        description="Maximum length of a single event line in characters. "
+        "If any event from a source exceeds this, all events from that source "
+        "are aggregated into a single file reference.",
+    )
+    max_same_source_events_per_batch: PositiveInt = Field(
+        default=PositiveInt(20),
+        description="Maximum number of events from the same source in a single delivery batch. "
+        "If exceeded, all events from that source are aggregated into a single file reference.",
+    )
