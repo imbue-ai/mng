@@ -1402,46 +1402,17 @@ def test_provision_event_exclude_sources_skips_when_already_present() -> None:
     assert len(host.written_text_files) == 0
 
 
-# -- _serialize_toml tests --
+def test_provision_event_exclude_sources_preserves_comments() -> None:
+    """Comments in existing minds.toml are preserved when adding exclude sources."""
+    toml_with_comments = '# Main chat config\n[chat]\nmodel = "claude-sonnet-4-6"\n'
+    host = StubHost(
+        text_file_contents={"minds.toml": toml_with_comments},
+    )
+    work_dir = Path("/work")
 
+    provision_event_exclude_sources(cast(Any, host), work_dir, ("claude/common_transcript",))
 
-def test_serialize_toml_roundtrips_with_tomllib() -> None:
-    """Verify that _serialize_toml output can be parsed back by tomllib."""
-    import tomllib
-
-    from imbue.mng_claude_mind.provisioning import _serialize_toml
-
-    data = {
-        "agent_type": "claude-mind",
-        "chat": {"model": "claude-sonnet-4-6"},
-        "watchers": {
-            "event_poll_interval_seconds": 10,
-            "event_exclude_sources": ["claude/common_transcript", "other/source"],
-        },
-    }
-    result = _serialize_toml(data)
-    parsed = tomllib.loads(result)
-    assert parsed == data
-
-
-def test_serialize_toml_handles_empty_dict() -> None:
-    """Verify that _serialize_toml handles an empty dict."""
-    import tomllib
-
-    from imbue.mng_claude_mind.provisioning import _serialize_toml
-
-    result = _serialize_toml({})
-    parsed = tomllib.loads(result)
-    assert parsed == {}
-
-
-def test_serialize_toml_handles_bool_and_float() -> None:
-    """Verify that _serialize_toml handles booleans and floats."""
-    import tomllib
-
-    from imbue.mng_claude_mind.provisioning import _serialize_toml
-
-    data = {"provisioning": {"verbose": True, "timeout": 30.5}}
-    result = _serialize_toml(data)
-    parsed = tomllib.loads(result)
-    assert parsed == data
+    assert len(host.written_text_files) == 1
+    _, content = host.written_text_files[0]
+    assert "# Main chat config" in content
+    assert "claude/common_transcript" in content

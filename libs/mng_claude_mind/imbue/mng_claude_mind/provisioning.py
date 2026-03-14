@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import shlex
-import tomllib
 from pathlib import Path
 from typing import Any
 from typing import Final
 
+import tomlkit
 from loguru import logger
 
 from imbue.imbue_common.logging import log_span
@@ -326,49 +326,6 @@ def build_stop_hook_config(script_path: Path) -> dict[str, Any]:
     }
 
 
-def _serialize_toml_value(value: Any) -> str:
-    """Serialize a single TOML value to string."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        return str(value)
-    if isinstance(value, str):
-        return json.dumps(value)
-    if isinstance(value, (list, tuple)):
-        items = ", ".join(_serialize_toml_value(item) for item in value)
-        return f"[{items}]"
-    raise TypeError(f"Cannot serialize TOML value of type {type(value).__name__}")
-
-
-def _serialize_toml(data: dict[str, Any]) -> str:
-    """Serialize a dict to TOML format.
-
-    Handles the flat structure used by minds.toml: top-level scalar keys
-    followed by ``[section]`` tables containing scalar keys and arrays.
-    Does not support nested tables or inline tables.
-    """
-    lines: list[str] = []
-
-    # Top-level scalar values first
-    for key, value in data.items():
-        if not isinstance(value, dict):
-            lines.append(f"{key} = {_serialize_toml_value(value)}")
-
-    # Then sections
-    for key, value in data.items():
-        if isinstance(value, dict):
-            if lines:
-                lines.append("")
-            lines.append(f"[{key}]")
-            for sub_key, sub_value in value.items():
-                lines.append(f"{sub_key} = {_serialize_toml_value(sub_value)}")
-
-    lines.append("")
-    return "\n".join(lines)
-
-
 def provision_event_exclude_sources(
     host: OnlineHostInterface,
     work_dir: Path,
@@ -378,18 +335,25 @@ def provision_event_exclude_sources(
 
     Reads the existing minds.toml (if any), merges the requested
     exclude_sources into ``[watchers].event_exclude_sources``, and
-    writes the file back. Existing settings are preserved.
+    writes the file back. Existing settings and formatting are preserved
+    via tomlkit.
     """
     settings_path = work_dir / SETTINGS_FILENAME
 
-    existing: dict[str, Any] = {}
+    doc = tomlkit.document()
     try:
         content = host.read_text_file(settings_path)
-        existing = tomllib.loads(content)
-    except (FileNotFoundError, tomllib.TOMLDecodeError, OSError) as exc:
-        logger.debug("Could not read existing {}: {}", settings_path, exc)
+        doc = tomlkit.parse(content)
+    except FileNotFoundError:
+        logger.debug("No existing {} found, will create", settings_path)
+    except (tomlkit.exceptions.ParseError, OSError) as exc:
+        logger.warning("Could not read existing {}: {}", settings_path, exc)
 
-    watchers = existing.get("watchers", {})
+    watchers = doc.get("watchers")
+    if watchers is None:
+        watchers = tomlkit.table()
+        doc.add("watchers", watchers)
+
     current_excludes = set(watchers.get("event_exclude_sources", []))
     needed = set(exclude_sources)
 
@@ -399,7 +363,6 @@ def provision_event_exclude_sources(
 
     current_excludes.update(needed)
     watchers["event_exclude_sources"] = sorted(current_excludes)
-    existing["watchers"] = watchers
 
     with log_span("Writing event_exclude_sources to {}", settings_path):
-        host.write_text_file(settings_path, _serialize_toml(existing))
+        host.write_text_file(settings_path, tomlkit.dumps(doc))

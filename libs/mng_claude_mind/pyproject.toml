@@ -11,6 +11,7 @@ dependencies = [
     "mng-mind==0.1.0",
     "mng-recursive==0.1.0",
     "mng-ttyd==0.1.0",
+    "tomlkit>=0.12.0",
     "watchdog>=4.0",
 ]
 
