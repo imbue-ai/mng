@@ -77,6 +77,13 @@ def _unwrap_volume(iface: VolumeInterface) -> modal.Volume:
     return iface.volume
 
 
+def _unwrap_secret(iface: SecretInterface) -> modal.Secret:
+    """Extract the modal.Secret from a DirectSecret."""
+    if not isinstance(iface, DirectSecret):
+        raise ModalProxyTypeError(f"Expected DirectSecret, got {type(iface).__name__}")
+    return iface.secret
+
+
 # ---------------------------------------------------------------------------
 # Object implementations
 # ---------------------------------------------------------------------------
@@ -146,7 +153,7 @@ class DirectImage(ImageInterface):
         context_dir: Path | None = None,
         secrets: Sequence[SecretInterface] = (),
     ) -> "ImageInterface":
-        modal_secrets = [s.secret for s in secrets if isinstance(s, DirectSecret)]
+        modal_secrets = [_unwrap_secret(s) for s in secrets]
         expanded_context_dir = context_dir.expanduser() if context_dir is not None else None
         new_image = self.image.dockerfile_commands(
             list(commands),
