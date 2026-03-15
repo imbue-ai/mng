@@ -9,6 +9,7 @@
 #   chat --new --name <name>                        Create or resume a named conversation (user-initiated)
 #   chat --new --name <name> --as-agent <message>   Create or resume a named conversation (agent-initiated)
 #   chat --resume <conversation-id>                 Resume an existing conversation by ID
+#   chat --reply <conversation-id> <message>        Inject another agent reply into an existing conversation
 #   chat --list                                     List all conversations
 #   chat --help                                     Show usage information
 #   chat                                            List conversations and show help hint
@@ -288,6 +289,19 @@ resume_conversation() {
     exec llm live-chat --show-history -c --cid "$conversation_id" -m "$model" "${template_args[@]}" $tool_args
 }
 
+reply_to_conversation() {
+    local conversation_id="$1"
+    local message="$2"
+
+    local model
+    model=$(get_model)
+
+    log "reply_to_conversation: conversation_id=$conversation_id model=$model message_len=${#message}"
+
+    llm inject --cid "$conversation_id" -m "$model" "$message"
+    log "Reply injected successfully"
+}
+
 list_conversations() {
     if [ ! -f "$_LLM_DB" ]; then
         echo "No conversations yet."
@@ -376,6 +390,7 @@ show_help() {
     echo "Usage:"
     echo "  chat --new --name <name> [--as-agent <msg>]  Create or resume a named conversation"
     echo "  chat --resume <conversation-id>              Resume an existing conversation"
+    echo "  chat --reply <conversation-id> <message>     Inject another agent reply into an existing conversation"
     echo "  chat --list                                  List all conversations"
     echo "  chat --help                                  Show this help message"
     echo ""
@@ -399,6 +414,18 @@ case "${1:-}" in
             exit 1
         fi
         resume_conversation "$@"
+        ;;
+    --reply)
+        shift
+        if [ -z "${1:-}" ]; then
+            echo "Usage: chat --reply <conversation-id> <message>" >&2
+            exit 1
+        fi
+        if [ -z "${2:-}" ]; then
+            echo "Usage: chat --reply <conversation-id> <message>" >&2
+            exit 1
+        fi
+        reply_to_conversation "$1" "$2"
         ;;
     --list)
         list_conversations

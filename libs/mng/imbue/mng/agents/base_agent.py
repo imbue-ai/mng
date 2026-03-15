@@ -585,6 +585,7 @@ class BaseAgent(AgentInterface[AgentConfigT]):
 
         return False
 
+    # FIXME: this logic is claude specific, and needs to be refactored so that other agents can properly implement it as well
     def _get_last_queue_timestamp(self, timeout_secs: float) -> str | None:
         env_command_prefix = self.host.build_source_env_prefix(self)
         initial_read_queue_ops_result = self.host.execute_command(

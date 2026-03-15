@@ -258,6 +258,12 @@ class ClaudeMindAgent(ClaudeAgent):
 
         setup_memory_directory(host, self.work_dir, active_role, provisioning)
 
+    def _build_per_agent_claude_json(self, options: CreateAgentOptions, config: ClaudeAgentConfig) -> dict[str, Any]:
+        data = super()._build_per_agent_claude_json(options, config)
+        # FOLLOWUP: we can remove this eventually (once the agents are started inside VMs, it will be set properly anyway)
+        data["bypassPermissionsModeAccepted"] = True
+        return data
+
 
 def inject_supporting_services(params: dict[str, Any]) -> None:
     """Inject all mind supporting service tmux windows into the create command parameters."""

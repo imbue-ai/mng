@@ -62,14 +62,18 @@ DEFAULT_CEL_FILTER: Final[str] = (
     # not from delivery_failures (which is about the delivery of messages to the core thinking loop, so it would never see these anyway)
     'source != "delivery_failures"'
     # and they're not about servers coming online (that's just startup noise from mng)
-    ' && source != "servers"'
+    ' && source != "handled_events"'
+    # and they're not the raw agent state messages
+    ' && source != "mng/agents"'
     # and either:
     " && ("
-    # are normal events (eg, not logs):
-    '!source.startsWith("logs/") || '
-    # or they are logs, but they're ERROR or WARNING level (to catch important log messages without overwhelming the stream):
-    '(source.startsWith("logs/") && (level == "ERROR" || level == "WARNING"))'
+    #      are normal events (eg, not logs):
+    '    !source.startsWith("logs/") || '
+    #     or they are logs, but they're ERROR or WARNING level (to catch important log messages without overwhelming the stream):
+    '    (source.startsWith("logs/") && (level == "ERROR" || level == "WARNING"))'
     ")"
+    # also remove any mng/agent_state events for non-mind agents:
+    """ && !(source == 'mng/agent_states' && !(has(agent.labels.mind) && agent.labels.mind == "true"))"""
 )
 
 

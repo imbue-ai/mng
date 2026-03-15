@@ -124,3 +124,7 @@ class LlmSettings(FrozenModel):
         default_factory=ProvisioningSettings,
         description="Provisioning timeout settings ([provisioning] section).",
     )
+    max_concurrent_workers: PositiveInt = Field(
+        default=PositiveInt(10),
+        description="Maximum number of concurrent working roles that the mind should run.",
+    )

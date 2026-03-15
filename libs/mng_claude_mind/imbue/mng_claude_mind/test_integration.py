@@ -924,3 +924,56 @@ def test_chat_script_new_as_agent_with_message_writes_record_without_llm(
     with sqlite3.connect(str(chat_env.llm_db_path)) as conn:
         rows = conn.execute("SELECT conversation_id FROM mind_conversations").fetchall()
     assert len(rows) >= 1, "conversation record should be written even when llm inject fails"
+
+
+# -- Reply command tests --
+
+
+@pytest.mark.timeout(30)
+def test_chat_script_reply_requires_conversation_id(chat_env: ChatScriptEnv) -> None:
+    """Verify that chat.sh --reply without a conversation ID fails with usage error."""
+    result = chat_env.run("--reply")
+
+    assert result.returncode != 0
+    assert "usage" in result.stderr.lower()
+
+
+@pytest.mark.timeout(30)
+def test_chat_script_reply_requires_message(chat_env: ChatScriptEnv) -> None:
+    """Verify that chat.sh --reply with only a conversation ID fails with usage error."""
+    result = chat_env.run("--reply", "conv-123")
+
+    assert result.returncode != 0
+    assert "usage" in result.stderr.lower()
+
+
+@pytest.mark.timeout(30)
+def test_chat_script_reply_logs_correct_model_and_conversation(chat_env: ChatScriptEnv) -> None:
+    """Verify that --reply logs the correct model and conversation ID before calling llm inject.
+
+    The llm inject call will fail since llm is not installed in the test
+    environment, but the log entry written before the call should contain
+    the expected model and conversation ID.
+    """
+    chat_env.env["MNG_LLM_MODEL"] = "claude-sonnet-4-6"
+
+    log_dir = Path(chat_env.env["MNG_AGENT_STATE_DIR"]) / "events" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    chat_env.run("--reply", "conv-reply-test", "hello from reply")
+
+    log_file = log_dir / "chat" / "events.jsonl"
+    assert log_file.exists()
+    log_content = log_file.read_text()
+    assert "conv-reply-test" in log_content
+    assert "claude-sonnet-4-6" in log_content
+    assert "reply_to_conversation" in log_content
+
+
+@pytest.mark.timeout(30)
+def test_chat_script_help_shows_reply(chat_env: ChatScriptEnv) -> None:
+    """Verify that chat.sh --help output includes the --reply option."""
+    result = chat_env.run("--help")
+
+    assert result.returncode == 0
+    assert "--reply" in result.stdout
