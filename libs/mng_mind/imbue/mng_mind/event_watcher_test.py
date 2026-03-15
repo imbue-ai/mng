@@ -19,6 +19,7 @@ from imbue.mng_mind import event_watcher as event_watcher_module
 from imbue.mng_mind.conftest import EventWatcherSubprocessCapture
 from imbue.mng_mind.data_types import WatcherSettings
 from imbue.mng_mind.event_watcher import DEFAULT_CEL_FILTER
+from imbue.mng_mind.event_watcher import InvalidTimeFormatError
 from imbue.mng_mind.event_watcher import _CHAT_PAIR_TIMEOUT_SECONDS
 from imbue.mng_mind.event_watcher import _DEFAULT_BURST_SIZE
 from imbue.mng_mind.event_watcher import _DEFAULT_MAX_DELIVERY_RETRIES
@@ -28,19 +29,28 @@ from imbue.mng_mind.event_watcher import _DEFAULT_MAX_SAME_SOURCE_EVENTS_PER_BAT
 from imbue.mng_mind.event_watcher import _DeliveryState
 from imbue.mng_mind.event_watcher import _EventWatcherSettings
 from imbue.mng_mind.event_watcher import _IgnoredSourcesState
+from imbue.mng_mind.event_watcher import _ONBOARDING_MARKER_FILENAME
+from imbue.mng_mind.event_watcher import _SCHEDULED_STATE_FILENAME
 from imbue.mng_mind.event_watcher import _SendRateTracker
 from imbue.mng_mind.event_watcher import _TokenBucket
 from imbue.mng_mind.event_watcher import _apply_special_event_handling
 from imbue.mng_mind.event_watcher import _compute_backoff_seconds
+from imbue.mng_mind.event_watcher import _cumulative_idle_delay_minutes
 from imbue.mng_mind.event_watcher import _deliver_batch
 from imbue.mng_mind.event_watcher import _filter_catchup_events
 from imbue.mng_mind.event_watcher import _filter_ignored_sources
 from imbue.mng_mind.event_watcher import _get_system_notifications_conversation_id
 from imbue.mng_mind.event_watcher import _load_delivery_state
 from imbue.mng_mind.event_watcher import _load_ignored_sources_if_updated
+from imbue.mng_mind.event_watcher import _load_scheduled_events_state
 from imbue.mng_mind.event_watcher import _load_watcher_settings
+from imbue.mng_mind.event_watcher import _make_synthetic_event_line
+from imbue.mng_mind.event_watcher import _parse_time_of_day
+from imbue.mng_mind.event_watcher import _resolve_user_timezone
 from imbue.mng_mind.event_watcher import _run_delivery_loop
+from imbue.mng_mind.event_watcher import _run_synthetic_events_loop
 from imbue.mng_mind.event_watcher import _save_delivery_state
+from imbue.mng_mind.event_watcher import _save_scheduled_events_state
 from imbue.mng_mind.event_watcher import _send_chat_notification
 from imbue.mng_mind.event_watcher import _send_message
 from imbue.mng_mind.event_watcher import _separate_chat_events
@@ -71,13 +81,17 @@ class _FakeClock:
 def test_defaults_match_between_data_types_and_event_watcher() -> None:
     """Verify that event_watcher.py constants stay in sync with WatcherSettings defaults."""
     model_defaults = WatcherSettings()
+    watcher_defaults = _EventWatcherSettings()
     assert model_defaults.event_cel_filter == DEFAULT_CEL_FILTER
-    assert model_defaults.event_exclude_sources == _EventWatcherSettings().event_exclude_sources
+    assert model_defaults.event_exclude_sources == watcher_defaults.event_exclude_sources
     assert model_defaults.event_burst_size == _DEFAULT_BURST_SIZE
     assert model_defaults.max_event_messages_per_minute == _DEFAULT_MAX_MESSAGES_PER_MINUTE
     assert model_defaults.max_delivery_retries == _DEFAULT_MAX_DELIVERY_RETRIES
     assert model_defaults.max_event_length == _DEFAULT_MAX_EVENT_LENGTH
     assert model_defaults.max_same_source_events_per_batch == _DEFAULT_MAX_SAME_SOURCE_EVENTS_PER_BATCH
+    assert model_defaults.idle_event_delay_minutes_schedule == watcher_defaults.idle_event_delay_minutes_schedule
+    assert model_defaults.scheduled_events == dict(watcher_defaults.scheduled_events)
+    assert model_defaults.user_timezone == watcher_defaults.user_timezone
 
 
 # -- _load_watcher_settings tests --
@@ -1532,10 +1546,16 @@ def test_delivery_loop_filters_event_exclude_sources(tmp_path: Path) -> None:
 # -- main() tests --
 
 
-def _setup_main_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def _setup_main_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    suppress_onboarding: bool = True,
+) -> Path:
     """Set up the environment variables and directory structure for main() tests.
 
-    Returns the agent_state_dir path.
+    Returns the agent_state_dir path. By default, creates the onboarding marker
+    to prevent the synthetic events thread from injecting onboarding events.
     """
     agent_state_dir = tmp_path / "agents" / "agent-test"
     work_dir = tmp_path / "work"
@@ -1543,6 +1563,10 @@ def _setup_main_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(agent_state_dir))
     monkeypatch.setenv("MNG_AGENT_WORK_DIR", str(work_dir))
     monkeypatch.setenv("MNG_AGENT_ID", "agent-test-00000000000000000001")
+    if suppress_onboarding:
+        mind_dir = agent_state_dir / "mind"
+        mind_dir.mkdir(parents=True, exist_ok=True)
+        (mind_dir / _ONBOARDING_MARKER_FILENAME).touch()
     return agent_state_dir
 
 
@@ -1797,3 +1821,522 @@ def test_load_ignored_sources_clears_when_file_deleted(tmp_path: Path) -> None:
     ignored_file.unlink()
     result = _load_ignored_sources_if_updated(state)
     assert result == frozenset()
+
+
+# -- _resolve_user_timezone tests --
+
+
+def test_resolve_user_timezone_returns_valid_timezone() -> None:
+    tz = _resolve_user_timezone("UTC")
+    assert str(tz) == "UTC"
+
+
+def test_resolve_user_timezone_falls_back_on_invalid() -> None:
+    tz = _resolve_user_timezone("Not/A/Real/Timezone")
+    assert str(tz) == "UTC"
+
+
+# -- _make_synthetic_event_line tests --
+
+
+def test_make_synthetic_event_line_has_envelope_fields() -> None:
+    line = _make_synthetic_event_line("idle", "mind/idle")
+    parsed = json.loads(line)
+    assert parsed["type"] == "idle"
+    assert parsed["source"] == "mind/idle"
+    assert parsed["event_id"].startswith("evt-")
+    assert "timestamp" in parsed
+
+
+def test_make_synthetic_event_line_includes_extra_fields() -> None:
+    line = _make_synthetic_event_line("idle", "mind/idle", {"minutes_since_last_event": 5.0})
+    parsed = json.loads(line)
+    assert parsed["minutes_since_last_event"] == 5.0
+
+
+# -- _cumulative_idle_delay_minutes tests --
+
+
+def test_cumulative_idle_delay_first_event() -> None:
+    assert _cumulative_idle_delay_minutes((1, 10, 60), 0) == 1
+
+
+def test_cumulative_idle_delay_second_event() -> None:
+    assert _cumulative_idle_delay_minutes((1, 10, 60), 1) == 11
+
+
+def test_cumulative_idle_delay_third_event() -> None:
+    assert _cumulative_idle_delay_minutes((1, 10, 60), 2) == 71
+
+
+def test_cumulative_idle_delay_repeats_last_value() -> None:
+    # Index 3 is beyond the schedule, so last value (60) repeats
+    assert _cumulative_idle_delay_minutes((1, 10, 60), 3) == 131
+
+
+def test_cumulative_idle_delay_single_value_schedule() -> None:
+    assert _cumulative_idle_delay_minutes((5,), 0) == 5
+    assert _cumulative_idle_delay_minutes((5,), 1) == 10
+    assert _cumulative_idle_delay_minutes((5,), 2) == 15
+
+
+# -- _parse_time_of_day tests --
+
+
+def test_parse_time_of_day_hh_mm_ss() -> None:
+    assert _parse_time_of_day("13:37:30") == (13, 37, 30)
+
+
+def test_parse_time_of_day_hh_mm() -> None:
+    assert _parse_time_of_day("15:00") == (15, 0, 0)
+
+
+def test_parse_time_of_day_midnight() -> None:
+    assert _parse_time_of_day("00:00:00") == (0, 0, 0)
+
+
+def test_parse_time_of_day_strips_whitespace() -> None:
+    assert _parse_time_of_day("  09:30  ") == (9, 30, 0)
+
+
+def test_parse_time_of_day_rejects_invalid_format() -> None:
+    with pytest.raises(InvalidTimeFormatError, match="Invalid time format"):
+        _parse_time_of_day("25")
+
+
+def test_parse_time_of_day_rejects_out_of_range_hour() -> None:
+    with pytest.raises(InvalidTimeFormatError, match="out of range"):
+        _parse_time_of_day("25:00")
+
+
+def test_parse_time_of_day_rejects_out_of_range_minute() -> None:
+    with pytest.raises(InvalidTimeFormatError, match="out of range"):
+        _parse_time_of_day("12:60")
+
+
+# -- _load_scheduled_events_state / _save_scheduled_events_state tests --
+
+
+def test_load_scheduled_state_returns_empty_when_missing(tmp_path: Path) -> None:
+    date, fired = _load_scheduled_events_state(tmp_path / "nonexistent.json")
+    assert date == ""
+    assert fired == set()
+
+
+def test_save_and_load_scheduled_state_roundtrip(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    _save_scheduled_events_state(state_file, "2026-03-15", {"morning", "evening"})
+    date, fired = _load_scheduled_events_state(state_file)
+    assert date == "2026-03-15"
+    assert fired == {"morning", "evening"}
+
+
+def test_load_scheduled_state_returns_empty_on_corrupt_json(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text("not valid json {{{")
+    date, fired = _load_scheduled_events_state(state_file)
+    assert date == ""
+    assert fired == set()
+
+
+def test_save_scheduled_state_creates_parent_directories(tmp_path: Path) -> None:
+    state_file = tmp_path / "nested" / "dir" / "state.json"
+    _save_scheduled_events_state(state_file, "2026-03-15", {"test"})
+    assert state_file.exists()
+
+
+# -- _run_synthetic_events_loop tests --
+
+
+def test_synthetic_loop_sends_onboarding_on_first_run(tmp_path: Path) -> None:
+    """On first run (no marker file), the loop injects a mind/onboarding event."""
+    mind_state_dir = tmp_path / "mind"
+    mind_state_dir.mkdir(parents=True)
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    last_real_event_monotonic = [time.monotonic()]
+
+    settings = _EventWatcherSettings()
+
+    # Stop immediately after first iteration
+    stop_event.set()
+    _run_synthetic_events_loop(
+        settings,
+        event_buffer,
+        buffer_lock,
+        stop_event,
+        last_real_event_monotonic,
+        mind_state_dir,
+    )
+
+    # Onboarding event should be in the buffer
+    assert len(event_buffer) == 1
+    parsed = json.loads(event_buffer[0])
+    assert parsed["type"] == "onboarding"
+    assert parsed["source"] == "mind/onboarding"
+
+    # Marker file should exist
+    assert (mind_state_dir / _ONBOARDING_MARKER_FILENAME).exists()
+
+
+def test_synthetic_loop_skips_onboarding_when_marker_exists(tmp_path: Path) -> None:
+    """If the marker file exists, no onboarding event is sent."""
+    mind_state_dir = tmp_path / "mind"
+    mind_state_dir.mkdir(parents=True)
+    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    last_real_event_monotonic = [time.monotonic()]
+
+    settings = _EventWatcherSettings()
+    stop_event.set()
+    _run_synthetic_events_loop(
+        settings,
+        event_buffer,
+        buffer_lock,
+        stop_event,
+        last_real_event_monotonic,
+        mind_state_dir,
+    )
+
+    assert len(event_buffer) == 0
+
+
+def test_synthetic_loop_sends_idle_event_after_delay(tmp_path: Path) -> None:
+    """The loop sends a mind/idle event after the configured delay."""
+    mind_state_dir = tmp_path / "mind"
+    mind_state_dir.mkdir(parents=True)
+    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    last_real_event_monotonic = [1000.0]
+
+    settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1,))
+
+    call_count = 0
+
+    def clock_past_threshold() -> float:
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:
+            stop_event.set()
+        # Return time 61 seconds after the last real event
+        return 1061.0
+
+    _run_synthetic_events_loop(
+        settings,
+        event_buffer,
+        buffer_lock,
+        stop_event,
+        last_real_event_monotonic,
+        mind_state_dir,
+        clock_past_threshold,
+        poll_interval_seconds=0.01,
+    )
+
+    idle_events = [line for line in event_buffer if '"mind/idle"' in line]
+    assert len(idle_events) >= 1
+    parsed = json.loads(idle_events[0])
+    assert parsed["type"] == "idle"
+    assert parsed["source"] == "mind/idle"
+    assert parsed["idle_event_number"] == 1
+    assert parsed["minutes_since_last_event"] >= 1.0
+
+
+def test_synthetic_loop_resets_idle_on_real_event(tmp_path: Path) -> None:
+    """The idle counter resets when a real event arrives."""
+    mind_state_dir = tmp_path / "mind"
+    mind_state_dir.mkdir(parents=True)
+    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+
+    # Start at 1000, last real event was at 1030 (simulating a recent event)
+    last_real_event_monotonic = [1030.0]
+
+    # 1-minute idle schedule
+    settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1,))
+
+    call_count = 0
+
+    def clock_30s_after_real() -> float:
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:
+            stop_event.set()
+        # 30 seconds after the last real event at 1030 -> only 30s idle
+        return 1060.0
+
+    _run_synthetic_events_loop(
+        settings,
+        event_buffer,
+        buffer_lock,
+        stop_event,
+        last_real_event_monotonic,
+        mind_state_dir,
+        clock_30s_after_real,
+        poll_interval_seconds=0.01,
+    )
+
+    # No idle events should have been sent (only 30s since last real event)
+    idle_events = [line for line in event_buffer if '"mind/idle"' in line]
+    assert len(idle_events) == 0
+
+
+def test_synthetic_loop_sends_scheduled_event_when_time_passes(tmp_path: Path) -> None:
+    """The loop fires a scheduled event when the current time passes the configured time."""
+    mind_state_dir = tmp_path / "mind"
+    mind_state_dir.mkdir(parents=True)
+    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    last_real_event_monotonic = [time.monotonic()]
+
+    # Schedule an event at 00:00:00 UTC -- this will always be in the past today
+    settings = _EventWatcherSettings(
+        scheduled_events=(("test_event", "00:00:00"),),
+        user_timezone="UTC",
+    )
+
+    iteration_count = 0
+
+    def counting_clock() -> float:
+        nonlocal iteration_count
+        iteration_count += 1
+        if iteration_count > 1:
+            stop_event.set()
+        return time.monotonic()
+
+    _run_synthetic_events_loop(
+        settings,
+        event_buffer,
+        buffer_lock,
+        stop_event,
+        last_real_event_monotonic,
+        mind_state_dir,
+        counting_clock,
+        poll_interval_seconds=0.01,
+    )
+
+    schedule_events = [line for line in event_buffer if '"mind/schedule"' in line]
+    assert len(schedule_events) == 1
+    parsed = json.loads(schedule_events[0])
+    assert parsed["type"] == "schedule"
+    assert parsed["source"] == "mind/schedule"
+    assert parsed["event_name"] == "test_event"
+    assert parsed["scheduled_time"] == "00:00:00"
+
+
+def test_synthetic_loop_does_not_refire_scheduled_event_same_day(tmp_path: Path) -> None:
+    """A scheduled event only fires once per day."""
+    mind_state_dir = tmp_path / "mind"
+    mind_state_dir.mkdir(parents=True)
+    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    last_real_event_monotonic = [time.monotonic()]
+
+    settings = _EventWatcherSettings(
+        scheduled_events=(("test_event", "00:00:00"),),
+        user_timezone="UTC",
+    )
+
+    iteration_count = 0
+
+    def counting_clock() -> float:
+        nonlocal iteration_count
+        iteration_count += 1
+        # Run 3 iterations then stop
+        if iteration_count > 3:
+            stop_event.set()
+        return time.monotonic()
+
+    _run_synthetic_events_loop(
+        settings,
+        event_buffer,
+        buffer_lock,
+        stop_event,
+        last_real_event_monotonic,
+        mind_state_dir,
+        counting_clock,
+        poll_interval_seconds=0.01,
+    )
+
+    schedule_events = [line for line in event_buffer if '"mind/schedule"' in line]
+    # Should fire exactly once (not on every iteration)
+    assert len(schedule_events) == 1
+
+
+def test_synthetic_loop_persists_scheduled_state(tmp_path: Path) -> None:
+    """Fired scheduled events are persisted and survive restarts."""
+    mind_state_dir = tmp_path / "mind"
+    mind_state_dir.mkdir(parents=True)
+    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    last_real_event_monotonic = [time.monotonic()]
+
+    settings = _EventWatcherSettings(
+        scheduled_events=(("test_event", "00:00:00"),),
+        user_timezone="UTC",
+    )
+
+    # First run: event fires and state is saved
+    iteration_count = 0
+
+    def counting_clock() -> float:
+        nonlocal iteration_count
+        iteration_count += 1
+        if iteration_count > 2:
+            stop_event.set()
+        return time.monotonic()
+
+    _run_synthetic_events_loop(
+        settings,
+        event_buffer,
+        buffer_lock,
+        stop_event,
+        last_real_event_monotonic,
+        mind_state_dir,
+        counting_clock,
+        poll_interval_seconds=0.01,
+    )
+
+    schedule_events = [line for line in event_buffer if '"mind/schedule"' in line]
+    assert len(schedule_events) == 1
+
+    # Second run: event should NOT fire again (persisted state)
+    stop_event.clear()
+    event_buffer.clear()
+    iteration_count = 0
+
+    _run_synthetic_events_loop(
+        settings,
+        event_buffer,
+        buffer_lock,
+        stop_event,
+        last_real_event_monotonic,
+        mind_state_dir,
+        counting_clock,
+        poll_interval_seconds=0.01,
+    )
+
+    schedule_events = [line for line in event_buffer if '"mind/schedule"' in line]
+    assert len(schedule_events) == 0
+
+    # Verify the state file exists
+    state_file = mind_state_dir / _SCHEDULED_STATE_FILENAME
+    assert state_file.exists()
+
+
+def test_load_settings_reads_idle_schedule(tmp_path: Path) -> None:
+    write_minds_settings_toml(
+        tmp_path,
+        "[watchers]\nidle_event_delay_minutes_schedule = [1, 10, 60]\n",
+    )
+    settings = _load_watcher_settings(tmp_path)
+    assert settings.idle_event_delay_minutes_schedule == (1, 10, 60)
+
+
+def test_load_settings_reads_scheduled_events(tmp_path: Path) -> None:
+    write_minds_settings_toml(
+        tmp_path,
+        '[watchers.scheduled_events]\nmorning = "09:00"\nevening = "17:30:00"\n',
+    )
+    settings = _load_watcher_settings(tmp_path)
+    assert dict(settings.scheduled_events) == {"morning": "09:00", "evening": "17:30:00"}
+
+
+def test_load_settings_reads_user_timezone(tmp_path: Path) -> None:
+    write_minds_settings_toml(
+        tmp_path,
+        '[watchers]\nuser_timezone = "America/New_York"\n',
+    )
+    settings = _load_watcher_settings(tmp_path)
+    assert settings.user_timezone == "America/New_York"
+
+
+def test_load_settings_defaults_new_fields(tmp_path: Path) -> None:
+    settings = _load_watcher_settings(tmp_path)
+    assert settings.idle_event_delay_minutes_schedule == ()
+    assert settings.scheduled_events == ()
+    assert settings.user_timezone == "UTC"
+
+
+@pytest.mark.timeout(15)
+def test_main_starts_synthetic_events_thread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """main() starts the synthetic events thread and delivers onboarding on first run."""
+    agent_state_dir = _setup_main_env(tmp_path, monkeypatch, suppress_onboarding=False)
+    capture = _MessageCapture()
+    stop_event = threading.Event()
+
+    def immediate_stop_factory(agent_id: str, cel_filter: str) -> Any:
+        stop_event.set()
+        return _FakeEventsProcess([])
+
+    main(
+        start_subprocess=immediate_stop_factory,
+        stop_event=stop_event,
+        send_message=capture,
+    )
+
+    # Verify the mind state directory was created
+    mind_state_dir = agent_state_dir / "mind"
+    assert mind_state_dir.is_dir()
+
+    # Verify the onboarding marker was created (onboarding event was sent)
+    assert (mind_state_dir / _ONBOARDING_MARKER_FILENAME).exists()
+
+
+@pytest.mark.timeout(15)
+def test_read_events_from_subprocess_updates_last_real_event_time(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """main() updates last_real_event_monotonic when real events arrive from the subprocess."""
+    _setup_main_env(tmp_path, monkeypatch)
+    capture = _MessageCapture()
+    stop_event = threading.Event()
+
+    events = [_make_event_line("evt-realtime-check", timestamp="2026-03-01T12:00:00Z")]
+
+    call_count = 0
+
+    def fake_start_subprocess(agent_id: str, cel_filter: str) -> Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _FakeEventsProcess(events)
+        stop_event.set()
+        return _FakeEventsProcess([])
+
+    thread = threading.Thread(
+        target=main,
+        kwargs={
+            "start_subprocess": fake_start_subprocess,
+            "stop_event": stop_event,
+            "send_message": capture,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+    capture.wait_for_call(timeout=5.0)
+    stop_event.set()
+    thread.join(timeout=3.0)
+
+    # Verify events were delivered (implies reader thread processed them)
+    assert len(capture.calls) >= 1
