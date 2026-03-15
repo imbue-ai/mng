@@ -54,6 +54,7 @@ SECONDARY_COMMANDS = {
     "provision",
     "plugin",
     "snapshot",
+    "transcript",
 }
 ALIAS_COMMANDS = {
     "clone",

@@ -27,6 +27,7 @@ from imbue.mng.cli.rename import rename
 from imbue.mng.cli.snapshot import snapshot
 from imbue.mng.cli.start import start
 from imbue.mng.cli.stop import stop
+from imbue.mng.cli.transcript import transcript
 from imbue.mng.config.data_types import CreateCliOptions
 from imbue.mng.main import cli
 from imbue.mng.utils.testing import cleanup_tmux_session
@@ -259,6 +260,7 @@ _HELP_TEST_CASES: list[tuple[click.Command, list[str], str]] = [
     (gc, ["--help"], "gc"),
     (limit, ["--help"], "limit"),
     (events, ["--help"], "events"),
+    (transcript, ["--help"], "transcript"),
     (message, ["--help"], "message"),
     (migrate, ["--help"], "migrate"),
     (provision, ["--help"], "provision"),
@@ -299,6 +301,7 @@ _NONEXISTENT_AGENT_CASES: list[tuple[click.Command, list[str], str]] = [
     (exec_command, ["nonexistent-agent-99999", "echo hello"], "exec"),
     (limit, ["nonexistent-agent-77234", "--idle-timeout", "300"], "limit"),
     (events, ["nonexistent-agent-34892"], "events"),
+    (transcript, ["nonexistent-agent-82341"], "transcript"),
     (provision, ["nonexistent-agent-77412"], "provision"),
     (pull, ["nonexistent-agent-66201"], "pull"),
     (push, ["nonexistent-agent-77312"], "push"),

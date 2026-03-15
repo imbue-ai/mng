@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pluggy
 import pytest
@@ -11,40 +10,9 @@ from imbue.mng.cli.events import _emit_event_content
 from imbue.mng.cli.events import _emit_event_record
 from imbue.mng.cli.events import _write_and_flush_stdout
 from imbue.mng.cli.events import events
+from imbue.mng.cli.testing import create_agent_with_events_dir
 from imbue.mng.config.data_types import OutputOptions
-from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import OutputFormat
-
-
-def _create_agent_with_events_dir(
-    per_host_dir: Path,
-    agent_name: str,
-    events_source: str | None = None,
-) -> tuple[AgentId, Path]:
-    """Create a minimal agent directory with an events subdirectory.
-
-    Returns (agent_id, events_dir) where events_dir is ready for test files.
-    If events_source is given, events_dir is per_host_dir/agents/<id>/events/<source>;
-    otherwise it is per_host_dir/agents/<id>/events.
-    """
-    agent_id = AgentId.generate()
-    agent_dir = per_host_dir / "agents" / str(agent_id)
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    data = {
-        "id": str(agent_id),
-        "name": agent_name,
-        "type": "generic",
-        "command": "sleep 1",
-        "work_dir": "/tmp/test",
-        "create_time": "2026-01-01T00:00:00+00:00",
-    }
-    (agent_dir / "data.json").write_text(json.dumps(data))
-    if events_source is not None:
-        events_dir = agent_dir / "events" / events_source
-    else:
-        events_dir = agent_dir / "events"
-    events_dir.mkdir(parents=True, exist_ok=True)
-    return agent_id, events_dir
 
 
 def _make_events_opts(
@@ -265,7 +233,7 @@ def test_events_cli_reads_specific_event_file(
     temp_mng_ctx,
 ) -> None:
     """CLI events with an event file name should read and display the file."""
-    _, events_dir = _create_agent_with_events_dir(local_provider.host_dir, "events-cli-test-agent")
+    _, events_dir = create_agent_with_events_dir(local_provider.host_dir, "events-cli-test-agent")
     (events_dir / "test.log").write_text("line1\nline2\nline3\n")
 
     result = cli_runner.invoke(
@@ -286,7 +254,7 @@ def test_events_cli_reads_specific_event_file_with_head(
     temp_mng_ctx,
 ) -> None:
     """CLI events with --head should only show first N lines."""
-    _, events_dir = _create_agent_with_events_dir(local_provider.host_dir, "events-head-test")
+    _, events_dir = create_agent_with_events_dir(local_provider.host_dir, "events-head-test")
     (events_dir / "test.log").write_text("line1\nline2\nline3\nline4\nline5\n")
 
     result = cli_runner.invoke(
@@ -307,7 +275,7 @@ def test_events_cli_reads_specific_event_file_with_tail(
     temp_mng_ctx,
 ) -> None:
     """CLI events with --tail should only show last N lines."""
-    _, events_dir = _create_agent_with_events_dir(local_provider.host_dir, "events-tail-test")
+    _, events_dir = create_agent_with_events_dir(local_provider.host_dir, "events-tail-test")
     (events_dir / "test.log").write_text("line1\nline2\nline3\nline4\nline5\n")
 
     result = cli_runner.invoke(
@@ -328,7 +296,7 @@ def test_events_cli_reads_specific_event_file_json_format(
     temp_mng_ctx,
 ) -> None:
     """CLI events with --format json should output JSON."""
-    _, events_dir = _create_agent_with_events_dir(local_provider.host_dir, "events-json-test")
+    _, events_dir = create_agent_with_events_dir(local_provider.host_dir, "events-json-test")
     (events_dir / "test.log").write_text("event data\n")
 
     result = cli_runner.invoke(
@@ -349,7 +317,7 @@ def test_events_cli_streams_all_events(
     temp_mng_ctx,
 ) -> None:
     """CLI events without a file name should stream all JSONL events."""
-    _, events_dir = _create_agent_with_events_dir(
+    _, events_dir = create_agent_with_events_dir(
         local_provider.host_dir, "events-stream-test", events_source="messages"
     )
     event_line = json.dumps({"timestamp": "2026-01-01T00:00:00Z", "event_id": "evt-1", "source": "messages"})
