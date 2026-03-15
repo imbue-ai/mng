@@ -13,11 +13,10 @@
 # Call sites in mng_modal that this interface abstracts:
 # - backend.py: app creation/lookup, app run context, environment creation, volume creation
 # - instance.py: sandbox create/list/terminate/snapshot, image building, volume lifecycle,
-#   sandbox exec/tunnels/tags, function deployment, secret creation
+#   sandbox exec/tunnels/tags, function deployment
 # - volume.py: volume data operations (listdir, read_file, remove_file, write_files)
 # - routes/deployment.py: modal deploy CLI, function lookup
 # - routes/snapshot_and_shutdown.py: sandbox lookup by ID, snapshot, terminate
-# - log_utils.py: output capture
 
 from abc import ABC
 from abc import abstractmethod
@@ -82,14 +81,6 @@ class VolumeHandle(FrozenModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str = Field(description="Volume name")
-    inner: Any = Field(default=None, description="Implementation-specific object", repr=False)
-
-
-class SecretHandle(FrozenModel):
-    """Opaque handle to a Modal secret."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     inner: Any = Field(default=None, description="Implementation-specific object", repr=False)
 
 
@@ -340,16 +331,6 @@ class ModalInterface(MutableModel, ABC):
     @abstractmethod
     def volume_write_files(self, volume: VolumeHandle, file_contents_by_path: Mapping[str, bytes]) -> None:
         """Write one or more files to the volume."""
-        ...
-
-    # =====================================================================
-    # Secrets
-    # =====================================================================
-
-    # Call sites: instance.py _build_modal_secrets_from_env
-    @abstractmethod
-    def secret_from_env(self, env_var_names: Sequence[str]) -> SecretHandle:
-        """Create a secret from environment variable values."""
         ...
 
     # =====================================================================
