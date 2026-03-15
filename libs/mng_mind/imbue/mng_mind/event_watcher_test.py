@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 import types
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,8 @@ from imbue.mng_llm.conftest import write_conversation_to_db
 from imbue.mng_llm.conftest import write_minds_settings_toml
 from imbue.mng_mind import event_watcher as event_watcher_module
 from imbue.mng_mind.conftest import EventWatcherSubprocessCapture
+from imbue.mng_mind.conftest import SyntheticLoopEnv
+from imbue.mng_mind.conftest import _create_synthetic_loop_env
 from imbue.mng_mind.data_types import WatcherSettings
 from imbue.mng_mind.event_watcher import DEFAULT_CEL_FILTER
 from imbue.mng_mind.event_watcher import InvalidTimeFormatError
@@ -1914,6 +1917,11 @@ def test_parse_time_of_day_rejects_out_of_range_minute() -> None:
         _parse_time_of_day("12:60")
 
 
+def test_parse_time_of_day_rejects_non_numeric_values() -> None:
+    with pytest.raises(InvalidTimeFormatError, match="Non-numeric"):
+        _parse_time_of_day("abc:def")
+
+
 # -- _load_scheduled_events_state / _save_scheduled_events_state tests --
 
 
@@ -1952,70 +1960,47 @@ def test_synthetic_loop_sends_onboarding_on_first_run(tmp_path: Path) -> None:
     """On first run (no marker file), the loop injects a mind/onboarding event."""
     mind_state_dir = tmp_path / "mind"
     mind_state_dir.mkdir(parents=True)
-    event_buffer: list[str] = []
-    buffer_lock = threading.Lock()
-    stop_event = threading.Event()
-    last_real_event_monotonic = [time.monotonic()]
+    # Deliberately NOT creating the onboarding marker
+    env = _create_synthetic_loop_env(mind_state_dir)
 
     settings = _EventWatcherSettings()
-
-    # Stop immediately after first iteration
-    stop_event.set()
+    env.stop_event.set()
     _run_synthetic_events_loop(
         settings,
-        event_buffer,
-        buffer_lock,
-        stop_event,
-        last_real_event_monotonic,
-        mind_state_dir,
+        env.event_buffer,
+        env.buffer_lock,
+        env.stop_event,
+        env.last_real_event_monotonic,
+        env.mind_state_dir,
     )
 
-    # Onboarding event should be in the buffer
-    assert len(event_buffer) == 1
-    parsed = json.loads(event_buffer[0])
+    assert len(env.event_buffer) == 1
+    parsed = json.loads(env.event_buffer[0])
     assert parsed["type"] == "onboarding"
     assert parsed["source"] == "mind/onboarding"
-
-    # Marker file should exist
     assert (mind_state_dir / _ONBOARDING_MARKER_FILENAME).exists()
 
 
-def test_synthetic_loop_skips_onboarding_when_marker_exists(tmp_path: Path) -> None:
+def test_synthetic_loop_skips_onboarding_when_marker_exists(synthetic_loop_env: SyntheticLoopEnv) -> None:
     """If the marker file exists, no onboarding event is sent."""
-    mind_state_dir = tmp_path / "mind"
-    mind_state_dir.mkdir(parents=True)
-    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
-
-    event_buffer: list[str] = []
-    buffer_lock = threading.Lock()
-    stop_event = threading.Event()
-    last_real_event_monotonic = [time.monotonic()]
-
+    env = synthetic_loop_env
     settings = _EventWatcherSettings()
-    stop_event.set()
+    env.stop_event.set()
     _run_synthetic_events_loop(
         settings,
-        event_buffer,
-        buffer_lock,
-        stop_event,
-        last_real_event_monotonic,
-        mind_state_dir,
+        env.event_buffer,
+        env.buffer_lock,
+        env.stop_event,
+        env.last_real_event_monotonic,
+        env.mind_state_dir,
     )
+    assert len(env.event_buffer) == 0
 
-    assert len(event_buffer) == 0
 
-
-def test_synthetic_loop_sends_idle_event_after_delay(tmp_path: Path) -> None:
+def test_synthetic_loop_sends_idle_event_after_delay(synthetic_loop_env: SyntheticLoopEnv) -> None:
     """The loop sends a mind/idle event after the configured delay."""
-    mind_state_dir = tmp_path / "mind"
-    mind_state_dir.mkdir(parents=True)
-    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
-
-    event_buffer: list[str] = []
-    buffer_lock = threading.Lock()
-    stop_event = threading.Event()
-    last_real_event_monotonic = [1000.0]
-
+    env = synthetic_loop_env
+    env.last_real_event_monotonic[0] = 1000.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1,))
 
     call_count = 0
@@ -2024,22 +2009,21 @@ def test_synthetic_loop_sends_idle_event_after_delay(tmp_path: Path) -> None:
         nonlocal call_count
         call_count += 1
         if call_count > 1:
-            stop_event.set()
-        # Return time 61 seconds after the last real event
+            env.stop_event.set()
         return 1061.0
 
     _run_synthetic_events_loop(
         settings,
-        event_buffer,
-        buffer_lock,
-        stop_event,
-        last_real_event_monotonic,
-        mind_state_dir,
+        env.event_buffer,
+        env.buffer_lock,
+        env.stop_event,
+        env.last_real_event_monotonic,
+        env.mind_state_dir,
         clock_past_threshold,
         poll_interval_seconds=0.01,
     )
 
-    idle_events = [line for line in event_buffer if '"mind/idle"' in line]
+    idle_events = [line for line in env.event_buffer if '"mind/idle"' in line]
     assert len(idle_events) >= 1
     parsed = json.loads(idle_events[0])
     assert parsed["type"] == "idle"
@@ -2048,20 +2032,10 @@ def test_synthetic_loop_sends_idle_event_after_delay(tmp_path: Path) -> None:
     assert parsed["minutes_since_last_event"] >= 1.0
 
 
-def test_synthetic_loop_resets_idle_on_real_event(tmp_path: Path) -> None:
+def test_synthetic_loop_resets_idle_on_real_event(synthetic_loop_env: SyntheticLoopEnv) -> None:
     """The idle counter resets when a real event arrives."""
-    mind_state_dir = tmp_path / "mind"
-    mind_state_dir.mkdir(parents=True)
-    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
-
-    event_buffer: list[str] = []
-    buffer_lock = threading.Lock()
-    stop_event = threading.Event()
-
-    # Start at 1000, last real event was at 1030 (simulating a recent event)
-    last_real_event_monotonic = [1030.0]
-
-    # 1-minute idle schedule
+    env = synthetic_loop_env
+    env.last_real_event_monotonic[0] = 1030.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1,))
 
     call_count = 0
@@ -2070,64 +2044,57 @@ def test_synthetic_loop_resets_idle_on_real_event(tmp_path: Path) -> None:
         nonlocal call_count
         call_count += 1
         if call_count > 1:
-            stop_event.set()
-        # 30 seconds after the last real event at 1030 -> only 30s idle
+            env.stop_event.set()
         return 1060.0
 
     _run_synthetic_events_loop(
         settings,
-        event_buffer,
-        buffer_lock,
-        stop_event,
-        last_real_event_monotonic,
-        mind_state_dir,
+        env.event_buffer,
+        env.buffer_lock,
+        env.stop_event,
+        env.last_real_event_monotonic,
+        env.mind_state_dir,
         clock_30s_after_real,
         poll_interval_seconds=0.01,
     )
 
-    # No idle events should have been sent (only 30s since last real event)
-    idle_events = [line for line in event_buffer if '"mind/idle"' in line]
+    idle_events = [line for line in env.event_buffer if '"mind/idle"' in line]
     assert len(idle_events) == 0
 
 
-def test_synthetic_loop_sends_scheduled_event_when_time_passes(tmp_path: Path) -> None:
+def _make_counting_clock(env: SyntheticLoopEnv, max_iterations: int) -> Callable[[], float]:
+    """Create a clock function that stops the loop after max_iterations calls."""
+    state = {"count": 0}
+
+    def clock() -> float:
+        state["count"] += 1
+        if state["count"] > max_iterations:
+            env.stop_event.set()
+        return time.monotonic()
+
+    return clock
+
+
+def test_synthetic_loop_sends_scheduled_event_when_time_passes(synthetic_loop_env: SyntheticLoopEnv) -> None:
     """The loop fires a scheduled event when the current time passes the configured time."""
-    mind_state_dir = tmp_path / "mind"
-    mind_state_dir.mkdir(parents=True)
-    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
-
-    event_buffer: list[str] = []
-    buffer_lock = threading.Lock()
-    stop_event = threading.Event()
-    last_real_event_monotonic = [time.monotonic()]
-
-    # Schedule an event at 00:00:00 UTC -- this will always be in the past today
+    env = synthetic_loop_env
     settings = _EventWatcherSettings(
         scheduled_events=(("test_event", "00:00:00"),),
         user_timezone="UTC",
     )
 
-    iteration_count = 0
-
-    def counting_clock() -> float:
-        nonlocal iteration_count
-        iteration_count += 1
-        if iteration_count > 1:
-            stop_event.set()
-        return time.monotonic()
-
     _run_synthetic_events_loop(
         settings,
-        event_buffer,
-        buffer_lock,
-        stop_event,
-        last_real_event_monotonic,
-        mind_state_dir,
-        counting_clock,
+        env.event_buffer,
+        env.buffer_lock,
+        env.stop_event,
+        env.last_real_event_monotonic,
+        env.mind_state_dir,
+        _make_counting_clock(env, 1),
         poll_interval_seconds=0.01,
     )
 
-    schedule_events = [line for line in event_buffer if '"mind/schedule"' in line]
+    schedule_events = [line for line in env.event_buffer if '"mind/schedule"' in line]
     assert len(schedule_events) == 1
     parsed = json.loads(schedule_events[0])
     assert parsed["type"] == "schedule"
@@ -2136,110 +2103,69 @@ def test_synthetic_loop_sends_scheduled_event_when_time_passes(tmp_path: Path) -
     assert parsed["scheduled_time"] == "00:00:00"
 
 
-def test_synthetic_loop_does_not_refire_scheduled_event_same_day(tmp_path: Path) -> None:
+def test_synthetic_loop_does_not_refire_scheduled_event_same_day(synthetic_loop_env: SyntheticLoopEnv) -> None:
     """A scheduled event only fires once per day."""
-    mind_state_dir = tmp_path / "mind"
-    mind_state_dir.mkdir(parents=True)
-    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
-
-    event_buffer: list[str] = []
-    buffer_lock = threading.Lock()
-    stop_event = threading.Event()
-    last_real_event_monotonic = [time.monotonic()]
-
+    env = synthetic_loop_env
     settings = _EventWatcherSettings(
         scheduled_events=(("test_event", "00:00:00"),),
         user_timezone="UTC",
     )
 
-    iteration_count = 0
-
-    def counting_clock() -> float:
-        nonlocal iteration_count
-        iteration_count += 1
-        # Run 3 iterations then stop
-        if iteration_count > 3:
-            stop_event.set()
-        return time.monotonic()
-
     _run_synthetic_events_loop(
         settings,
-        event_buffer,
-        buffer_lock,
-        stop_event,
-        last_real_event_monotonic,
-        mind_state_dir,
-        counting_clock,
+        env.event_buffer,
+        env.buffer_lock,
+        env.stop_event,
+        env.last_real_event_monotonic,
+        env.mind_state_dir,
+        _make_counting_clock(env, 3),
         poll_interval_seconds=0.01,
     )
 
-    schedule_events = [line for line in event_buffer if '"mind/schedule"' in line]
-    # Should fire exactly once (not on every iteration)
+    schedule_events = [line for line in env.event_buffer if '"mind/schedule"' in line]
     assert len(schedule_events) == 1
 
 
-def test_synthetic_loop_persists_scheduled_state(tmp_path: Path) -> None:
+def test_synthetic_loop_persists_scheduled_state(synthetic_loop_env: SyntheticLoopEnv) -> None:
     """Fired scheduled events are persisted and survive restarts."""
-    mind_state_dir = tmp_path / "mind"
-    mind_state_dir.mkdir(parents=True)
-    (mind_state_dir / _ONBOARDING_MARKER_FILENAME).touch()
-
-    event_buffer: list[str] = []
-    buffer_lock = threading.Lock()
-    stop_event = threading.Event()
-    last_real_event_monotonic = [time.monotonic()]
-
+    env = synthetic_loop_env
     settings = _EventWatcherSettings(
         scheduled_events=(("test_event", "00:00:00"),),
         user_timezone="UTC",
     )
 
-    # First run: event fires and state is saved
-    iteration_count = 0
-
-    def counting_clock() -> float:
-        nonlocal iteration_count
-        iteration_count += 1
-        if iteration_count > 2:
-            stop_event.set()
-        return time.monotonic()
-
     _run_synthetic_events_loop(
         settings,
-        event_buffer,
-        buffer_lock,
-        stop_event,
-        last_real_event_monotonic,
-        mind_state_dir,
-        counting_clock,
+        env.event_buffer,
+        env.buffer_lock,
+        env.stop_event,
+        env.last_real_event_monotonic,
+        env.mind_state_dir,
+        _make_counting_clock(env, 2),
         poll_interval_seconds=0.01,
     )
 
-    schedule_events = [line for line in event_buffer if '"mind/schedule"' in line]
+    schedule_events = [line for line in env.event_buffer if '"mind/schedule"' in line]
     assert len(schedule_events) == 1
 
     # Second run: event should NOT fire again (persisted state)
-    stop_event.clear()
-    event_buffer.clear()
-    iteration_count = 0
+    env.stop_event.clear()
+    env.event_buffer.clear()
 
     _run_synthetic_events_loop(
         settings,
-        event_buffer,
-        buffer_lock,
-        stop_event,
-        last_real_event_monotonic,
-        mind_state_dir,
-        counting_clock,
+        env.event_buffer,
+        env.buffer_lock,
+        env.stop_event,
+        env.last_real_event_monotonic,
+        env.mind_state_dir,
+        _make_counting_clock(env, 2),
         poll_interval_seconds=0.01,
     )
 
-    schedule_events = [line for line in event_buffer if '"mind/schedule"' in line]
+    schedule_events = [line for line in env.event_buffer if '"mind/schedule"' in line]
     assert len(schedule_events) == 0
-
-    # Verify the state file exists
-    state_file = mind_state_dir / _SCHEDULED_STATE_FILENAME
-    assert state_file.exists()
+    assert (env.mind_state_dir / _SCHEDULED_STATE_FILENAME).exists()
 
 
 def test_load_settings_reads_idle_schedule(tmp_path: Path) -> None:
@@ -2302,11 +2228,11 @@ def test_main_starts_synthetic_events_thread(tmp_path: Path, monkeypatch: pytest
 
 
 @pytest.mark.timeout(15)
-def test_read_events_from_subprocess_updates_last_real_event_time(
+def test_main_delivers_subprocess_events_through_reader_thread(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """main() updates last_real_event_monotonic when real events arrive from the subprocess."""
+    """main() reads events from the subprocess via the reader thread and delivers them."""
     _setup_main_env(tmp_path, monkeypatch)
     capture = _MessageCapture()
     stop_event = threading.Event()
@@ -2338,5 +2264,6 @@ def test_read_events_from_subprocess_updates_last_real_event_time(
     stop_event.set()
     thread.join(timeout=3.0)
 
-    # Verify events were delivered (implies reader thread processed them)
     assert len(capture.calls) >= 1
+    _, message = capture.calls[0]
+    assert "Please process all events in " in message

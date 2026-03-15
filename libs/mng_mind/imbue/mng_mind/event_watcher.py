@@ -91,6 +91,11 @@ _SYNTHETIC_POLL_INTERVAL_SECONDS: Final[float] = 10.0
 _ONBOARDING_MARKER_FILENAME: Final[str] = ".onboarding_sent"
 _SCHEDULED_STATE_FILENAME: Final[str] = ".scheduled_events_state.json"
 
+# Synthetic event source names (must match SOURCE_MIND_* in data_types.py)
+_SOURCE_MIND_IDLE: Final[str] = "mind/idle"
+_SOURCE_MIND_SCHEDULE: Final[str] = "mind/schedule"
+_SOURCE_MIND_ONBOARDING: Final[str] = "mind/onboarding"
+
 
 # -- Settings --
 
@@ -692,14 +697,18 @@ def _cumulative_idle_delay_minutes(schedule: tuple[int, ...], event_index: int) 
 def _parse_time_of_day(time_str: str) -> tuple[int, int, int]:
     """Parse a time-of-day string like '13:37:30' or '15:00' into (hour, minute, second).
 
-    Raises InvalidTimeFormatError if the format is invalid.
+    Raises InvalidTimeFormatError if the format is invalid or contains
+    non-numeric values.
     """
     parts = time_str.strip().split(":")
     if len(parts) < 2 or len(parts) > 3:
         raise InvalidTimeFormatError(f"Invalid time format '{time_str}', expected HH:MM or HH:MM:SS")
-    hour = int(parts[0])
-    minute = int(parts[1])
-    second = int(parts[2]) if len(parts) == 3 else 0
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+        second = int(parts[2]) if len(parts) == 3 else 0
+    except ValueError as exc:
+        raise InvalidTimeFormatError(f"Non-numeric value in time '{time_str}'") from exc
     if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
         raise InvalidTimeFormatError(f"Time values out of range in '{time_str}'")
     return hour, minute, second
@@ -732,6 +741,116 @@ def _save_scheduled_events_state(state_file: Path, date_str: str, fired_events: 
         logger.error("Failed to save scheduled events state: {}", exc)
 
 
+def _maybe_send_onboarding(
+    mind_state_dir: Path,
+    event_buffer: list[str],
+    buffer_lock: threading.Lock,
+) -> None:
+    """Send a mind/onboarding event if none has ever been sent (marker file absent)."""
+    onboarding_marker = mind_state_dir / _ONBOARDING_MARKER_FILENAME
+    if onboarding_marker.exists():
+        return
+    logger.info("Sending mind/onboarding event (first run)")
+    line = _make_synthetic_event_line("onboarding", _SOURCE_MIND_ONBOARDING)
+    with buffer_lock:
+        event_buffer.append(line)
+    try:
+        mind_state_dir.mkdir(parents=True, exist_ok=True)
+        onboarding_marker.touch()
+    except OSError as exc:
+        logger.error("Failed to create onboarding marker: {}", exc)
+
+
+def _maybe_send_idle_event(
+    settings: _EventWatcherSettings,
+    elapsed_minutes: float,
+    idle_events_sent: int,
+    user_tz: ZoneInfo,
+    event_buffer: list[str],
+    buffer_lock: threading.Lock,
+) -> int:
+    """Send a mind/idle event if the idle threshold has been reached.
+
+    Returns the updated idle_events_sent count.
+    """
+    cumulative_minutes = _cumulative_idle_delay_minutes(settings.idle_event_delay_minutes_schedule, idle_events_sent)
+    if elapsed_minutes < cumulative_minutes:
+        return idle_events_sent
+
+    now_utc = datetime.now(timezone.utc)
+    now_local = now_utc.astimezone(user_tz)
+    line = _make_synthetic_event_line(
+        "idle",
+        _SOURCE_MIND_IDLE,
+        {
+            "current_time_utc": now_utc.isoformat(),
+            "current_time_local": now_local.isoformat(),
+            "minutes_since_last_event": round(elapsed_minutes, 1),
+            "idle_event_number": idle_events_sent + 1,
+        },
+    )
+    logger.info(
+        "Sending mind/idle event {} after {:.1f} minutes of inactivity",
+        idle_events_sent + 1,
+        elapsed_minutes,
+    )
+    with buffer_lock:
+        event_buffer.append(line)
+    return idle_events_sent + 1
+
+
+def _check_scheduled_events(
+    settings: _EventWatcherSettings,
+    user_tz: ZoneInfo,
+    saved_date: str,
+    fired_today: set[str],
+    scheduled_state_file: Path,
+    event_buffer: list[str],
+    buffer_lock: threading.Lock,
+) -> tuple[str, set[str]]:
+    """Fire any scheduled events whose time has passed today.
+
+    Returns the updated (saved_date, fired_today) tuple.
+    """
+    now_local = datetime.now(user_tz)
+    today_str = now_local.strftime("%Y-%m-%d")
+
+    if today_str != saved_date:
+        fired_today = set()
+        saved_date = today_str
+
+    for event_name, time_str in settings.scheduled_events:
+        if event_name in fired_today:
+            continue
+        try:
+            hour, minute, second = _parse_time_of_day(time_str)
+        except InvalidTimeFormatError as exc:
+            logger.warning("Skipping scheduled event '{}': {}", event_name, exc)
+            fired_today.add(event_name)
+            continue
+
+        scheduled_time = now_local.replace(hour=hour, minute=minute, second=second, microsecond=0)
+        if now_local >= scheduled_time:
+            now_utc = datetime.now(timezone.utc)
+            line = _make_synthetic_event_line(
+                "schedule",
+                _SOURCE_MIND_SCHEDULE,
+                {
+                    "event_name": event_name,
+                    "scheduled_time": time_str,
+                    "current_time_utc": now_utc.isoformat(),
+                    "current_time_local": now_local.isoformat(),
+                },
+            )
+            logger.info("Sending mind/schedule event '{}' (scheduled for {})", event_name, time_str)
+            with buffer_lock:
+                event_buffer.append(line)
+            fired_today.add(event_name)
+            _save_scheduled_events_state(scheduled_state_file, today_str, fired_today)
+
+    return saved_date, fired_today
+
+
 def _run_synthetic_events_loop(
     settings: _EventWatcherSettings,
     event_buffer: list[str],
@@ -748,25 +867,11 @@ def _run_synthetic_events_loop(
     directly into the shared event_buffer for delivery to the agent.
     """
     user_tz = _resolve_user_timezone(settings.user_timezone)
+    _maybe_send_onboarding(mind_state_dir, event_buffer, buffer_lock)
 
-    # -- Onboarding --
-    onboarding_marker = mind_state_dir / _ONBOARDING_MARKER_FILENAME
-    if not onboarding_marker.exists():
-        logger.info("Sending mind/onboarding event (first run)")
-        line = _make_synthetic_event_line("onboarding", "mind/onboarding")
-        with buffer_lock:
-            event_buffer.append(line)
-        try:
-            mind_state_dir.mkdir(parents=True, exist_ok=True)
-            onboarding_marker.touch()
-        except OSError as exc:
-            logger.error("Failed to create onboarding marker: {}", exc)
-
-    # -- Idle tracking state --
     idle_events_sent = 0
     last_seen_real_event_time = last_real_event_monotonic[0]
 
-    # -- Scheduled events state --
     scheduled_state_file = mind_state_dir / _SCHEDULED_STATE_FILENAME
     saved_date, fired_today = _load_scheduled_events_state(scheduled_state_file)
 
@@ -777,80 +882,33 @@ def _run_synthetic_events_loop(
 
         now_monotonic = time_source()
 
-        # Check for new real events (reset idle counter)
         with buffer_lock:
             current_real_event_time = last_real_event_monotonic[0]
         if current_real_event_time > last_seen_real_event_time:
             idle_events_sent = 0
             last_seen_real_event_time = current_real_event_time
 
-        # -- Idle events --
         if settings.idle_event_delay_minutes_schedule:
-            cumulative_minutes = _cumulative_idle_delay_minutes(
-                settings.idle_event_delay_minutes_schedule, idle_events_sent
-            )
             elapsed_minutes = (now_monotonic - last_seen_real_event_time) / 60.0
-            if elapsed_minutes >= cumulative_minutes:
-                now_utc = datetime.now(timezone.utc)
-                now_local = now_utc.astimezone(user_tz)
-                total_idle_minutes = (now_monotonic - last_seen_real_event_time) / 60.0
-                line = _make_synthetic_event_line(
-                    "idle",
-                    "mind/idle",
-                    {
-                        "current_time_utc": now_utc.isoformat(),
-                        "current_time_local": now_local.isoformat(),
-                        "minutes_since_last_event": round(total_idle_minutes, 1),
-                        "idle_event_number": idle_events_sent + 1,
-                    },
-                )
-                logger.info(
-                    "Sending mind/idle event {} after {:.1f} minutes of inactivity",
-                    idle_events_sent + 1,
-                    total_idle_minutes,
-                )
-                with buffer_lock:
-                    event_buffer.append(line)
-                idle_events_sent += 1
+            idle_events_sent = _maybe_send_idle_event(
+                settings,
+                elapsed_minutes,
+                idle_events_sent,
+                user_tz,
+                event_buffer,
+                buffer_lock,
+            )
 
-        # -- Scheduled events --
         if settings.scheduled_events:
-            now_local = datetime.now(user_tz)
-            today_str = now_local.strftime("%Y-%m-%d")
-
-            # Reset fired set on new day
-            if today_str != saved_date:
-                fired_today = set()
-                saved_date = today_str
-
-            for event_name, time_str in settings.scheduled_events:
-                if event_name in fired_today:
-                    continue
-                try:
-                    hour, minute, second = _parse_time_of_day(time_str)
-                except InvalidTimeFormatError as exc:
-                    logger.warning("Skipping scheduled event '{}': {}", event_name, exc)
-                    fired_today.add(event_name)
-                    continue
-
-                scheduled_time = now_local.replace(hour=hour, minute=minute, second=second, microsecond=0)
-                if now_local >= scheduled_time:
-                    now_utc = datetime.now(timezone.utc)
-                    line = _make_synthetic_event_line(
-                        "schedule",
-                        "mind/schedule",
-                        {
-                            "event_name": event_name,
-                            "scheduled_time": time_str,
-                            "current_time_utc": now_utc.isoformat(),
-                            "current_time_local": now_local.isoformat(),
-                        },
-                    )
-                    logger.info("Sending mind/schedule event '{}' (scheduled for {})", event_name, time_str)
-                    with buffer_lock:
-                        event_buffer.append(line)
-                    fired_today.add(event_name)
-                    _save_scheduled_events_state(scheduled_state_file, today_str, fired_today)
+            saved_date, fired_today = _check_scheduled_events(
+                settings,
+                user_tz,
+                saved_date,
+                fired_today,
+                scheduled_state_file,
+                event_buffer,
+                buffer_lock,
+            )
 
 
 # -- Delivery loop helpers --
