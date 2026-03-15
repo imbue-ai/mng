@@ -1,359 +1,346 @@
-# Abstract interface for all interactions with Modal.
+# Interfaces that mirror the Modal SDK object model.
 #
-# This interface captures every call that mng_modal makes to the Modal SDK or CLI,
-# organized into logical groups. Three implementations are planned:
+# Each Modal object type (App, Sandbox, Image, Volume, etc.) gets its own
+# abstract interface exposing only the methods and arguments that mng_modal
+# actually uses. The top-level ModalInterface provides all class-method and
+# module-level operations (object creation, lookup, CLI commands).
 #
-# 1. DirectModalInterface: calls the Modal Python SDK and CLI directly (current behavior)
-# 2. TestingModalInterface: fakes Modal behavior locally for integration tests
-# 3. RemoteModalInterface: proxies calls to a web server (for white-labeling / managed service)
-#
-# Handle types (AppHandle, SandboxHandle, ImageHandle, VolumeHandle) are opaque -- each
-# implementation stores whatever internal state it needs. Callers should not inspect them.
-#
-# Call sites in mng_modal that this interface abstracts:
-# - backend.py: app creation/lookup, app run context, environment creation, volume creation
-# - instance.py: sandbox create/list/terminate/snapshot, image building, volume lifecycle,
-#   sandbox exec/tunnels/tags, function deployment
-# - volume.py: volume data operations (listdir, read_file, remove_file, write_files)
-# - routes/deployment.py: modal deploy CLI, function lookup
-# - routes/snapshot_and_shutdown.py: sandbox lookup by ID, snapshot, terminate
+# Three implementations are planned:
+# 1. DirectModalInterface -- wraps the real Modal Python SDK
+# 2. TestingModalInterface -- fakes Modal locally for integration tests
+# 3. RemoteModalInterface -- proxies to a web server for managed service
 
 from abc import ABC
 from abc import abstractmethod
+from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any
 from typing import Mapping
 from typing import Sequence
 
-from pydantic import ConfigDict
-from pydantic import Field
-
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.modal_proxy.data_types import ExecStreamType
 from imbue.modal_proxy.data_types import FileEntry
-from imbue.modal_proxy.data_types import ImageBuildContext
+from imbue.modal_proxy.data_types import StreamType
 from imbue.modal_proxy.data_types import TunnelInfo
-from imbue.modal_proxy.data_types import VolumeRef
 
 # ---------------------------------------------------------------------------
-# Opaque handle types
-#
-# Each implementation stores whatever it needs inside these. Callers treat
-# them as opaque tokens passed back into subsequent ModalInterface methods.
-#
-# The `inner` field holds the implementation-specific object (e.g. a real
-# modal.App for DirectModalInterface, or a dict for TestingModalInterface).
+# Object interfaces -- mirror modal's instance-level APIs
 # ---------------------------------------------------------------------------
 
 
-class AppHandle(FrozenModel):
-    """Opaque handle to a Modal app (or equivalent in testing/remote mode)."""
+class ExecOutput(MutableModel, ABC):
+    """Readable stream from a sandbox exec command (mirrors process.stdout)."""
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    app_id: str = Field(description="Unique identifier for the app")
-    name: str = Field(description="Human-readable app name")
-    inner: Any = Field(default=None, description="Implementation-specific object", repr=False)
-
-
-class SandboxHandle(FrozenModel):
-    """Opaque handle to a Modal sandbox."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    sandbox_id: str = Field(description="Unique identifier for the sandbox")
-    inner: Any = Field(default=None, description="Implementation-specific object", repr=False)
+    @abstractmethod
+    def read(self) -> str:
+        """Read all output, blocking until the command completes."""
+        ...
 
 
-class ImageHandle(FrozenModel):
-    """Opaque handle to a Modal image."""
+class ExecProcess(MutableModel, ABC):
+    """Handle to a running command inside a sandbox (mirrors modal exec result)."""
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    image_id: str = Field(description="Unique identifier for the image")
-    inner: Any = Field(default=None, description="Implementation-specific object", repr=False)
-
-
-class VolumeHandle(FrozenModel):
-    """Opaque handle to a Modal volume."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    name: str = Field(description="Volume name")
-    inner: Any = Field(default=None, description="Implementation-specific object", repr=False)
-
-
-class ExecHandle(ABC):
-    """Handle to a running command inside a sandbox."""
+    @abstractmethod
+    def get_stdout(self) -> ExecOutput:
+        """Get the stdout stream for this process."""
+        ...
 
     @abstractmethod
     def wait(self) -> None:
         """Block until the command completes."""
         ...
 
+
+class SecretInterface(MutableModel, ABC):
+    """Opaque secret passed to image builds (mirrors modal.Secret)."""
+
+
+class FunctionInterface(MutableModel, ABC):
+    """A deployed Modal function (mirrors modal.Function)."""
+
     @abstractmethod
-    def read_stdout(self) -> str:
-        """Read all stdout output from the command, blocking until complete."""
+    def get_web_url(self) -> str | None:
+        """Get the public web endpoint URL for this function."""
+        ...
+
+
+class ImageInterface(MutableModel, ABC):
+    """A container image that can be used to create sandboxes (mirrors modal.Image)."""
+
+    @abstractmethod
+    def get_object_id(self) -> str:
+        """Get the unique identifier for this image."""
+        ...
+
+    # Image building methods -- each returns a new ImageInterface (chainable)
+
+    @abstractmethod
+    def apt_install(self, *packages: str) -> "ImageInterface":
+        """Install apt packages on this image."""
+        ...
+
+    @abstractmethod
+    def dockerfile_commands(
+        self,
+        commands: Sequence[str],
+        *,
+        context_dir: Path | None = None,
+        secrets: Sequence[SecretInterface] = (),
+    ) -> "ImageInterface":
+        """Apply Dockerfile commands to this image."""
+        ...
+
+
+class VolumeInterface(MutableModel, ABC):
+    """A persistent volume for storing files (mirrors modal.Volume)."""
+
+    @abstractmethod
+    def get_name(self) -> str | None:
+        """Get the volume name (if it has one)."""
+        ...
+
+    @abstractmethod
+    def listdir(self, path: str) -> list[FileEntry]:
+        """List entries in a directory on the volume."""
+        ...
+
+    @abstractmethod
+    def read_file(self, path: str) -> bytes:
+        """Read a file from the volume and return its contents."""
+        ...
+
+    @abstractmethod
+    def remove_file(self, path: str, *, recursive: bool = False) -> None:
+        """Remove a file or directory from the volume."""
+        ...
+
+    @abstractmethod
+    def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
+        """Write one or more files to the volume (wraps batch_upload)."""
+        ...
+
+    @abstractmethod
+    def reload(self) -> None:
+        """Refresh volume data to see external changes."""
+        ...
+
+    @abstractmethod
+    def commit(self) -> None:
+        """Commit pending writes to the volume."""
+        ...
+
+
+class SandboxInterface(MutableModel, ABC):
+    """A running sandbox container (mirrors modal.Sandbox)."""
+
+    @abstractmethod
+    def get_object_id(self) -> str:
+        """Get the unique identifier for this sandbox."""
+        ...
+
+    @abstractmethod
+    def exec(
+        self,
+        *args: str,
+        stdout: StreamType = StreamType.PIPE,
+        stderr: StreamType = StreamType.PIPE,
+    ) -> ExecProcess:
+        """Execute a command inside this sandbox."""
+        ...
+
+    @abstractmethod
+    def tunnels(self) -> dict[int, TunnelInfo]:
+        """Get tunnel connection info for exposed ports."""
+        ...
+
+    @abstractmethod
+    def get_tags(self) -> dict[str, str]:
+        """Get all tags on this sandbox."""
+        ...
+
+    @abstractmethod
+    def set_tags(self, tags: Mapping[str, str]) -> None:
+        """Replace all tags on this sandbox."""
+        ...
+
+    @abstractmethod
+    def snapshot_filesystem(self, timeout: int = 120) -> ImageInterface:
+        """Snapshot this sandbox's filesystem, returning the resulting image."""
+        ...
+
+    @abstractmethod
+    def terminate(self) -> None:
+        """Terminate this sandbox."""
+        ...
+
+
+class AppInterface(MutableModel, ABC):
+    """A Modal app that scopes sandboxes and resources (mirrors modal.App)."""
+
+    @abstractmethod
+    def get_app_id(self) -> str:
+        """Get the unique identifier for this app."""
+        ...
+
+    @abstractmethod
+    def get_name(self) -> str:
+        """Get the human-readable name of this app."""
+        ...
+
+    @abstractmethod
+    def run(self, *, environment_name: str) -> AbstractContextManager["AppInterface"]:
+        """Enter this app's run context (for ephemeral apps)."""
         ...
 
 
 # ---------------------------------------------------------------------------
-# Core interface
+# Top-level interface -- mirrors modal module-level and class-method APIs
 # ---------------------------------------------------------------------------
 
 
 class ModalInterface(MutableModel, ABC):
-    """Abstraction over all interactions with Modal."""
+    """Abstraction over the Modal SDK module-level and class-method APIs."""
 
     # =====================================================================
-    # Environment
+    # Environment (CLI: `modal environment create`)
     # =====================================================================
 
-    # Call sites: backend.py _create_environment (via `modal environment create` CLI)
     @abstractmethod
     def environment_create(self, name: str) -> None:
-        """Create a Modal environment, scoping all resources for user isolation."""
+        """Create a Modal environment for resource isolation."""
         ...
 
     # =====================================================================
-    # App lifecycle
+    # App (modal.App constructor, modal.App.lookup)
     # =====================================================================
 
-    # Call sites: backend.py _lookup_persistent_app_with_env_retry
+    @abstractmethod
+    def app_create(self, name: str) -> AppInterface:
+        """Create a new Modal app (mirrors modal.App(name))."""
+        ...
+
     @abstractmethod
     def app_lookup(
         self,
-        app_name: str,
-        environment_name: str,
+        name: str,
+        *,
         create_if_missing: bool = True,
-    ) -> AppHandle:
-        """Look up or create a persistent Modal app."""
-        ...
-
-    # Call sites: backend.py _get_or_create_app (modal.App + app.run)
-    @abstractmethod
-    def app_create_ephemeral(
-        self,
-        app_name: str,
         environment_name: str,
-    ) -> AppHandle:
-        """Create an ephemeral Modal app and enter its run context."""
-        ...
-
-    # Call sites: backend.py close_app / _exit_modal_app_context
-    @abstractmethod
-    def app_close(self, app: AppHandle) -> None:
-        """Exit an ephemeral app's run context and release resources."""
+    ) -> AppInterface:
+        """Look up a persistent Modal app (mirrors modal.App.lookup)."""
         ...
 
     # =====================================================================
-    # Image building
+    # Image (modal.Image class methods)
     # =====================================================================
 
-    # Call sites: instance.py _build_modal_image
     @abstractmethod
-    def image_from_registry(self, name: str) -> ImageHandle:
-        """Create an image from a Docker registry reference."""
+    def image_debian_slim(self) -> ImageInterface:
+        """Create a Debian slim base image (mirrors modal.Image.debian_slim)."""
         ...
 
-    # Call sites: instance.py _build_modal_image, routes/snapshot_and_shutdown.py
     @abstractmethod
-    def image_debian_slim(self) -> ImageHandle:
-        """Create a base Debian slim image."""
+    def image_from_registry(self, name: str) -> ImageInterface:
+        """Create an image from a registry reference (mirrors modal.Image.from_registry)."""
         ...
 
-    # Call sites: instance.py create_host (from snapshot), start_host
     @abstractmethod
-    def image_from_id(self, image_id: str) -> ImageHandle:
-        """Load an image by its ID (used for restoring from snapshots)."""
-        ...
-
-    # Call sites: instance.py _build_modal_image (default image path)
-    @abstractmethod
-    def image_apt_install(self, image: ImageHandle, packages: Sequence[str]) -> ImageHandle:
-        """Install apt packages on an image."""
-        ...
-
-    # Call sites: instance.py _build_image_from_dockerfile_contents
-    @abstractmethod
-    def image_dockerfile_commands(
-        self,
-        image: ImageHandle,
-        build_context: ImageBuildContext,
-    ) -> ImageHandle:
-        """Apply Dockerfile commands to an image."""
+    def image_from_id(self, image_id: str) -> ImageInterface:
+        """Load an image by ID, e.g. from a snapshot (mirrors modal.Image.from_id)."""
         ...
 
     # =====================================================================
-    # Sandbox lifecycle
+    # Sandbox (modal.Sandbox class methods)
     # =====================================================================
 
-    # Call sites: instance.py create_host, start_host
     @abstractmethod
     def sandbox_create(
         self,
-        image: ImageHandle,
-        app: AppHandle,
         *,
+        image: ImageInterface,
+        app: AppInterface,
         timeout: int,
         cpu: float,
-        memory_mb: int,
+        memory: int,
         unencrypted_ports: Sequence[int] = (),
         gpu: str | None = None,
         region: str | None = None,
         cidr_allowlist: Sequence[str] | None = None,
-        volumes: Mapping[str, VolumeHandle] | None = None,
-    ) -> SandboxHandle:
-        """Create a new sandbox from an image with the given resource configuration."""
+        volumes: Mapping[str, VolumeInterface] | None = None,
+    ) -> SandboxInterface:
+        """Create a sandbox (mirrors modal.Sandbox.create)."""
         ...
 
-    # Call sites: instance.py _list_sandboxes, _lookup_sandbox_by_host_id_once,
-    #             _lookup_sandbox_by_name_once, _list_running_host_ids
     @abstractmethod
-    def sandbox_list(self, app: AppHandle) -> list[SandboxHandle]:
-        """List all sandboxes associated with an app."""
+    def sandbox_list(self, *, app_id: str) -> list[SandboxInterface]:
+        """List sandboxes for an app (mirrors modal.Sandbox.list)."""
         ...
 
-    # Call sites: routes/snapshot_and_shutdown.py
     @abstractmethod
-    def sandbox_from_id(self, sandbox_id: str) -> SandboxHandle:
-        """Look up a sandbox by its ID."""
-        ...
-
-    # Call sites: instance.py _create_host_from_sandbox, discover_hosts,
-    #             _list_running_host_ids, get_host_tags, set_host_tags, etc.
-    @abstractmethod
-    def sandbox_get_tags(self, sandbox: SandboxHandle) -> dict[str, str]:
-        """Get all tags on a sandbox."""
-        ...
-
-    # Call sites: instance.py _setup_sandbox_ssh_and_create_host, set_host_tags,
-    #             add_tags_to_host, remove_tags_from_host, rename_host
-    @abstractmethod
-    def sandbox_set_tags(self, sandbox: SandboxHandle, tags: Mapping[str, str]) -> None:
-        """Replace all tags on a sandbox."""
-        ...
-
-    # Call sites: instance.py _check_and_install_packages, _start_sshd_in_sandbox,
-    #             activity watcher start, volume sync start
-    @abstractmethod
-    def sandbox_exec(
-        self,
-        sandbox: SandboxHandle,
-        command: Sequence[str],
-        *,
-        stdout: ExecStreamType = ExecStreamType.PIPE,
-    ) -> ExecHandle:
-        """Execute a command inside a running sandbox."""
-        ...
-
-    # Call sites: instance.py _get_ssh_info_from_sandbox
-    @abstractmethod
-    def sandbox_get_tunnels(self, sandbox: SandboxHandle) -> dict[int, TunnelInfo]:
-        """Get tunnel connection info for a sandbox's exposed ports."""
-        ...
-
-    # Call sites: instance.py stop_host, routes/snapshot_and_shutdown.py
-    @abstractmethod
-    def sandbox_terminate(self, sandbox: SandboxHandle) -> None:
-        """Terminate a running sandbox."""
-        ...
-
-    # Call sites: instance.py _record_snapshot, routes/snapshot_and_shutdown.py
-    @abstractmethod
-    def sandbox_snapshot(self, sandbox: SandboxHandle, timeout: int = 120) -> ImageHandle:
-        """Snapshot the sandbox's filesystem, returning a handle to the resulting image."""
+    def sandbox_from_id(self, sandbox_id: str) -> SandboxInterface:
+        """Look up a sandbox by ID (mirrors modal.Sandbox.from_id)."""
         ...
 
     # =====================================================================
-    # Volume lifecycle
+    # Volume (modal.Volume class methods and modal.Volume.objects)
     # =====================================================================
 
-    # Call sites: backend.py get_volume_for_app, instance.py _build_host_volume,
-    #             _build_modal_volumes, get_volume_for_host
     @abstractmethod
-    def volume_create_or_get(
+    def volume_from_name(
         self,
         name: str,
+        *,
+        create_if_missing: bool = True,
         environment_name: str,
         version: int | None = None,
-    ) -> VolumeHandle:
-        """Look up a volume by name, creating it if it does not exist."""
+    ) -> VolumeInterface:
+        """Get or create a volume by name (mirrors modal.Volume.from_name)."""
         ...
 
-    # Call sites: instance.py get_volume_for_host (probe path)
     @abstractmethod
-    def volume_lookup(
+    def volume_list(self, *, environment_name: str) -> list[VolumeInterface]:
+        """List all volumes in an environment (mirrors modal.Volume.objects.list)."""
+        ...
+
+    @abstractmethod
+    def volume_delete(self, name: str, *, environment_name: str) -> None:
+        """Delete a volume by name (mirrors modal.Volume.objects.delete)."""
+        ...
+
+    # =====================================================================
+    # Secret (modal.Secret class methods)
+    # =====================================================================
+
+    @abstractmethod
+    def secret_from_dict(self, values: Mapping[str, str | None]) -> SecretInterface:
+        """Create a secret from key-value pairs (mirrors modal.Secret.from_dict)."""
+        ...
+
+    # =====================================================================
+    # Function (modal.Function class methods)
+    # =====================================================================
+
+    @abstractmethod
+    def function_from_name(
         self,
         name: str,
-        environment_name: str,
-    ) -> VolumeHandle:
-        """Look up a volume by name, raising if it does not exist."""
-        ...
-
-    # Call sites: instance.py list_volumes, delete_volume
-    @abstractmethod
-    def volume_list(self, environment_name: str) -> list[VolumeRef]:
-        """List all volumes in the given environment."""
-        ...
-
-    # Call sites: instance.py _delete_host_volume, delete_volume
-    @abstractmethod
-    def volume_delete(self, name: str, environment_name: str) -> None:
-        """Delete a volume by name (no-op if the volume does not exist)."""
+        *,
+        app_name: str,
+        environment_name: str | None = None,
+    ) -> FunctionInterface:
+        """Look up a deployed function by name (mirrors modal.Function.from_name)."""
         ...
 
     # =====================================================================
-    # Volume data operations
+    # CLI operations
     # =====================================================================
 
-    # Call sites: volume.py ModalVolume.listdir, instance.py get_volume_for_host (probe)
     @abstractmethod
-    def volume_listdir(self, volume: VolumeHandle, path: str) -> list[FileEntry]:
-        """List entries in a directory on the volume."""
-        ...
-
-    # Call sites: volume.py ModalVolume.read_file
-    @abstractmethod
-    def volume_read_file(self, volume: VolumeHandle, path: str) -> bytes:
-        """Read a file from the volume and return its contents."""
-        ...
-
-    # Call sites: volume.py ModalVolume.remove_file / remove_directory
-    @abstractmethod
-    def volume_remove_file(self, volume: VolumeHandle, path: str, *, recursive: bool = False) -> None:
-        """Remove a file or directory from the volume."""
-        ...
-
-    # Call sites: volume.py ModalVolume.write_files (batch upload)
-    @abstractmethod
-    def volume_write_files(self, volume: VolumeHandle, file_contents_by_path: Mapping[str, bytes]) -> None:
-        """Write one or more files to the volume."""
-        ...
-
-    # =====================================================================
-    # Function deployment
-    # =====================================================================
-
-    # Call sites: routes/deployment.py deploy_function (via `modal deploy` CLI)
-    @abstractmethod
-    def deploy_function(
+    def deploy(
         self,
         script_path: Path,
+        *,
         app_name: str,
-        environment_name: str | None,
-    ) -> str:
-        """Deploy a Modal function from a script file and return its web URL."""
-        ...
-
-    # Call sites: routes/deployment.py (Function.from_name + get_web_url)
-    @abstractmethod
-    def get_function_url(
-        self,
-        function_name: str,
-        app_name: str,
-        environment_name: str | None,
-    ) -> str | None:
-        """Get the web URL of a previously deployed function."""
+        environment_name: str | None = None,
+    ) -> None:
+        """Deploy a script to Modal (mirrors `modal deploy` CLI)."""
         ...
