@@ -8,6 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mng.cli.archive import archive
 from imbue.mng.cli.capture import capture
 from imbue.mng.cli.cleanup import cleanup
 from imbue.mng.cli.config import config
@@ -252,6 +253,7 @@ def create_test_agent(
 # =============================================================================
 
 _HELP_TEST_CASES: list[tuple[click.Command, list[str], str]] = [
+    (archive, ["--help"], "archive"),
     (capture, ["--help"], "capture"),
     (cleanup, ["--help"], "cleanup"),
     (config, ["--help"], "config"),

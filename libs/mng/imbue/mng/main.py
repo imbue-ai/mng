@@ -8,6 +8,7 @@ from click_option_group import OptionGroup
 
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
+from imbue.mng.cli.archive import archive
 from imbue.mng.cli.ask import ask
 from imbue.mng.cli.capture import capture
 from imbue.mng.cli.cleanup import cleanup
@@ -344,8 +345,9 @@ cli.add_command(rename, name="mv")
 cli.add_command(snapshot, name="snap")
 cli.add_command(stop, name="s")
 
-# Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses
-# UNPROCESSED args and delegates to create, which already has plugin options applied)
+# Add commands that use UNPROCESSED args and delegate to other commands.
+# Not in BUILTIN_COMMANDS since plugin options are applied to the delegate target.
+cli.add_command(archive)
 cli.add_command(clone)
 cli.add_command(migrate)
 

@@ -8,10 +8,10 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.mng.api.find import AgentMatch
-from imbue.mng.cli.label import _apply_labels_to_agents_offline
 from imbue.mng.cli.label import _merge_labels
 from imbue.mng.cli.label import _output
 from imbue.mng.cli.label import _output_result
+from imbue.mng.cli.label import apply_labels_to_agents_offline
 from imbue.mng.cli.label import label
 from imbue.mng.cli.label import parse_label_string
 from imbue.mng.cli.testing import create_test_agent_state
@@ -301,7 +301,7 @@ def test_label_json_output(
 def test_apply_labels_offline_updates_persisted_data(
     tmp_path: Path,
 ) -> None:
-    """_apply_labels_to_agents_offline should merge labels in persisted data."""
+    """apply_labels_to_agents_offline should merge labels in persisted data."""
     # Set up a DockerHostStore backed by a local filesystem volume
     vol_path = tmp_path / "state_vol"
     vol_path.mkdir()
@@ -325,7 +325,7 @@ def test_apply_labels_offline_updates_persisted_data(
     )
 
     changes: list[dict[str, Any]] = []
-    _apply_labels_to_agents_offline(
+    apply_labels_to_agents_offline(
         provider=cast(BaseProviderInstance, store),
         host_id=host_id,
         agent_matches=[agent_match],
@@ -346,7 +346,7 @@ def test_apply_labels_offline_updates_persisted_data(
 def test_apply_labels_offline_raises_when_agent_not_found(
     tmp_path: Path,
 ) -> None:
-    """_apply_labels_to_agents_offline should raise when agent is missing from persisted data."""
+    """apply_labels_to_agents_offline should raise when agent is missing from persisted data."""
     vol_path = tmp_path / "state_vol"
     vol_path.mkdir()
     volume = LocalVolume(root_path=vol_path)
@@ -365,7 +365,7 @@ def test_apply_labels_offline_raises_when_agent_not_found(
 
     changes: list[dict[str, Any]] = []
     with pytest.raises(AgentNotFoundOnHostError):
-        _apply_labels_to_agents_offline(
+        apply_labels_to_agents_offline(
             provider=cast(BaseProviderInstance, store),
             host_id=host_id,
             agent_matches=[agent_match],

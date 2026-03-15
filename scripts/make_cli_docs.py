@@ -58,6 +58,7 @@ SECONDARY_COMMANDS = {
     "transcript",
 }
 ALIAS_COMMANDS = {
+    "archive",
     "clone",
     "migrate",
 }
