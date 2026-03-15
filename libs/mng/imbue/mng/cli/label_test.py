@@ -13,6 +13,7 @@ from imbue.mng.cli.label import parse_label_string
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.host import Host
+from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
@@ -22,6 +23,16 @@ from imbue.mng.primitives import OutputFormat
 
 def _make_output_opts(fmt: OutputFormat = OutputFormat.HUMAN) -> OutputOptions:
     return OutputOptions(output_format=fmt, format_template=None)
+
+
+def _create_test_agent(host: Host, work_dir: Path, name: str) -> AgentInterface:
+    """Create a minimal test agent with the given name."""
+    options = CreateAgentOptions(
+        name=AgentName(name),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+    )
+    return host.create_agent_state(work_dir, options)
 
 
 # =============================================================================
@@ -183,14 +194,7 @@ def test_label_applies_labels_to_agent(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Label command should apply labels to an agent on a local host."""
-    options = CreateAgentOptions(
-        name=AgentName("label-test-agent"),
-        agent_type=AgentTypeName("generic"),
-        command=CommandString("sleep 1"),
-    )
-    agent = local_host.create_agent_state(temp_work_dir, options)
-
-    # Verify agent starts with no labels
+    agent = _create_test_agent(local_host, temp_work_dir, "label-test-agent")
     assert agent.get_labels() == {}
 
     result = cli_runner.invoke(
@@ -200,10 +204,7 @@ def test_label_applies_labels_to_agent(
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-
-    # Verify labels were applied
-    labels = agent.get_labels()
-    assert labels == {"env": "prod", "team": "backend"}
+    assert agent.get_labels() == {"env": "prod", "team": "backend"}
 
 
 def test_label_merges_with_existing_labels(
@@ -213,14 +214,7 @@ def test_label_merges_with_existing_labels(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Label command should merge new labels with existing ones."""
-    options = CreateAgentOptions(
-        name=AgentName("merge-label-agent"),
-        agent_type=AgentTypeName("generic"),
-        command=CommandString("sleep 1"),
-    )
-    agent = local_host.create_agent_state(temp_work_dir, options)
-
-    # Set initial labels directly
+    agent = _create_test_agent(local_host, temp_work_dir, "merge-label-agent")
     agent.set_labels({"existing": "value", "overwrite_me": "old"})
 
     result = cli_runner.invoke(
@@ -230,37 +224,23 @@ def test_label_merges_with_existing_labels(
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-
-    labels = agent.get_labels()
-    assert labels == {"existing": "value", "overwrite_me": "new", "added": "yes"}
+    assert agent.get_labels() == {"existing": "value", "overwrite_me": "new", "added": "yes"}
 
 
 def test_label_all_applies_to_all_agents(
     local_host: Host,
-    temp_work_dir: Path,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
 ) -> None:
     """Label --all should apply labels to all agents."""
-    # Create two agents
     work_dir_1 = tmp_path / "work1"
     work_dir_1.mkdir()
     work_dir_2 = tmp_path / "work2"
     work_dir_2.mkdir()
 
-    options_1 = CreateAgentOptions(
-        name=AgentName("all-label-agent-1"),
-        agent_type=AgentTypeName("generic"),
-        command=CommandString("sleep 1"),
-    )
-    options_2 = CreateAgentOptions(
-        name=AgentName("all-label-agent-2"),
-        agent_type=AgentTypeName("generic"),
-        command=CommandString("sleep 1"),
-    )
-    agent_1 = local_host.create_agent_state(work_dir_1, options_1)
-    agent_2 = local_host.create_agent_state(work_dir_2, options_2)
+    agent_1 = _create_test_agent(local_host, work_dir_1, "all-label-agent-1")
+    agent_2 = _create_test_agent(local_host, work_dir_2, "all-label-agent-2")
 
     result = cli_runner.invoke(
         label,
@@ -269,7 +249,6 @@ def test_label_all_applies_to_all_agents(
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-
     assert agent_1.get_labels() == {"batch": "true"}
     assert agent_2.get_labels() == {"batch": "true"}
 
@@ -281,12 +260,7 @@ def test_label_dry_run_does_not_modify(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Label --dry-run should not actually modify any labels."""
-    options = CreateAgentOptions(
-        name=AgentName("dry-run-agent"),
-        agent_type=AgentTypeName("generic"),
-        command=CommandString("sleep 1"),
-    )
-    agent = local_host.create_agent_state(temp_work_dir, options)
+    agent = _create_test_agent(local_host, temp_work_dir, "dry-run-agent")
 
     result = cli_runner.invoke(
         label,
@@ -296,8 +270,6 @@ def test_label_dry_run_does_not_modify(
     )
     assert result.exit_code == 0
     assert "Would apply labels" in result.output
-
-    # Verify labels were NOT applied
     assert agent.get_labels() == {}
 
 
@@ -308,12 +280,7 @@ def test_label_json_output(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Label command should produce valid JSON output with --format json."""
-    options = CreateAgentOptions(
-        name=AgentName("json-label-agent"),
-        agent_type=AgentTypeName("generic"),
-        command=CommandString("sleep 1"),
-    )
-    local_host.create_agent_state(temp_work_dir, options)
+    _create_test_agent(local_host, temp_work_dir, "json-label-agent")
 
     result = cli_runner.invoke(
         label,
