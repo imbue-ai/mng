@@ -12,6 +12,7 @@ from imbue.mng.api.observe import FullAgentStateEvent
 from imbue.mng.api.observe import OBSERVE_EVENT_SOURCE
 from imbue.mng.api.observe import ObserveEventType
 from imbue.mng.api.observe import ObserveLockError
+from imbue.mng.api.observe import _TrackedState
 from imbue.mng.api.observe import acquire_observe_lock
 from imbue.mng.api.observe import append_agent_state_change_event
 from imbue.mng.api.observe import append_observe_event
@@ -29,6 +30,7 @@ from imbue.mng.api.observe import release_observe_lock
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import AgentLifecycleState
+from imbue.mng.primitives import HostState
 from imbue.mng.utils.testing import make_test_agent_details
 from imbue.mng.utils.testing import make_test_discovered_agent
 from imbue.mng.utils.testing import make_test_discovered_host
@@ -77,7 +79,7 @@ def test_make_agent_state_event_has_correct_fields() -> None:
     assert event.type == ObserveEventType.AGENT_STATE
     assert event.source == OBSERVE_EVENT_SOURCE
     assert event.event_id.startswith("evt-")
-    assert event.agent["name"] == "test-agent"
+    assert event.agent.name == "test-agent"
     assert isinstance(event, AgentStateEvent)
 
 
@@ -99,23 +101,27 @@ def test_make_full_agent_state_event_with_empty_agents() -> None:
 
 def test_make_agent_state_change_event_has_correct_fields() -> None:
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
-    event = make_agent_state_change_event(agent, "STOPPED")
+    event = make_agent_state_change_event(agent, "STOPPED", "RUNNING")
     assert event.type == ObserveEventType.AGENT_STATE_CHANGE
     assert event.source == AGENT_STATES_EVENT_SOURCE
     assert event.event_id.startswith("evt-")
     assert event.old_state == "STOPPED"
     assert event.new_state == "RUNNING"
+    assert event.old_host_state == "RUNNING"
+    assert event.new_host_state == "RUNNING"
     assert event.agent_id == agent.id
     assert event.agent_name == agent.name
-    assert event.agent["name"] == "test-agent"
+    assert event.agent.name == "test-agent"
     assert isinstance(event, AgentStateChangeEvent)
 
 
 def test_make_agent_state_change_event_with_none_old_state() -> None:
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
-    event = make_agent_state_change_event(agent, None)
+    event = make_agent_state_change_event(agent, None, None)
     assert event.old_state is None
     assert event.new_state == "RUNNING"
+    assert event.old_host_state is None
+    assert event.new_host_state == "RUNNING"
 
 
 # === File I/O Tests ===
@@ -159,7 +165,7 @@ def test_append_observe_event_creates_parent_directories(temp_host_dir: Path) ->
 
 def test_append_agent_state_change_event_creates_file_and_writes_valid_json(temp_host_dir: Path) -> None:
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
-    event = make_agent_state_change_event(agent, "STOPPED")
+    event = make_agent_state_change_event(agent, "STOPPED", "RUNNING")
     append_agent_state_change_event(temp_host_dir, event)
 
     events_path = get_agent_states_events_path(temp_host_dir)
@@ -172,6 +178,8 @@ def test_append_agent_state_change_event_creates_file_and_writes_valid_json(temp
     assert data["source"] == "mng/agent_states"
     assert data["old_state"] == "STOPPED"
     assert data["new_state"] == "RUNNING"
+    assert data["old_host_state"] == "RUNNING"
+    assert data["new_host_state"] == "RUNNING"
 
 
 def test_append_agent_state_change_event_creates_parent_directories(temp_host_dir: Path) -> None:
@@ -179,7 +187,7 @@ def test_append_agent_state_change_event_creates_parent_directories(temp_host_di
     assert not events_path.parent.exists()
 
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
-    event = make_agent_state_change_event(agent, None)
+    event = make_agent_state_change_event(agent, None, None)
     append_agent_state_change_event(temp_host_dir, event)
     assert events_path.parent.exists()
 
@@ -198,10 +206,12 @@ def test_load_base_state_from_history_loads_latest_full_state(temp_host_dir: Pat
     event = make_full_agent_state_event([agent1, agent2])
     append_observe_event(temp_host_dir, event)
 
-    agent_state = load_base_state_from_history(temp_host_dir)
-    assert len(agent_state) == 2
-    assert agent_state[str(agent1.id)] == "RUNNING"
-    assert agent_state[str(agent2.id)] == "STOPPED"
+    tracked = load_base_state_from_history(temp_host_dir)
+    assert len(tracked) == 2
+    assert tracked[str(agent1.id)].agent_state == "RUNNING"
+    assert tracked[str(agent1.id)].host_state == "RUNNING"
+    assert tracked[str(agent2.id)].agent_state == "STOPPED"
+    assert tracked[str(agent2.id)].host_state == "RUNNING"
 
 
 def test_load_base_state_from_history_uses_latest_full_state(temp_host_dir: Path) -> None:
@@ -213,10 +223,10 @@ def test_load_base_state_from_history_uses_latest_full_state(temp_host_dir: Path
     event2 = make_full_agent_state_event([agent2])
     append_observe_event(temp_host_dir, event2)
 
-    agent_state = load_base_state_from_history(temp_host_dir)
-    assert len(agent_state) == 1
-    assert str(agent2.id) in agent_state
-    assert agent_state[str(agent2.id)] == "STOPPED"
+    tracked = load_base_state_from_history(temp_host_dir)
+    assert len(tracked) == 1
+    assert str(agent2.id) in tracked
+    assert tracked[str(agent2.id)].agent_state == "STOPPED"
 
 
 def test_load_base_state_from_history_ignores_non_full_state_events(temp_host_dir: Path) -> None:
@@ -240,9 +250,9 @@ def test_load_base_state_from_history_handles_malformed_lines(temp_host_dir: Pat
         f.write("not valid json\n")
         f.write(event_json + "\n")
 
-    agent_state = load_base_state_from_history(temp_host_dir)
-    assert len(agent_state) == 1
-    assert agent_state[str(agent.id)] == "RUNNING"
+    tracked = load_base_state_from_history(temp_host_dir)
+    assert len(tracked) == 1
+    assert tracked[str(agent.id)].agent_state == "RUNNING"
 
 
 # === Lock Tests ===
@@ -322,7 +332,7 @@ def test_full_agent_state_event_serializes_to_valid_json() -> None:
 
 def test_agent_state_change_event_serializes_to_valid_json() -> None:
     agent = make_test_agent_details(state=AgentLifecycleState.RUNNING)
-    event = make_agent_state_change_event(agent, "STOPPED")
+    event = make_agent_state_change_event(agent, "STOPPED", "RUNNING")
     data = event.model_dump(mode="json")
     json_str = json.dumps(data, separators=(",", ":"))
 
@@ -331,6 +341,8 @@ def test_agent_state_change_event_serializes_to_valid_json() -> None:
     assert parsed["source"] == "mng/agent_states"
     assert parsed["old_state"] == "STOPPED"
     assert parsed["new_state"] == "RUNNING"
+    assert parsed["old_host_state"] == "RUNNING"
+    assert parsed["new_host_state"] == "RUNNING"
     assert parsed["agent"]["name"] == "test-agent"
 
 
@@ -426,7 +438,9 @@ def test_agent_observer_emit_agent_state_updates_tracking(temp_mng_ctx: MngConte
 
     observer._emit_agent_state(agent)
 
-    assert str(agent.id) in observer._last_agent_state_by_id
+    tracked = observer._last_tracked_state_by_id[str(agent.id)]
+    assert tracked.agent_state == "RUNNING"
+    assert tracked.host_state == "RUNNING"
 
 
 def test_agent_observer_emit_agent_state_emits_state_change_for_new_agent(
@@ -477,7 +491,9 @@ def test_agent_observer_emit_agent_state_detects_state_transition(temp_mng_ctx: 
 
     # Second emit with a different state: RUNNING -> STOPPED
     agent_stopped = make_test_agent_details(name="transitioning", state=AgentLifecycleState.STOPPED)
-    observer._last_agent_state_by_id[str(agent_stopped.id)] = "RUNNING"
+    observer._last_tracked_state_by_id[str(agent_stopped.id)] = _TrackedState(
+        agent_state="RUNNING", host_state="RUNNING"
+    )
     observer._emit_agent_state(agent_stopped)
 
     states_path = get_agent_states_events_path(observer.events_base_dir)
@@ -489,6 +505,8 @@ def test_agent_observer_emit_agent_state_detects_state_transition(temp_mng_ctx: 
     assert data["type"] == "AGENT_STATE_CHANGE"
     assert data["old_state"] == "RUNNING"
     assert data["new_state"] == "STOPPED"
+    assert data["old_host_state"] == "RUNNING"
+    assert data["new_host_state"] == "RUNNING"
     assert data["agent_name"] == "transitioning"
 
 
@@ -536,7 +554,7 @@ def test_agent_observer_process_snapshot_agents_emits_state_changes(
     agent = make_test_agent_details(name="snapshot-agent", state=AgentLifecycleState.STOPPED)
 
     # Pre-populate with a different state to simulate a transition
-    observer._last_agent_state_by_id[str(agent.id)] = "RUNNING"
+    observer._last_tracked_state_by_id[str(agent.id)] = _TrackedState(agent_state="RUNNING", host_state="RUNNING")
 
     observer._process_snapshot_agents([agent])
 
@@ -565,8 +583,8 @@ def test_agent_observer_process_snapshot_agents_no_change_when_same_state(
     observer = _make_observer(temp_mng_ctx, noop_binary)
     agent = make_test_agent_details(name="stable-agent", state=AgentLifecycleState.RUNNING)
 
-    # Pre-populate with the same state
-    observer._last_agent_state_by_id[str(agent.id)] = "RUNNING"
+    # Pre-populate with the same agent and host state
+    observer._last_tracked_state_by_id[str(agent.id)] = _TrackedState(agent_state="RUNNING", host_state="RUNNING")
 
     observer._process_snapshot_agents([agent])
 
@@ -587,7 +605,7 @@ def test_agent_observer_emit_state_change_writes_to_agent_states_stream(
     observer = _make_observer(temp_mng_ctx, noop_binary)
     agent = make_test_agent_details(name="transitioning-agent", state=AgentLifecycleState.STOPPED)
 
-    observer._emit_state_change(agent, "RUNNING")
+    observer._emit_state_change(agent, "RUNNING", "RUNNING")
 
     states_path = get_agent_states_events_path(observer.events_base_dir)
     assert states_path.exists()
@@ -597,4 +615,56 @@ def test_agent_observer_emit_state_change_writes_to_agent_states_stream(
     assert data["type"] == "AGENT_STATE_CHANGE"
     assert data["old_state"] == "RUNNING"
     assert data["new_state"] == "STOPPED"
+    assert data["old_host_state"] == "RUNNING"
+    assert data["new_host_state"] == "RUNNING"
     assert data["agent_name"] == "transitioning-agent"
+
+
+def test_agent_observer_emit_agent_state_detects_host_state_change(temp_mng_ctx: MngContext, noop_binary: str) -> None:
+    """Verify that a state change event is emitted when host state changes but agent state stays the same."""
+    observer = _make_observer(temp_mng_ctx, noop_binary)
+    agent = make_test_agent_details(
+        name="host-changing", state=AgentLifecycleState.RUNNING, host_state=HostState.PAUSED
+    )
+
+    # Pre-populate: agent was RUNNING on a RUNNING host
+    observer._last_tracked_state_by_id[str(agent.id)] = _TrackedState(agent_state="RUNNING", host_state="RUNNING")
+
+    observer._emit_agent_state(agent)
+
+    states_path = get_agent_states_events_path(observer.events_base_dir)
+    assert states_path.exists()
+    lines = states_path.read_text().strip().splitlines()
+    assert len(lines) == 1
+    data = json.loads(lines[0])
+    assert data["type"] == "AGENT_STATE_CHANGE"
+    assert data["old_state"] == "RUNNING"
+    assert data["new_state"] == "RUNNING"
+    assert data["old_host_state"] == "RUNNING"
+    assert data["new_host_state"] == "PAUSED"
+
+
+def test_agent_observer_process_snapshot_agents_detects_host_state_change(
+    temp_mng_ctx: MngContext, noop_binary: str
+) -> None:
+    """Verify that _process_snapshot_agents detects host state changes and emits to agent_states."""
+    observer = _make_observer(temp_mng_ctx, noop_binary)
+    agent = make_test_agent_details(
+        name="host-transition-agent", state=AgentLifecycleState.RUNNING, host_state=HostState.PAUSED
+    )
+
+    # Pre-populate: same agent state, different host state
+    observer._last_tracked_state_by_id[str(agent.id)] = _TrackedState(agent_state="RUNNING", host_state="RUNNING")
+
+    observer._process_snapshot_agents([agent])
+
+    states_path = get_agent_states_events_path(observer.events_base_dir)
+    assert states_path.exists()
+    states_lines = states_path.read_text().strip().splitlines()
+    assert len(states_lines) == 1
+    data = json.loads(states_lines[0])
+    assert data["type"] == "AGENT_STATE_CHANGE"
+    assert data["old_host_state"] == "RUNNING"
+    assert data["new_host_state"] == "PAUSED"
+    assert data["old_state"] == "RUNNING"
+    assert data["new_state"] == "RUNNING"
