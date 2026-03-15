@@ -8,11 +8,15 @@ import io
 import os
 import subprocess
 import tempfile
+from collections.abc import Callable
 from collections.abc import Generator
+from functools import wraps
 from pathlib import Path
 from typing import Any
 from typing import Mapping
+from typing import ParamSpec
 from typing import Sequence
+from typing import TypeVar
 
 import modal
 import modal.exception
@@ -66,6 +70,23 @@ def _translate_modal_error(e: modal.exception.Error) -> ModalProxyError:
     if isinstance(e, modal.exception.RemoteError):
         return ModalProxyRemoteError(str(e))
     return ModalProxyError(str(e))
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _translate_exceptions(func: Callable[_P, _R]) -> Callable[_P, _R]:
+    """Decorator that translates modal.exception.Error to ModalProxyError at the boundary."""
+
+    @wraps(func)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        try:
+            return func(*args, **kwargs)
+        except modal.exception.Error as e:
+            raise _translate_modal_error(e) from e
+
+    return wrapper
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +203,7 @@ class DirectFunction(FunctionInterface):
 
     function: modal.Function = Field(description="The underlying modal.Function", repr=False)
 
+    @_translate_exceptions
     def get_web_url(self) -> str | None:
         return self.function.get_web_url()
 
@@ -196,9 +218,11 @@ class DirectImage(ImageInterface):
     def get_object_id(self) -> str:
         return self.image.object_id
 
+    @_translate_exceptions
     def apt_install(self, *packages: str) -> "ImageInterface":
         return DirectImage.model_construct(image=self.image.apt_install(*packages))
 
+    @_translate_exceptions
     def dockerfile_commands(
         self,
         commands: Sequence[str],
@@ -227,6 +251,7 @@ class DirectVolume(VolumeInterface):
     def get_name(self) -> str | None:
         return self.volume_name
 
+    @_translate_exceptions
     @retry(retry=_VOLUME_RETRY, stop=_VOLUME_STOP, wait=_VOLUME_WAIT, reraise=True)
     def listdir(self, path: str) -> list[FileEntry]:
         entries = self.volume.listdir(path)
@@ -240,23 +265,28 @@ class DirectVolume(VolumeInterface):
             for e in entries
         ]
 
+    @_translate_exceptions
     @retry(retry=_VOLUME_RETRY, stop=_VOLUME_STOP, wait=_VOLUME_WAIT, reraise=True)
     def read_file(self, path: str) -> bytes:
         return b"".join(self.volume.read_file(path))
 
+    @_translate_exceptions
     @retry(retry=_VOLUME_RETRY, stop=_VOLUME_STOP, wait=_VOLUME_WAIT, reraise=True)
     def remove_file(self, path: str, *, recursive: bool = False) -> None:
         self.volume.remove_file(path, recursive=recursive)
 
+    @_translate_exceptions
     @retry(retry=_VOLUME_RETRY, stop=_VOLUME_STOP, wait=_VOLUME_WAIT, reraise=True)
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
         with self.volume.batch_upload(force=True) as batch:
             for path, file_data in file_contents_by_path.items():
                 batch.put_file(io.BytesIO(file_data), path)
 
+    @_translate_exceptions
     def reload(self) -> None:
         self.volume.reload()
 
+    @_translate_exceptions
     def commit(self) -> None:
         self.volume.commit()
 
@@ -271,6 +301,7 @@ class DirectSandbox(SandboxInterface):
     def get_object_id(self) -> str:
         return self.sandbox.object_id
 
+    @_translate_exceptions
     def exec(
         self,
         *args: str,
@@ -284,20 +315,25 @@ class DirectSandbox(SandboxInterface):
         )
         return DirectExecProcess.model_construct(process=process)
 
+    @_translate_exceptions
     def tunnels(self) -> dict[int, TunnelInfo]:
         raw_tunnels = self.sandbox.tunnels()
         return {port: TunnelInfo(tcp_socket=tunnel.tcp_socket) for port, tunnel in raw_tunnels.items()}
 
+    @_translate_exceptions
     def get_tags(self) -> dict[str, str]:
         return self.sandbox.get_tags()
 
+    @_translate_exceptions
     def set_tags(self, tags: Mapping[str, str]) -> None:
         self.sandbox.set_tags(dict(tags))
 
+    @_translate_exceptions
     def snapshot_filesystem(self, timeout: int = 120) -> ImageInterface:
         image = self.sandbox.snapshot_filesystem(timeout=timeout)
         return DirectImage.model_construct(image=image)
 
+    @_translate_exceptions
     def terminate(self) -> None:
         self.sandbox.terminate()
 
@@ -322,8 +358,11 @@ class DirectApp(AppInterface):
         return name
 
     def run(self, *, environment_name: str) -> Generator[AppInterface, None, None]:
-        with self.app.run(environment_name=environment_name):
-            yield self
+        try:
+            with self.app.run(environment_name=environment_name):
+                yield self
+        except modal.exception.Error as e:
+            raise _translate_modal_error(e) from e
 
 
 # ---------------------------------------------------------------------------
@@ -423,9 +462,11 @@ class DirectModalInterface(ModalInterface):
             raise _translate_modal_error(e) from e
         return DirectSandbox.model_construct(sandbox=sandbox)
 
+    @_translate_exceptions
     def sandbox_list(self, *, app_id: str) -> list[SandboxInterface]:
         return [DirectSandbox.model_construct(sandbox=sb) for sb in modal.Sandbox.list(app_id=app_id)]
 
+    @_translate_exceptions
     def sandbox_from_id(self, sandbox_id: str) -> SandboxInterface:
         return DirectSandbox.model_construct(sandbox=modal.Sandbox.from_id(sandbox_id))
 
@@ -459,6 +500,7 @@ class DirectModalInterface(ModalInterface):
             raise _translate_modal_error(e) from e
         return DirectVolume.model_construct(volume=vol, volume_name=name)
 
+    @_translate_exceptions
     def volume_list(self, *, environment_name: str) -> list[VolumeInterface]:
         return [
             DirectVolume.model_construct(volume=vol, volume_name=vol.name)
@@ -482,6 +524,7 @@ class DirectModalInterface(ModalInterface):
     # Function
     # =====================================================================
 
+    @_translate_exceptions
     def function_from_name(
         self,
         name: str,
