@@ -17,12 +17,12 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.destroy import get_agent_name_from_session
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.cli.label import apply_labels
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_format_template_lines
 from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import CommonCliOptions
-from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import HostOfflineError
 from imbue.mng.errors import UserInputError
@@ -49,39 +49,6 @@ class StopCliOptions(CommonCliOptions):
     snapshot_mode: str | None
     graceful: bool
     graceful_timeout: str | None
-
-
-def _archive_agents(
-    stopped_matches: list[AgentMatch],
-    output_opts: OutputOptions,
-    mng_ctx: MngContext,
-) -> None:
-    """Set the 'archived_at' label on stopped agents.
-
-    Called after agents have been stopped. The host is still online at this
-    point, so we can access the agent's data.json to set labels.
-    """
-    now = datetime.now(timezone.utc).isoformat()
-    agents_by_host = group_agents_by_host(stopped_matches)
-
-    for host_key, agent_list in agents_by_host.items():
-        host_id_str, _ = host_key.split(":", 1)
-        provider_name = agent_list[0].provider_name
-        provider = get_provider_instance(provider_name, mng_ctx)
-        host = provider.get_host(HostId(host_id_str))
-
-        if not isinstance(host, OnlineHostInterface):
-            continue
-
-        for agent_match in agent_list:
-            for agent in host.get_agents():
-                if agent.id == agent_match.agent_id:
-                    current_labels = agent.get_labels()
-                    current_labels["archived_at"] = now
-                    agent.set_labels(current_labels)
-                    if output_opts.output_format == OutputFormat.HUMAN:
-                        write_human_line("Archived agent: {}", agent_match.agent_name)
-                    break
 
 
 def _output(message: str, output_opts: OutputOptions) -> None:
@@ -277,7 +244,8 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
 
     # Archive stopped agents if requested
     if opts.archive and stopped_matches:
-        _archive_agents(stopped_matches, output_opts, mng_ctx)
+        now = datetime.now(timezone.utc).isoformat()
+        apply_labels(stopped_matches, {"archived_at": now}, mng_ctx, output_opts)
 
     # Output final result
     _output_result(stopped_agents, output_opts)

@@ -97,7 +97,7 @@ def _merge_labels(current: dict[str, str], new: dict[str, str]) -> dict[str, str
     return {**current, **new}
 
 
-def _apply_labels_to_agent_online(
+def apply_labels_to_agent_online(
     agent_match: AgentMatch,
     online_host: OnlineHostInterface,
     labels_to_set: dict[str, str],
@@ -122,7 +122,7 @@ def _apply_labels_to_agent_online(
     raise AgentNotFoundOnHostError(agent_match.agent_id, agent_match.host_id)
 
 
-def _apply_labels_to_agents_offline(
+def apply_labels_to_agents_offline(
     provider: BaseProviderInstance,
     host_id: HostId,
     agent_matches: list[AgentMatch],
@@ -190,7 +190,7 @@ def _collect_agent_identifiers(opts: LabelCliOptions) -> list[str]:
     return agent_identifiers
 
 
-def _apply_labels(
+def apply_labels(
     target_agents: list[AgentMatch],
     labels_to_set: dict[str, str],
     mng_ctx: MngContext,
@@ -213,7 +213,7 @@ def _apply_labels(
         match host:
             case OnlineHostInterface() as online_host:
                 for agent_match in agent_list:
-                    _apply_labels_to_agent_online(
+                    apply_labels_to_agent_online(
                         agent_match=agent_match,
                         online_host=online_host,
                         labels_to_set=labels_to_set,
@@ -221,7 +221,7 @@ def _apply_labels(
                         changes=changes,
                     )
             case HostInterface():
-                _apply_labels_to_agents_offline(
+                apply_labels_to_agents_offline(
                     provider=provider,
                     host_id=HostId(host_id_str),
                     agent_matches=agent_list,
@@ -316,7 +316,7 @@ def label(ctx: click.Context, **kwargs: Any) -> None:
         return
 
     # Apply labels (grouped by host for efficiency)
-    changes = _apply_labels(target_agents, labels_to_set, mng_ctx, output_opts)
+    changes = apply_labels(target_agents, labels_to_set, mng_ctx, output_opts)
 
     _output_result(changes, output_opts)
 
