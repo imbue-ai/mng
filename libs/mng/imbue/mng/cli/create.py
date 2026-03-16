@@ -810,7 +810,7 @@ def _try_reuse_existing_agent(
 
     if len(matching_agents) > 1:
         raise UserInputError(
-            f"Multiple agents found with name '{agent_name}', using the first one. Specify --host to target a specific host."
+            f"Multiple agents found with name '{agent_name}'. Use address syntax (e.g. '{agent_name}@HOST.PROVIDER') to target a specific host."
         )
 
     host_ref, agent_ref = matching_agents[0]

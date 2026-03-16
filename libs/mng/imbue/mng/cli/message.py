@@ -147,12 +147,16 @@ def _message_impl(ctx: click.Context, **kwargs) -> None:
     include_filters = list(opts.include)
     if agent_identifiers:
         # Create a CEL filter that matches any of the provided identifiers.
-        # Parse agent addresses to extract the name/ID part for matching.
+        # Parse agent addresses to extract the name/ID part and host/provider constraints.
         ref_filters = []
         for ref in agent_identifiers:
-            plain_id, _ = parse_identifier_as_address(ref)
+            plain_id, address = parse_identifier_as_address(ref)
             ref_filter = f'(name == "{plain_id}" || id == "{plain_id}")'
-            ref_filters.append(ref_filter)
+            if address.host_name is not None:
+                ref_filter += f' && host.name == "{address.host_name}"'
+            if address.provider_name is not None:
+                ref_filter += f' && host.provider == "{address.provider_name}"'
+            ref_filters.append(f"({ref_filter})")
         combined_filter = " || ".join(ref_filters)
         include_filters.append(combined_filter)
 

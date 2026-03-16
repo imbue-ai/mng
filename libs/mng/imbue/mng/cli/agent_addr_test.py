@@ -3,15 +3,18 @@
 from pathlib import Path
 
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mng.api.find import AgentMatch
 from imbue.mng.cli.agent_addr import AgentAddress
 from imbue.mng.cli.agent_addr import _address_matches_agent_match
 from imbue.mng.cli.agent_addr import _address_matches_host
+from imbue.mng.cli.agent_addr import _post_filter_matches_by_addresses
 from imbue.mng.cli.agent_addr import filter_agents_by_host_constraint
 from imbue.mng.cli.agent_addr import parse_identifier_as_address
 from imbue.mng.cli.stop import stop
+from imbue.mng.errors import AgentNotFoundError
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import DiscoveredAgent
@@ -187,6 +190,96 @@ def test_filter_agents_by_provider() -> None:
     result = filter_agents_by_host_constraint(agents_by_host, address)
     assert len(result) == 1
     assert host2 in result
+
+
+# =============================================================================
+# _post_filter_matches_by_addresses tests
+# =============================================================================
+
+
+def test_post_filter_no_host_constraints_passes_all_through() -> None:
+    """Plain identifiers (no @) return all matches unchanged."""
+    matches = [_make_match("agent1", "host1", "local"), _make_match("agent2", "host2", "modal")]
+    parsed = [parse_identifier_as_address("agent1"), parse_identifier_as_address("agent2")]
+
+    result = _post_filter_matches_by_addresses(["agent1", "agent2"], parsed, matches)
+
+    assert len(result) == 2
+
+
+def test_post_filter_by_host_name() -> None:
+    """An address with host name filters to only that host's agents."""
+    match_host1 = _make_match("my-agent", "host1", "local")
+    match_host2 = _make_match("my-agent", "host2", "local")
+    matches = [match_host1, match_host2]
+    parsed = [parse_identifier_as_address("my-agent@host1")]
+
+    result = _post_filter_matches_by_addresses(["my-agent@host1"], parsed, matches)
+
+    assert len(result) == 1
+    assert result[0].host_name == HostName("host1")
+
+
+def test_post_filter_by_provider() -> None:
+    """An address with provider filters to only that provider's agents."""
+    match_local = _make_match("my-agent", "host1", "local")
+    match_modal = _make_match("my-agent", "host2", "modal")
+    matches = [match_local, match_modal]
+    parsed = [parse_identifier_as_address("my-agent@.modal")]
+
+    result = _post_filter_matches_by_addresses(["my-agent@.modal"], parsed, matches)
+
+    assert len(result) == 1
+    assert result[0].provider_name == ProviderInstanceName("modal")
+
+
+def test_post_filter_by_host_and_provider() -> None:
+    """An address with both host and provider requires both to match."""
+    match_right = _make_match("my-agent", "host1", "modal")
+    match_wrong_host = _make_match("my-agent", "host2", "modal")
+    match_wrong_provider = _make_match("my-agent", "host1", "local")
+    matches = [match_right, match_wrong_host, match_wrong_provider]
+    parsed = [parse_identifier_as_address("my-agent@host1.modal")]
+
+    result = _post_filter_matches_by_addresses(["my-agent@host1.modal"], parsed, matches)
+
+    assert len(result) == 1
+    assert result[0].host_name == HostName("host1")
+    assert result[0].provider_name == ProviderInstanceName("modal")
+
+
+def test_post_filter_mixed_constrained_and_unconstrained() -> None:
+    """Unconstrained identifiers pass through while constrained ones filter."""
+    match_a_host1 = _make_match("agent-a", "host1", "local")
+    match_a_host2 = _make_match("agent-a", "host2", "modal")
+    match_b = _make_match("agent-b", "host3", "local")
+    matches = [match_a_host1, match_a_host2, match_b]
+    parsed = [parse_identifier_as_address("agent-a@host1"), parse_identifier_as_address("agent-b")]
+
+    result = _post_filter_matches_by_addresses(["agent-a@host1", "agent-b"], parsed, matches)
+
+    # agent-a filtered to host1 only, agent-b passes through
+    assert len(result) == 2
+    result_names_and_hosts = [(str(m.agent_name), str(m.host_name)) for m in result]
+    assert ("agent-a", "host1") in result_names_and_hosts
+    assert ("agent-b", "host3") in result_names_and_hosts
+
+
+def test_post_filter_raises_when_constrained_identifier_has_no_match() -> None:
+    """Raises AgentNotFoundError if a host-constrained identifier matches nothing."""
+    match_wrong_host = _make_match("my-agent", "host2", "local")
+    matches = [match_wrong_host]
+    parsed = [parse_identifier_as_address("my-agent@host1")]
+
+    with pytest.raises(AgentNotFoundError, match="my-agent@host1"):
+        _post_filter_matches_by_addresses(["my-agent@host1"], parsed, matches)
+
+
+def test_post_filter_empty_matches_with_no_constraints() -> None:
+    """Empty matches with no constraints returns empty list."""
+    result = _post_filter_matches_by_addresses([], [], [])
+
+    assert result == []
 
 
 # =============================================================================

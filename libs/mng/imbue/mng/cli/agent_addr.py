@@ -164,9 +164,6 @@ def find_agents_by_addresses(
     # Parse all identifiers
     parsed: list[tuple[str, AgentAddress]] = [parse_identifier_as_address(raw) for raw in raw_identifiers]
 
-    # Check if any identifiers have host constraints
-    has_host_constraints = any(addr.has_host_component for _, addr in parsed)
-
     # Extract plain identifier strings (agent names/IDs)
     plain_identifiers = [ident for ident, _ in parsed]
 
@@ -178,11 +175,29 @@ def find_agents_by_addresses(
         mng_ctx=mng_ctx,
     )
 
+    return _post_filter_matches_by_addresses(raw_identifiers, parsed, matches)
+
+
+@pure
+def _post_filter_matches_by_addresses(
+    raw_identifiers: Sequence[str],
+    parsed: Sequence[tuple[str, AgentAddress]],
+    matches: Sequence[AgentMatch],
+) -> list[AgentMatch]:
+    """Post-filter agent matches by host/provider constraints from parsed addresses.
+
+    For identifiers without host/provider components, matches pass through unchanged.
+    For identifiers with host/provider components, only matches on the specified
+    host/provider are kept. Raises AgentNotFoundError if a constrained identifier
+    has no matching agents after filtering.
+    """
+    # Check if any identifiers have host constraints
+    has_host_constraints = any(addr.has_host_component for _, addr in parsed)
+
     # If no host constraints, return as-is
     if not has_host_constraints:
-        return matches
+        return list(matches)
 
-    # Post-filter by host/provider constraints from addresses.
     # Build a mapping from agent name -> list of addresses with host constraints
     name_to_addresses: dict[str, list[AgentAddress]] = {}
     for ident, addr in parsed:
@@ -203,7 +218,7 @@ def find_agents_by_addresses(
             filtered.append(match)
 
     # Check that all constrained identifiers have at least one match
-    for raw, (ident, addr) in zip(raw_identifiers, parsed, strict=False):
+    for raw, (ident, addr) in zip(raw_identifiers, parsed, strict=True):
         if not addr.has_host_component:
             continue
         has_match = any(str(m.agent_name) == ident or str(m.agent_id) == ident for m in filtered)
