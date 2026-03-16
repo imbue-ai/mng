@@ -108,6 +108,18 @@ def _sql_quote(value: str) -> str:
     return f"'{escaped}'"
 
 
+def check_llm_toolchain(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
+    check_result = execute_with_timing(
+        host,
+        "command -v llm",
+        hard_timeout=settings.command_check_hard_timeout_seconds,
+        warn_threshold=settings.command_check_warn_threshold_seconds,
+        label="llm check",
+    )
+    if not check_result.success:
+        raise Exception("llm command not found on host. Please run install_llm_toolchain() to install it.")
+
+
 def install_llm_toolchain(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
     """Install llm, llm-anthropic, and llm-live-chat on the host.
 
@@ -415,7 +427,7 @@ def create_slack_notifications_conversation(
     )
 
 
-def create_daily_conversation(
+def create_first_daily_conversation(
     host: OnlineHostInterface,
     agent_state_dir: Path,
     settings: ProvisioningSettings,

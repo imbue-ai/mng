@@ -32,8 +32,9 @@ from imbue.mng_claude_mind.settings import load_settings_from_host
 from imbue.mng_llm.data_types import ProvisioningSettings
 from imbue.mng_llm.plugin import set_llm_model_env_var
 from imbue.mng_llm.plugin import set_uv_tool_env_vars
+from imbue.mng_llm.provisioning import check_llm_toolchain
 from imbue.mng_llm.provisioning import configure_llm_user_path
-from imbue.mng_llm.provisioning import create_daily_conversation
+from imbue.mng_llm.provisioning import create_first_daily_conversation
 from imbue.mng_llm.provisioning import create_mind_conversations_table
 from imbue.mng_llm.provisioning import create_slack_notifications_conversation
 from imbue.mng_llm.provisioning import create_system_notifications_conversation
@@ -232,6 +233,8 @@ class ClaudeMindAgent(ClaudeAgent):
 
         if config.install_llm:
             install_llm_toolchain(host, provisioning)
+        else:
+            check_llm_toolchain(host, provisioning)
 
         provision_link_skills_script_file(host, self.work_dir, provisioning)
         run_link_skills_script(host, self.work_dir, active_role, provisioning)
@@ -250,11 +253,11 @@ class ClaudeMindAgent(ClaudeAgent):
         configure_llm_user_path(host, agent_state_dir, provisioning)
         create_mind_conversations_table(host, agent_state_dir, provisioning)
 
-        if config.install_llm:
-            create_system_notifications_conversation(host, agent_state_dir, provisioning)
-            create_slack_notifications_conversation(host, agent_state_dir, provisioning)
-            chat_model = settings.chat.model or "claude-opus-4.6"
-            create_daily_conversation(host, agent_state_dir, provisioning, chat_model)
+        create_system_notifications_conversation(host, agent_state_dir, provisioning)
+        create_slack_notifications_conversation(host, agent_state_dir, provisioning)
+        chat_model = settings.chat.model or "claude-opus-4.6"
+        # FIXME: we need to pass in the initial welcome message (it should be configured in settings, not hardcoded inside of this function call)
+        create_first_daily_conversation(host, agent_state_dir, provisioning, chat_model)
 
         setup_memory_directory(host, self.work_dir, active_role, provisioning)
 

@@ -24,7 +24,7 @@ from imbue.mng_llm.provisioning import _LLM_TOOL_FILES
 from imbue.mng_llm.provisioning import _SERVICE_SCRIPT_FILES
 from imbue.mng_llm.provisioning import _TTYD_DISPATCH_SCRIPTS
 from imbue.mng_llm.provisioning import configure_llm_user_path
-from imbue.mng_llm.provisioning import create_daily_conversation
+from imbue.mng_llm.provisioning import create_first_daily_conversation
 from imbue.mng_llm.provisioning import create_slack_notifications_conversation
 from imbue.mng_llm.provisioning import create_system_notifications_conversation
 from imbue.mng_llm.provisioning import install_llm_toolchain
@@ -412,7 +412,7 @@ def test_create_internal_conversation_skips_event_on_inject_failure(
 def test_create_daily_conversation_runs_inject_and_records_tagged_event() -> None:
     host = StubHost(command_results={"llm inject": _FAKE_INJECT_RESULT})
     agent_state_dir = Path("/tmp/mng-test/agents/agent-123")
-    create_daily_conversation(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING, "claude-opus-4.6")
+    create_first_daily_conversation(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING, "claude-opus-4.6")
 
     # Should run llm inject with the greeting and LLM_USER_PATH
     inject_commands = [c for c in host.executed_commands if "llm inject" in c]
@@ -433,7 +433,7 @@ def test_create_daily_conversation_skips_event_on_inject_failure() -> None:
         command_results={"llm inject": StubCommandResult(success=False, stderr="llm not found")},
     )
     agent_state_dir = Path("/tmp/mng-test/agents/agent-123")
-    create_daily_conversation(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING, "claude-opus-4.6")
+    create_first_daily_conversation(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING, "claude-opus-4.6")
 
     # Should NOT have written a DB record
     db_commands = [c for c in host.executed_commands if "sqlite3" in c and "mind_conversations" in c]
