@@ -1,19 +1,16 @@
-"""Vendor the mng repository into a mind's vendor directory.
+"""Vendor repositories into a mind's vendor directory as git subtrees.
 
-Detects whether we are running from within the mng monorepo (development mode)
-or from an installed package (production mode), and uses the appropriate
-strategy to inject a copy of mng into the vendor/mng/ directory of a mind's
-repo.
+Reads ``[[vendor]]`` entries from minds.toml (via ``ClaudeMindSettings``) and
+adds each repository as a git subtree under ``vendor/<name>/``.
 
-Development mode: clones from the local mng repo, applies any uncommitted
-changes (including untracked non-gitignored files), and resets the git remote
-to point at GitHub.
+When no vendor configuration is present, falls back to vendoring the mng
+repository.  In development mode (running from within the mng monorepo) the
+local checkout is used; otherwise the public GitHub URL is used.
 
-Production mode: clones directly from GitHub.
+Local/editable repos must be "clean" (no uncommitted changes, no untracked
+files) before they can be vendored.
 """
 
-import shutil
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Final
@@ -21,13 +18,16 @@ from typing import Final
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.primitives import NonEmptyStr
+from imbue.minds.errors import DirtyRepoError
 from imbue.minds.errors import VendorError
+from imbue.mng_claude_mind.data_types import VendorRepoConfig
 
 MNG_GITHUB_URL: Final[str] = "https://github.com/imbue-ai/mng.git"
 
 VENDOR_DIR_NAME: Final[str] = "vendor"
 
-VENDOR_MNG_DIR_NAME: Final[str] = "mng"
+VENDOR_MNG_DIR_NAME: Final[NonEmptyStr] = NonEmptyStr("mng")
 
 
 def find_mng_repo_root() -> Path | None:
@@ -47,35 +47,138 @@ def find_mng_repo_root() -> Path | None:
     return None
 
 
-def vendor_mng(
+def default_vendor_configs(mng_repo_root: Path | None) -> tuple[VendorRepoConfig, ...]:
+    """Build the default vendor config (mng repo) when none is configured.
+
+    Uses the local checkout in development mode, GitHub URL otherwise.
+    """
+    if mng_repo_root is not None:
+        return (
+            VendorRepoConfig(
+                name=VENDOR_MNG_DIR_NAME,
+                path=str(mng_repo_root),
+            ),
+        )
+    return (
+        VendorRepoConfig(
+            name=VENDOR_MNG_DIR_NAME,
+            url=MNG_GITHUB_URL,
+        ),
+    )
+
+
+def vendor_repos(
     mind_dir: Path,
-    mng_repo_root: Path | None,
+    configs: tuple[VendorRepoConfig, ...],
     on_output: Callable[[str, bool], None] | None = None,
 ) -> None:
-    """Inject a copy of the mng repository into mind_dir/vendor/mng/.
+    """Add each configured repository as a git subtree under vendor/.
 
-    When mng_repo_root is provided (development mode), clones from the local
-    repo, applies any uncommitted changes, and resets the remote to GitHub.
-    When mng_repo_root is None (production mode), clones directly from GitHub.
+    Skips any repo whose ``vendor/<name>`` directory already exists.
+    Raises DirtyRepoError if a local repo has uncommitted or untracked changes.
+    Raises VendorError if any git operation fails.
     """
-    vendor_mng_dir = mind_dir / VENDOR_DIR_NAME / VENDOR_MNG_DIR_NAME
-    if vendor_mng_dir.exists():
-        logger.debug("vendor/mng already exists at {}, skipping", vendor_mng_dir)
-        return
+    for config in configs:
+        vendor_subdir = mind_dir / VENDOR_DIR_NAME / config.name
+        if vendor_subdir.exists():
+            logger.debug("vendor/{} already exists, skipping", config.name)
+            continue
 
-    vendor_mng_dir.parent.mkdir(parents=True, exist_ok=True)
+        if config.is_local:
+            repo_path = _resolve_local_path(config.path)
+            check_repo_is_clean(repo_path)
+            ref = _resolve_ref_local(repo_path, config.ref)
+            logger.debug("Vendoring {} from local repo {} at {}", config.name, repo_path, ref)
+            _add_subtree(mind_dir, config.name, str(repo_path), ref, on_output)
+        else:
+            url = _require_url(config.url)
+            ref = _resolve_ref_remote(url, config.ref, on_output)
+            logger.debug("Vendoring {} from {} at {}", config.name, url, ref)
+            _add_subtree(mind_dir, config.name, url, ref, on_output)
 
-    if mng_repo_root is not None:
-        logger.debug("Vendoring mng from local repo at {}", mng_repo_root)
-        _vendor_from_local_repo(mng_repo_root, vendor_mng_dir, on_output)
-    else:
-        logger.debug("Vendoring mng from GitHub")
-        _run_git(
-            ["clone", MNG_GITHUB_URL, str(vendor_mng_dir)],
-            cwd=vendor_mng_dir.parent,
-            on_output=on_output,
-            error_message="Failed to clone mng from GitHub",
+
+def check_repo_is_clean(repo_path: Path) -> None:
+    """Verify that a local repository has no uncommitted changes or untracked files.
+
+    Raises DirtyRepoError if the working tree is not clean.
+    """
+    status_output = _run_git(
+        ["status", "--porcelain"],
+        cwd=repo_path,
+        error_message="Failed to check git status of {}".format(repo_path),
+    )
+    if status_output.strip():
+        dirty_summary = status_output.strip()[:500]
+        raise DirtyRepoError(
+            "Local repo {} has uncommitted changes or untracked files and cannot be vendored:\n{}".format(
+                repo_path, dirty_summary
+            )
         )
+
+
+def _resolve_local_path(path_str: str | None) -> Path:
+    """Resolve a local repo path to an absolute path."""
+    if path_str is None:
+        raise VendorError("local vendor repo has no path")
+    resolved = Path(path_str).expanduser().resolve()
+    if not resolved.is_dir():
+        raise VendorError("local vendor repo path does not exist: {}".format(resolved))
+    return resolved
+
+
+def _resolve_ref_local(repo_path: Path, ref: str | None) -> str:
+    """Resolve the git ref for a local repo, defaulting to HEAD."""
+    if ref is not None:
+        return ref
+    return _run_git(
+        ["rev-parse", "HEAD"],
+        cwd=repo_path,
+        error_message="Failed to resolve HEAD of {}".format(repo_path),
+    ).strip()
+
+
+def _require_url(url: str | None) -> str:
+    """Narrow a url that should be non-None (validated by VendorRepoConfig)."""
+    if url is None:
+        raise VendorError("remote vendor repo has no url")
+    return url
+
+
+def _resolve_ref_remote(
+    url: str,
+    ref: str | None,
+    on_output: Callable[[str, bool], None] | None = None,
+) -> str:
+    """Resolve the git ref for a remote repo, defaulting to HEAD."""
+    if ref is not None:
+        return ref
+    ls_output = _run_git(
+        ["ls-remote", url, "HEAD"],
+        cwd=Path.cwd(),
+        on_output=on_output,
+        error_message="Failed to resolve HEAD of {}".format(url),
+    )
+    parts = ls_output.strip().split()
+    if not parts:
+        raise VendorError("git ls-remote returned no output for {}".format(url))
+    return parts[0]
+
+
+def _add_subtree(
+    mind_dir: Path,
+    name: str,
+    url_or_path: str,
+    ref: str,
+    on_output: Callable[[str, bool], None] | None = None,
+) -> None:
+    """Run ``git subtree add`` to add a repository under vendor/<name>/."""
+    prefix = "{}/{}".format(VENDOR_DIR_NAME, name)
+    _run_git(
+        ["subtree", "add", "--prefix", prefix, url_or_path, ref, "--squash"],
+        cwd=mind_dir,
+        on_output=on_output,
+        error_message="Failed to add git subtree for {}".format(name),
+    )
 
 
 def _run_git(
@@ -105,56 +208,3 @@ def _run_git(
             )
         )
     return result.stdout
-
-
-def _vendor_from_local_repo(
-    mng_root: Path,
-    vendor_mng_dir: Path,
-    on_output: Callable[[str, bool], None] | None = None,
-) -> None:
-    """Clone from the local mng repo, apply uncommitted changes, and fix the remote."""
-    _run_git(
-        ["clone", str(mng_root), str(vendor_mng_dir)],
-        cwd=mng_root,
-        on_output=on_output,
-        error_message="Failed to clone local mng repo",
-    )
-
-    # Apply uncommitted changes (staged + unstaged modifications to tracked files)
-    diff_output = _run_git(
-        ["diff", "HEAD", "--binary"],
-        cwd=mng_root,
-        error_message="Failed to get uncommitted changes",
-    )
-    if diff_output.strip():
-        with tempfile.TemporaryDirectory() as tmpdir:
-            diff_file = Path(tmpdir) / "mng.patch"
-            diff_file.write_text(diff_output)
-            _run_git(
-                ["apply", str(diff_file)],
-                cwd=vendor_mng_dir,
-                on_output=on_output,
-                error_message="Failed to apply uncommitted changes",
-            )
-
-    # Copy untracked non-gitignored files
-    untracked_output = _run_git(
-        ["ls-files", "--others", "--exclude-standard"],
-        cwd=mng_root,
-        error_message="Failed to list untracked files",
-    )
-    for rel_path_str in untracked_output.strip().splitlines():
-        if not rel_path_str:
-            continue
-        src = mng_root / rel_path_str
-        dst = vendor_mng_dir / rel_path_str
-        if src.is_file():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-
-    # Reset git remote to point at GitHub
-    _run_git(
-        ["remote", "set-url", "origin", MNG_GITHUB_URL],
-        cwd=vendor_mng_dir,
-        error_message="Failed to reset git remote to GitHub",
-    )

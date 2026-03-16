@@ -31,6 +31,12 @@ class MngCommandError(MindError):
 
 
 class VendorError(MindError):
-    """Raised when vendoring mng into a mind repo fails."""
+    """Raised when vendoring a repo into a mind fails."""
+
+    ...
+
+
+class DirtyRepoError(VendorError):
+    """Raised when a local vendor repo has uncommitted changes or untracked files."""
 
     ...
