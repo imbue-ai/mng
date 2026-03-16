@@ -413,15 +413,19 @@ def _get_agent_from_host(
     raise AgentNotFoundOnHostError(agent_id, host.id)
 
 
-def gather_results(
+def _collect_agent_results(
     agents: list[TestAgentInfo],
     final_details: dict[str, AgentDetails],
     timed_out_ids: set[str],
     host: OnlineHostInterface,
-    source_dir: Path,
-    cg: ConcurrencyGroup,
+    missing_detail_outcome: TestOutcome,
+    missing_detail_summary: str,
 ) -> list[TestMapReduceResult]:
-    """Gather results from all finished agents, pulling branches where appropriate."""
+    """Shared iteration over agents to build result list.
+
+    Each agent is classified as timed-out, missing (with the caller-specified
+    outcome), or finished (result read from the agent's state directory).
+    """
     results: list[TestMapReduceResult] = []
 
     for agent_info in agents:
@@ -445,27 +449,51 @@ def gather_results(
                 TestMapReduceResult(
                     test_node_id=agent_info.test_node_id,
                     agent_name=agent_info.agent_name,
-                    outcome=TestOutcome.AGENT_ERROR,
-                    summary="Agent details not found after polling",
+                    outcome=missing_detail_outcome,
+                    summary=missing_detail_summary,
                 )
             )
             continue
 
         test_result = read_agent_result(detail, host)
-        branch_name = detail.initial_branch
-
-        if test_result.outcome in (TestOutcome.FIX_TEST_SUCCEEDED, TestOutcome.FIX_IMPL_SUCCEEDED):
-            pull_agent_branch(detail, host, source_dir, cg)
-
         results.append(
             TestMapReduceResult(
                 test_node_id=agent_info.test_node_id,
                 agent_name=agent_info.agent_name,
                 outcome=test_result.outcome,
                 summary=test_result.summary,
-                branch_name=branch_name,
+                branch_name=detail.initial_branch,
             )
         )
+
+    return results
+
+
+def gather_results(
+    agents: list[TestAgentInfo],
+    final_details: dict[str, AgentDetails],
+    timed_out_ids: set[str],
+    host: OnlineHostInterface,
+    source_dir: Path,
+    cg: ConcurrencyGroup,
+) -> list[TestMapReduceResult]:
+    """Gather results from all finished agents, pulling branches where appropriate."""
+    results = _collect_agent_results(
+        agents=agents,
+        final_details=final_details,
+        timed_out_ids=timed_out_ids,
+        host=host,
+        missing_detail_outcome=TestOutcome.AGENT_ERROR,
+        missing_detail_summary="Agent details not found after polling",
+    )
+
+    # Pull branches for successful fixes
+    for result in results:
+        if result.outcome in (TestOutcome.FIX_TEST_SUCCEEDED, TestOutcome.FIX_IMPL_SUCCEEDED):
+            agent_id_str = next(str(info.agent_id) for info in agents if info.test_node_id == result.test_node_id)
+            detail = final_details.get(agent_id_str)
+            if detail is not None:
+                pull_agent_branch(detail, host, source_dir, cg)
 
     return results
 
@@ -477,49 +505,14 @@ def build_current_results(
     host: OnlineHostInterface,
 ) -> list[TestMapReduceResult]:
     """Build current results without pulling branches, for intermediate reports."""
-    results: list[TestMapReduceResult] = []
-
-    for agent_info in agents:
-        agent_id_str = str(agent_info.agent_id)
-
-        if agent_id_str in timed_out_ids:
-            results.append(
-                TestMapReduceResult(
-                    test_node_id=agent_info.test_node_id,
-                    agent_name=agent_info.agent_name,
-                    outcome=TestOutcome.TIMED_OUT,
-                    summary="Agent was stopped because the timeout was reached.",
-                )
-            )
-            continue
-
-        detail = final_details.get(agent_id_str)
-
-        if detail is None:
-            results.append(
-                TestMapReduceResult(
-                    test_node_id=agent_info.test_node_id,
-                    agent_name=agent_info.agent_name,
-                    outcome=TestOutcome.PENDING,
-                    summary="Agent is still running...",
-                )
-            )
-            continue
-
-        test_result = read_agent_result(detail, host)
-        branch_name = detail.initial_branch
-
-        results.append(
-            TestMapReduceResult(
-                test_node_id=agent_info.test_node_id,
-                agent_name=agent_info.agent_name,
-                outcome=test_result.outcome,
-                summary=test_result.summary,
-                branch_name=branch_name,
-            )
-        )
-
-    return results
+    return _collect_agent_results(
+        agents=agents,
+        final_details=final_details,
+        timed_out_ids=timed_out_ids,
+        host=host,
+        missing_detail_outcome=TestOutcome.PENDING,
+        missing_detail_summary="Agent is still running...",
+    )
 
 
 def generate_html_report(
