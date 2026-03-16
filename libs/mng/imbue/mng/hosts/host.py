@@ -1103,6 +1103,23 @@ class Host(BaseHost, OnlineHostInterface):
 
         return target_path, is_generated_work_dir
 
+    def _is_same_path_no_transfer(
+        self,
+        source_host: OnlineHostInterface,
+        source_path: Path,
+        target_path: Path,
+    ) -> bool:
+        """Check if source and target are the same path on the same host (no transfer needed)."""
+        source_is_same_host = source_host.id == self.id
+        return source_is_same_host and source_path == target_path
+
+    def _source_has_git(self, source_host: OnlineHostInterface, source_path: Path) -> bool:
+        """Check if the source path has a .git directory or file (handles worktrees)."""
+        if source_host.is_local:
+            return (source_path / ".git").exists()
+        result = source_host.execute_command(f"test -e {shlex.quote(str(source_path / '.git'))}")
+        return result.success
+
     def _create_work_dir_as_git_push(
         self,
         source_host: OnlineHostInterface,
@@ -1114,18 +1131,11 @@ class Host(BaseHost, OnlineHostInterface):
 
         created_branch_name: str | None = None
 
-        # If source and target are same path on same host, nothing to transfer
-        source_is_same_host = source_host.id == self.id
-        if source_is_same_host and source_path == target_path:
+        if self._is_same_path_no_transfer(source_host, source_path, target_path):
             logger.debug("Skipped file transfer: source and target are the same path")
             return CreateWorkDirResult(path=target_path)
 
-        # Check if source has a .git directory
-        if source_host.is_local:
-            source_has_git = (source_path / ".git").exists()
-        else:
-            result = source_host.execute_command(f"test -d {shlex.quote(str(source_path / '.git'))}")
-            source_has_git = result.success
+        source_has_git = self._source_has_git(source_host, source_path)
 
         # Transfer files based on whether source has .git and whether we want to include it
         is_git_synced = options.git is not None and options.git.is_git_synced
@@ -1170,9 +1180,7 @@ class Host(BaseHost, OnlineHostInterface):
         """
         target_path, _ = self._resolve_target_work_dir(source_host, source_path, options)
 
-        # If source and target are same path on same host, nothing to transfer
-        source_is_same_host = source_host.id == self.id
-        if source_is_same_host and source_path == target_path:
+        if self._is_same_path_no_transfer(source_host, source_path, target_path):
             logger.debug("Skipped file transfer: source and target are the same path")
             return CreateWorkDirResult(path=target_path)
 
@@ -1195,14 +1203,8 @@ class Host(BaseHost, OnlineHostInterface):
         # If the source has a git repo and git is included,
         # create the requested branch on the target.
         created_branch_name: str | None = None
-        if is_git_synced:
-            if source_host.is_local:
-                source_has_git = (source_path / ".git").exists()
-            else:
-                result = source_host.execute_command(f"test -e {shlex.quote(str(source_path / '.git'))}")
-                source_has_git = result.success
-
-            if source_has_git and options.git and options.git.new_branch_name:
+        if is_git_synced and self._source_has_git(source_host, source_path):
+            if options.git and options.git.new_branch_name:
                 created_branch_name = self._setup_branch_after_copy(target_path, options)
 
         return CreateWorkDirResult(path=target_path, created_branch_name=created_branch_name)

@@ -1131,8 +1131,8 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
         mode, prompts the user for each undismissed dialog. For non-interactive
         mode, raises the appropriate error.
 
-        source_path is the trusted source directory (for worktree/copy modes).
-        When None (clone mode), trust is prompted for work_dir instead.
+        source_path is the trusted source directory (for git-worktree/rsync modes).
+        When None (git-push mode), trust is prompted for work_dir instead.
         """
         global_config_path = get_claude_config_path()
         trust_path = source_path if source_path is not None else self.work_dir
@@ -1162,7 +1162,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
         # skipDangerousModePermissionPrompt in settings.json instead.
 
     def _find_git_source_path(self, concurrency_group: ConcurrencyGroup) -> Path | None:
-        """Find the source repo path for the agent's work_dir, if it's a git worktree/copy.
+        """Find the source repo path for the agent's work_dir, if it's a git worktree/rsync copy.
 
         Returns the parent of the git common dir (the source repo root),
         or None if work_dir is not inside a git repo.
@@ -1287,8 +1287,8 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
         dialog. Falls back to generated defaults if no global config exists.
 
         Trust for work_dir is added by extending from the source directory
-        (for worktree/copy modes), by trust_working_directory config, or
-        inherited from the global config (for clone mode where the user was
+        (for git-worktree/rsync modes), by trust_working_directory config, or
+        inherited from the global config (for git-push mode where the user was
         already prompted). Falls back to generated defaults if no global
         config exists.
         """
@@ -1301,7 +1301,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
         projects = data.setdefault("projects", {})
         transfer_mode = options.git.transfer_mode if options.git else None
 
-        # For worktree/copy mode, extend trust from the source to the work_dir
+        # For git-worktree/rsync mode, extend trust from the source to the work_dir
         if transfer_mode in (TransferMode.GIT_WORKTREE, TransferMode.RSYNC):
             source_path = self._find_git_source_path(self.mng_ctx.concurrency_group)
             if source_path is not None:
@@ -1336,9 +1336,9 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
 
         For local hosts, ensures all known Claude startup dialogs are dismissed
         in the global config so they don't intercept tmux input. Trust handling
-        depends on the copy mode:
-        - worktree/copy: trust is extended from the source directory
-        - clone: trust is prompted for the work_dir
+        depends on the transfer mode:
+        - git-worktree/rsync: trust is extended from the source directory
+        - git-push: trust is prompted for the work_dir
         - trust_working_directory=True: trust is auto-added for work_dir
         """
         config = self.agent_config
@@ -1355,7 +1355,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
                 ensure_claude_dialogs_dismissed(get_claude_config_path(), self.work_dir)
             else:
                 # Check/prompt for all blocking dialogs
-                # source_path=None (clone/no-git) means trust is prompted for work_dir
+                # source_path=None (git-push/no-git) means trust is prompted for work_dir
                 self._ensure_no_blocking_dialogs(source_path, mng_ctx)
 
         # no matter what, *always* dismiss the cost popup, it's pointless
