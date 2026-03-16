@@ -154,7 +154,7 @@ mng create my-task --provider modal -b file=./Dockerfile.agent -b context-dir=./
 # that command builds a Modal host using the Dockerfile at ./Dockerfile.agent and the build context at ./agent-context
 # (which is where the Dockerfile can COPY files from, and also where build args are evaluated from)
 
-# you can name the host separately from the agent using the address syntax:
+# you can name the host using the address syntax:
 mng create my-task@my-modal-box.modal --new-host
 # (--host-name-style and --name-style control auto-generated name styles for hosts and agents respectively)
 
