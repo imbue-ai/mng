@@ -150,7 +150,7 @@ def test_inject_supporting_services_preserves_existing() -> None:
 # -- get_agent_type_from_params tests --
 
 
-def test_get_agent_type_from_params_returns_type() -> None:
+def test_get_agent_type_from_params_returns_agent_type() -> None:
     assert get_agent_type_from_params({"type": "claude"}) == "claude"
 
 
@@ -158,7 +158,7 @@ def test_get_agent_type_from_params_returns_positional() -> None:
     assert get_agent_type_from_params({"positional_agent_type": "codex"}) == "codex"
 
 
-def test_get_agent_type_from_params_prefers_type() -> None:
+def test_get_agent_type_from_params_prefers_agent_type() -> None:
     params = {"type": "claude", "positional_agent_type": "codex"}
     assert get_agent_type_from_params(params) == "claude"
 

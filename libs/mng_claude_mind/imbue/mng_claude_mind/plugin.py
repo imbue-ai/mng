@@ -278,10 +278,7 @@ def inject_supporting_services(params: dict[str, Any]) -> None:
 
 
 def get_agent_type_from_params(params: dict[str, Any]) -> str | None:
-    """Extract the agent type from create command parameters.
-
-    Checks --type first (Click param name "type"), then the positional agent type.
-    """
+    """Extract the agent type from create command parameters."""
     return params.get("type") or params.get("positional_agent_type")
 
 

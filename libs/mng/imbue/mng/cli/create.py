@@ -1127,9 +1127,9 @@ def _parse_agent_opts(
     # Parse target_path if provided
     parsed_target_path = Path(opts.target_path) if opts.target_path else None
 
-    # Determine agent type: --type takes priority, then positional argument.
-    # _CreateCommand.parse_args handles -- correctly so positional_agent_type
-    # is always a real positional (never a leaked after-dash arg).
+    # Determine agent type: --type and positional are equivalent; specifying both
+    # with different values is an error. _CreateCommand.parse_args handles --
+    # correctly so positional_agent_type is always a real positional.
     #
     # Special case: --command implies using the "generic" agent type, which simply
     # runs the provided command. If --type is also specified to something other
@@ -1137,10 +1137,13 @@ def _parse_agent_opts(
     resolved_agent_type = opts.type
     resolved_agent_args = opts.agent_args
 
-    if opts.positional_agent_type:
-        if resolved_agent_type is None:
-            resolved_agent_type = opts.positional_agent_type
-        # else: --type was already specified, ignore the positional
+    if opts.positional_agent_type and resolved_agent_type and resolved_agent_type != opts.positional_agent_type:
+        raise UserInputError(
+            f"Conflicting agent types: positional argument says '{opts.positional_agent_type}' "
+            f"but --type says '{resolved_agent_type}'. Use one or the other."
+        )
+    if opts.positional_agent_type and resolved_agent_type is None:
+        resolved_agent_type = opts.positional_agent_type
 
     # Handle --command: it implies using the "generic" agent type
     if opts.command:
