@@ -1,6 +1,5 @@
 import os
 import shlex
-import sys
 from collections.abc import Callable
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -155,7 +154,32 @@ def _make_output_format_choices() -> list[str]:
     return [f.value.lower() for f in OutputFormat]
 
 
-@click.command()
+class _CreateCommand(click.Command):
+    """Custom Command subclass that correctly handles -- for agent arg passthrough.
+
+    Click's default behavior fills unfilled optional positional arguments from
+    args after -- before putting the rest into the variadic. For example, in
+    ``mng create selene --type claude -- --dangerously-skip-permissions``,
+    Click would assign ``--dangerously-skip-permissions`` to
+    ``positional_agent_type`` instead of ``agent_args``.
+
+    This override strips everything after -- before Click's parser runs, then
+    appends the stripped args to ``agent_args`` after parsing completes.
+    """
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        if "--" in args:
+            idx = args.index("--")
+            after_dash = tuple(args[idx + 1 :])
+            args = args[:idx]
+        else:
+            after_dash = ()
+        result = super().parse_args(ctx, args)
+        ctx.params["agent_args"] = ctx.params.get("agent_args", ()) + after_dash
+        return result
+
+
+@click.command(cls=_CreateCommand)
 @click.argument("positional_name", default=None, required=False)
 @click.argument("positional_agent_type", default=None, required=False)
 @click.argument("agent_args", nargs=-1, type=click.UNPROCESSED)
@@ -968,20 +992,6 @@ def _is_git_repo(path: Path, cg: ConcurrencyGroup) -> bool:
 
 
 @pure
-def _was_value_after_double_dash(value: str) -> bool:
-    """Check if a value appears after -- in sys.argv.
-
-    This helps detect when click incorrectly assigns a value that was meant
-    to be part of agent_args (after --) to an optional positional argument.
-    """
-    if "--" not in sys.argv:
-        return False
-    dash_index = sys.argv.index("--")
-    args_after_dash = sys.argv[dash_index + 1 :]
-    return value in args_after_dash
-
-
-@pure
 def _split_cli_args(args: tuple[str, ...]) -> list[str]:
     """Shell-tokenize each CLI arg and flatten into a single list.
 
@@ -1117,10 +1127,9 @@ def _parse_agent_opts(
     # Parse target_path if provided
     parsed_target_path = Path(opts.target_path) if opts.target_path else None
 
-    # Determine agent type: --type takes priority, then positional argument
-    # However, click may incorrectly assign values after -- to positional_agent_type
-    # instead of agent_args. We detect this by checking if the value appears after
-    # -- in sys.argv and move it to agent_args if so.
+    # Determine agent type: --type and positional are equivalent; specifying both
+    # with different values is an error. _CreateCommand.parse_args handles --
+    # correctly so positional_agent_type is always a real positional.
     #
     # Special case: --command implies using the "generic" agent type, which simply
     # runs the provided command. If --type is also specified to something other
@@ -1128,18 +1137,13 @@ def _parse_agent_opts(
     resolved_agent_type = opts.type
     resolved_agent_args = opts.agent_args
 
-    if opts.positional_agent_type:
-        # Check if -- was used and positional_agent_type came from after it
-        was_after_separator = _was_value_after_double_dash(opts.positional_agent_type)
-        if was_after_separator:
-            # This was meant to be an agent arg, not an agent type
-            resolved_agent_args = (opts.positional_agent_type,) + resolved_agent_args
-        elif resolved_agent_type is None:
-            # Use it as the agent type
-            resolved_agent_type = opts.positional_agent_type
-        else:
-            # --type was already specified, ignore the positional (could warn here)
-            pass
+    if opts.positional_agent_type and resolved_agent_type and resolved_agent_type != opts.positional_agent_type:
+        raise UserInputError(
+            f"Conflicting agent types: positional argument says '{opts.positional_agent_type}' "
+            f"but --type says '{resolved_agent_type}'. Use one or the other."
+        )
+    if opts.positional_agent_type and resolved_agent_type is None:
+        resolved_agent_type = opts.positional_agent_type
 
     # Handle --command: it implies using the "generic" agent type
     if opts.command:

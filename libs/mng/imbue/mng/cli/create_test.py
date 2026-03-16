@@ -1,8 +1,10 @@
 """Tests for create module helper functions."""
 
 from pathlib import Path
+from typing import Any
 from typing import cast
 
+import click
 import pluggy
 import pytest
 from click.testing import CliRunner
@@ -10,6 +12,7 @@ from click.testing import CliRunner
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.cli.agent_addr import AgentAddress
 from imbue.mng.cli.agent_addr import parse_agent_address
+from imbue.mng.cli.create import _CreateCommand
 from imbue.mng.cli.create import _is_creating_new_host
 from imbue.mng.cli.create import _parse_agent_opts
 from imbue.mng.cli.create import _parse_branch_flag
@@ -38,6 +41,105 @@ from imbue.mng.primitives import HostName
 from imbue.mng.primitives import IdleMode
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
+
+# =============================================================================
+# Tests for _CreateCommand.parse_args (-- passthrough arg handling)
+# =============================================================================
+
+# Minimal command using _CreateCommand with the same argument declarations as
+# the real create command, but that simply records the parsed params.
+# Note: the real create command receives all params via **kwargs so does not
+# need to worry about shadowing the 'type' builtin; here we use ctx.params
+# directly and avoid accepting 'type' as a Python parameter name.
+_captured_params: dict[str, Any] = {}
+
+
+@click.command(cls=_CreateCommand)
+@click.argument("positional_name", default=None, required=False)
+@click.argument("positional_agent_type", default=None, required=False)
+@click.argument("agent_args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--type")
+@click.option("--name")
+@click.pass_context
+def _test_create_cmd(ctx: click.Context, **kwargs: Any) -> None:
+    _captured_params.clear()
+    _captured_params.update(ctx.params)
+
+
+def _run_test_create(args: list[str]) -> dict[str, Any]:
+    """Invoke the test command and return the parsed params."""
+    runner = CliRunner()
+    result = runner.invoke(_test_create_cmd, args, catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    return dict(_captured_params)
+
+
+def test_create_command_type_flag_with_dash_dash_passthrough() -> None:
+    """Regression: --type with -- passthrough must not leak into positional_agent_type."""
+    params = _run_test_create(["selene", "--type", "claude", "--", "--dangerously-skip-permissions"])
+
+    assert params["positional_name"] == "selene"
+    assert params["positional_agent_type"] is None
+    assert params["agent_args"] == ("--dangerously-skip-permissions",)
+    assert params["type"] == "claude"
+
+
+def test_create_command_positional_name_and_type_with_dash_dash() -> None:
+    """Positional name + type before -- should work, after-dash args go to agent_args."""
+    params = _run_test_create(["selene", "claude", "--", "--flag", "extra"])
+
+    assert params["positional_name"] == "selene"
+    assert params["positional_agent_type"] == "claude"
+    assert params["agent_args"] == ("--flag", "extra")
+
+
+def test_create_command_type_flag_with_multiple_dash_dash_args() -> None:
+    """Multiple args after -- must all go to agent_args."""
+    params = _run_test_create(["selene", "--type", "claude", "--", "arg1", "arg2"])
+
+    assert params["positional_name"] == "selene"
+    assert params["positional_agent_type"] is None
+    assert params["agent_args"] == ("arg1", "arg2")
+    assert params["type"] == "claude"
+
+
+def test_create_command_no_dash_dash() -> None:
+    """Without --, positional args fill name and type normally."""
+    params = _run_test_create(["selene", "claude"])
+
+    assert params["positional_name"] == "selene"
+    assert params["positional_agent_type"] == "claude"
+    assert params["agent_args"] == ()
+
+
+def test_create_command_bare_dash_dash() -> None:
+    """Bare -- with nothing after it produces empty agent_args."""
+    params = _run_test_create(["selene", "--type", "claude", "--"])
+
+    assert params["positional_name"] == "selene"
+    assert params["positional_agent_type"] is None
+    assert params["agent_args"] == ()
+    assert params["type"] == "claude"
+
+
+def test_create_command_no_positional_name_with_type_and_dash_dash() -> None:
+    """No positional name + --type + -- must not leak after-dash into positional_name."""
+    params = _run_test_create(["--type", "claude", "--", "--dangerously-skip-permissions"])
+
+    assert params["positional_name"] is None
+    assert params["positional_agent_type"] is None
+    assert params["agent_args"] == ("--dangerously-skip-permissions",)
+    assert params["type"] == "claude"
+
+
+def test_create_command_pre_and_post_dash_agent_args_merged() -> None:
+    """Extra positional args before -- merge with args after --."""
+    params = _run_test_create(["selene", "claude", "extra", "--", "--flag"])
+
+    assert params["positional_name"] == "selene"
+    assert params["positional_agent_type"] == "claude"
+    assert params["agent_args"] == ("extra", "--flag")
+
 
 # =============================================================================
 # Tests for _parse_host_lifecycle_options
@@ -655,6 +757,56 @@ def test_parse_agent_opts_agent_id_none_by_default(
     )
 
     assert result.agent_id is None
+
+
+def test_parse_agent_opts_conflicting_type_and_positional_raises(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mng_ctx: MngContext,
+    temp_work_dir: Path,
+) -> None:
+    """Specifying both --type and positional agent type with different values should raise."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
+    source_location = HostLocation(host=local_host, path=temp_work_dir)
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().type, "claude"),
+        to_update(default_create_cli_opts.field_ref().positional_agent_type, "codex"),
+    )
+
+    with pytest.raises(UserInputError, match="Conflicting agent types"):
+        _parse_agent_opts(
+            opts=opts,
+            address=AgentAddress(),
+            initial_message=None,
+            source_location=source_location,
+            mng_ctx=temp_mng_ctx,
+        )
+
+
+def test_parse_agent_opts_matching_type_and_positional_ok(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mng_ctx: MngContext,
+    temp_work_dir: Path,
+) -> None:
+    """Specifying both --type and positional with the same value should not raise."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
+    source_location = HostLocation(host=local_host, path=temp_work_dir)
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().type, "claude"),
+        to_update(default_create_cli_opts.field_ref().positional_agent_type, "claude"),
+    )
+
+    result, _ = _parse_agent_opts(
+        opts=opts,
+        address=AgentAddress(),
+        initial_message=None,
+        source_location=source_location,
+        mng_ctx=temp_mng_ctx,
+    )
+
+    assert result.agent_type is not None
+    assert str(result.agent_type) == "claude"
 
 
 # =============================================================================
