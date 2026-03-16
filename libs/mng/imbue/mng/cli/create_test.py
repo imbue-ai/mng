@@ -48,6 +48,9 @@ from imbue.mng.providers.local.instance import LocalProviderInstance
 
 # Minimal command using _CreateCommand with the same argument declarations as
 # the real create command, but that simply records the parsed params.
+# Note: the real create command receives all params via **kwargs so does not
+# need to worry about shadowing the 'type' builtin; here we use ctx.params
+# directly and avoid accepting 'type' as a Python parameter name.
 _captured_params: dict[str, Any] = {}
 
 
@@ -55,17 +58,10 @@ _captured_params: dict[str, Any] = {}
 @click.argument("positional_name", default=None, required=False)
 @click.argument("positional_agent_type", default=None, required=False)
 @click.argument("agent_args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--type", "agent_type")
+@click.option("--type")
 @click.option("--name")
 @click.pass_context
-def _test_create_cmd(
-    ctx: click.Context,
-    positional_name: str | None,
-    positional_agent_type: str | None,
-    agent_args: tuple[str, ...],
-    agent_type: str | None,
-    name: str | None,
-) -> None:
+def _test_create_cmd(ctx: click.Context, **kwargs: Any) -> None:
     _captured_params.clear()
     _captured_params.update(ctx.params)
 
@@ -85,7 +81,7 @@ def test_create_command_type_flag_with_dash_dash_passthrough() -> None:
     assert params["positional_name"] == "selene"
     assert params["positional_agent_type"] is None
     assert params["agent_args"] == ("--dangerously-skip-permissions",)
-    assert params["agent_type"] == "claude"
+    assert params["type"] == "claude"
 
 
 def test_create_command_positional_name_and_type_with_dash_dash() -> None:
@@ -104,7 +100,7 @@ def test_create_command_type_flag_with_multiple_dash_dash_args() -> None:
     assert params["positional_name"] == "selene"
     assert params["positional_agent_type"] is None
     assert params["agent_args"] == ("arg1", "arg2")
-    assert params["agent_type"] == "claude"
+    assert params["type"] == "claude"
 
 
 def test_create_command_no_dash_dash() -> None:
@@ -123,7 +119,7 @@ def test_create_command_bare_dash_dash() -> None:
     assert params["positional_name"] == "selene"
     assert params["positional_agent_type"] is None
     assert params["agent_args"] == ()
-    assert params["agent_type"] == "claude"
+    assert params["type"] == "claude"
 
 
 def test_create_command_no_positional_name_with_type_and_dash_dash() -> None:
@@ -133,7 +129,7 @@ def test_create_command_no_positional_name_with_type_and_dash_dash() -> None:
     assert params["positional_name"] is None
     assert params["positional_agent_type"] is None
     assert params["agent_args"] == ("--dangerously-skip-permissions",)
-    assert params["agent_type"] == "claude"
+    assert params["type"] == "claude"
 
 
 def test_create_command_pre_and_post_dash_agent_args_merged() -> None:
