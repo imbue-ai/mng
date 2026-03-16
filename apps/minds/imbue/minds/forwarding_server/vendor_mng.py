@@ -67,6 +67,38 @@ def default_vendor_configs(mng_repo_root: Path | None) -> tuple[VendorRepoConfig
     )
 
 
+_VENDOR_GIT_USER_NAME: Final[str] = "minds"
+_VENDOR_GIT_USER_EMAIL: Final[str] = "minds@localhost"
+
+
+def _ensure_git_identity(repo_dir: Path) -> None:
+    """Ensure git user.name and user.email are configured in the repo.
+
+    ``git subtree add`` creates merge commits, which require a committer
+    identity.  When running in environments without a global git config
+    (e.g. CI containers), this sets a repo-local identity so the subtree
+    operation can succeed.
+    """
+    cg = ConcurrencyGroup(name="vendor-git-identity")
+    with cg:
+        name_result = cg.run_process_to_completion(
+            command=["git", "config", "user.name"],
+            cwd=repo_dir,
+            is_checked_after=False,
+        )
+    if name_result.returncode != 0:
+        _run_git(
+            ["config", "user.name", _VENDOR_GIT_USER_NAME],
+            cwd=repo_dir,
+            error_message="Failed to set git user.name",
+        )
+        _run_git(
+            ["config", "user.email", _VENDOR_GIT_USER_EMAIL],
+            cwd=repo_dir,
+            error_message="Failed to set git user.email",
+        )
+
+
 def vendor_repos(
     mind_dir: Path,
     configs: tuple[VendorRepoConfig, ...],
@@ -78,6 +110,7 @@ def vendor_repos(
     Raises DirtyRepoError if a local repo has uncommitted or untracked changes.
     Raises VendorError if any git operation fails.
     """
+    _ensure_git_identity(mind_dir)
     for config in configs:
         vendor_subdir = mind_dir / VENDOR_DIR_NAME / config.name
         if vendor_subdir.exists():
