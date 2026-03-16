@@ -10,6 +10,7 @@ from click.testing import CliRunner
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.cli.agent_addr import AgentAddress
 from imbue.mng.cli.agent_addr import parse_agent_address
+from imbue.mng.cli.create import _is_creating_new_host
 from imbue.mng.cli.create import _parse_agent_opts
 from imbue.mng.cli.create import _parse_branch_flag
 from imbue.mng.cli.create import _parse_host_lifecycle_options
@@ -796,7 +797,6 @@ def testparse_agent_address_name_and_provider_only() -> None:
     assert result.agent_name == AgentName("my-agent")
     assert result.host_name is None
     assert result.provider_name == ProviderInstanceName("modal")
-    assert result.is_new_host_implied is True
 
 
 def testparse_agent_address_no_name_with_host_and_provider() -> None:
@@ -815,7 +815,6 @@ def testparse_agent_address_no_name_with_provider_only() -> None:
     assert result.agent_name is None
     assert result.host_name is None
     assert result.provider_name == ProviderInstanceName("docker")
-    assert result.is_new_host_implied is True
 
 
 def testparse_agent_address_trailing_at_ignored() -> None:
@@ -836,21 +835,21 @@ def testparse_agent_address_has_host_component() -> None:
     assert parse_agent_address("foo@host.modal").has_host_component is True
 
 
-def testparse_agent_address_is_creating_new_host() -> None:
-    """is_creating_new_host reflects both address and flag."""
+def test_is_creating_new_host() -> None:
+    """_is_creating_new_host reflects both address and flag."""
     # Implied new host (no host name, has provider)
     addr = parse_agent_address("foo@.modal")
-    assert addr.is_creating_new_host(new_host_flag=False) is True
-    assert addr.is_creating_new_host(new_host_flag=True) is True
+    assert _is_creating_new_host(addr, new_host_flag=False) is True
+    assert _is_creating_new_host(addr, new_host_flag=True) is True
 
     # Existing host (has host name)
     addr = parse_agent_address("foo@myhost.modal")
-    assert addr.is_creating_new_host(new_host_flag=False) is False
-    assert addr.is_creating_new_host(new_host_flag=True) is True
+    assert _is_creating_new_host(addr, new_host_flag=False) is False
+    assert _is_creating_new_host(addr, new_host_flag=True) is True
 
     # No host component at all
     addr = parse_agent_address("foo")
-    assert addr.is_creating_new_host(new_host_flag=False) is False
+    assert _is_creating_new_host(addr, new_host_flag=False) is False
 
 
 def testparse_agent_address_rejects_multiple_dots() -> None:

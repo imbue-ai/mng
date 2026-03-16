@@ -114,6 +114,18 @@ class _CachedAgentHostLoader(MutableModel):
 
 
 @pure
+def __is_new_host_implied(address: AgentAddress) -> bool:
+    """True when the address implies creating a new host (NAME@.PROVIDER form)."""
+    return address.provider_name is not None and address.host_name is None
+
+
+@pure
+def _is_creating_new_host(address: AgentAddress, new_host_flag: bool) -> bool:
+    """Whether this address combined with the --new-host flag means creating a new host."""
+    return new_host_flag or __is_new_host_implied(address)
+
+
+@pure
 def _make_name_style_choices() -> list[str]:
     """Get lowercase name style choices."""
     return [s.value.lower() for s in AgentNameStyle]
@@ -748,7 +760,7 @@ def _parse_project_name(
     # the local working directory. If they differ, the user must specify --project explicitly
     # to avoid silently tagging the agent with the wrong project.
     is_external_source = opts.source_agent is not None or opts.source_host is not None
-    is_creating_new_host = address.is_creating_new_host(opts.new_host)
+    is_creating_new_host = _is_creating_new_host(address, opts.new_host)
     if is_external_source and is_creating_new_host:
         local_git_root = find_git_worktree_root(None, mng_ctx.concurrency_group)
         local_path = local_git_root if local_git_root is not None else Path(os.getcwd())
@@ -1013,7 +1025,7 @@ def _parse_agent_opts(
         # No explicit flag, apply defaults based on context
         # When creating a new remote host, always use COPY
         # since WORKTREE only works when source and target are on the same host
-        is_creating_new_host = address.is_creating_new_host(opts.new_host)
+        is_creating_new_host = _is_creating_new_host(address, opts.new_host)
         is_creating_remote_host = (
             is_creating_new_host
             and address.provider_name is not None
@@ -1194,7 +1206,7 @@ def _parse_target_host(
         # No host specified in address, use local host
         return None
 
-    is_new_host = address.is_creating_new_host(opts.new_host)
+    is_new_host = _is_creating_new_host(address, opts.new_host)
 
     if is_new_host:
         # Creating a new host - provider is required
@@ -1243,7 +1255,7 @@ def _parse_target_host(
     # Targeting an existing host
     if address.host_name is None:
         # This shouldn't happen: has_host_component is True but host_name is None
-        # means only provider_name is set, which is_new_host_implied catches above
+        # means only provider_name is set, which _is_new_host_implied catches above
         raise UserInputError("Cannot target an existing host without a host name.")
 
     agents_by_host = agent_and_host_loader()

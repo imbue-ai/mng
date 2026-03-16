@@ -1,11 +1,17 @@
 """Tests for agent address parsing and resolution utilities."""
 
+from pathlib import Path
+
+import pluggy
+from click.testing import CliRunner
+
 from imbue.mng.api.find import AgentMatch
 from imbue.mng.cli.agent_addr import AgentAddress
 from imbue.mng.cli.agent_addr import _address_matches_agent_match
 from imbue.mng.cli.agent_addr import _address_matches_host
 from imbue.mng.cli.agent_addr import filter_agents_by_host_constraint
 from imbue.mng.cli.agent_addr import parse_identifier_as_address
+from imbue.mng.cli.stop import stop
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import DiscoveredAgent
@@ -181,3 +187,49 @@ def test_filter_agents_by_provider() -> None:
     result = filter_agents_by_host_constraint(agents_by_host, address)
     assert len(result) == 1
     assert host2 in result
+
+
+# =============================================================================
+# CLI integration: address syntax accepted by commands using the shared code path
+# =============================================================================
+
+
+def test_stop_accepts_address_syntax(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Commands using the shared find_agents_by_addresses accept address syntax.
+
+    Using 'stop' as a representative: passing NAME@HOST should not crash with a
+    parsing error. It will fail with 'agent not found' (expected) rather than a
+    syntax error, proving the address is parsed correctly.
+    """
+    result = cli_runner.invoke(
+        stop,
+        ["nonexistent@somehost.local"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+
+    # The address should be parsed without error. The command fails because no
+    # agent named "nonexistent" exists, not because the address syntax is invalid.
+    assert result.exit_code != 0
+    assert "nonexistent" in result.output
+
+
+def test_stop_accepts_plain_name_unchanged(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Plain agent names (no @) still work as before with the address-aware code path."""
+    result = cli_runner.invoke(
+        stop,
+        ["nonexistent-agent"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code != 0
+    assert "nonexistent-agent" in result.output

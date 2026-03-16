@@ -36,18 +36,9 @@ class AgentAddress(FrozenModel):
     provider_name: ProviderInstanceName | None = None
 
     @property
-    def is_new_host_implied(self) -> bool:
-        """True when the address implies creating a new host (NAME@.PROVIDER form)."""
-        return self.provider_name is not None and self.host_name is None
-
-    @property
     def has_host_component(self) -> bool:
         """True when any host or provider info was specified in the address."""
         return self.host_name is not None or self.provider_name is not None
-
-    def is_creating_new_host(self, new_host_flag: bool) -> bool:
-        """Whether this address combined with the --new-host flag means creating a new host."""
-        return new_host_flag or self.is_new_host_implied
 
 
 @pure
