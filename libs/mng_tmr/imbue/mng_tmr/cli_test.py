@@ -99,6 +99,21 @@ def test_emit_report_path_jsonl(capsys: pytest.CaptureFixture[str]) -> None:
     assert parsed["path"] == "/tmp/report.html"
 
 
+def test_emit_test_count_json(capsys: pytest.CaptureFixture[str]) -> None:
+    _emit_test_count(5, OutputOptions(output_format=OutputFormat.JSON))
+    assert capsys.readouterr().out == ""
+
+
+def test_emit_agents_launched_json(capsys: pytest.CaptureFixture[str]) -> None:
+    _emit_agents_launched(3, OutputOptions(output_format=OutputFormat.JSON))
+    assert capsys.readouterr().out == ""
+
+
+def test_emit_report_path_json(capsys: pytest.CaptureFixture[str]) -> None:
+    _emit_report_path(Path("/tmp/report.html"), OutputOptions(output_format=OutputFormat.JSON))
+    assert capsys.readouterr().out == ""
+
+
 def test_cli_help_contains_timeout_options(cli_runner: CliRunner) -> None:
     result = cli_runner.invoke(tmr, ["--help"])
     assert "--timeout" in result.output
