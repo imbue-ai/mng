@@ -29,7 +29,7 @@ def test_my_cli(tmp_path):
 
 ## Transcript format
 
-Each test session produces a transcript with annotated lines:
+Each test session produces a transcript with annotated lines. Stdout and stderr lines are interleaved in the order they were produced (line-buffered):
 
 - `$ ` prefixes the shell command that was run
 - `  ` (two spaces) prefixes each line of stdout
@@ -65,8 +65,7 @@ Returned by `session.run()`. Fields:
 - `exit_code` -- integer exit code
 - `stdout` -- captured standard output
 - `stderr` -- captured standard error
-- `succeeded` -- `True` if exit code is 0
-- `failed` -- `True` if exit code is not 0
+- `output_lines` -- interleaved stdout/stderr lines in the order they were produced
 
 ### expect()
 

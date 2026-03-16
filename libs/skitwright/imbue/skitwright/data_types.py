@@ -1,7 +1,22 @@
+from enum import Enum
+
 from pydantic import Field
-from pydantic import computed_field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+
+
+class OutputSource(str, Enum):
+    """Source of an output line."""
+
+    STDOUT = "stdout"
+    STDERR = "stderr"
+
+
+class OutputLine(FrozenModel):
+    """A single line of output with its source (stdout or stderr)."""
+
+    source: OutputSource = Field(description="Whether this line came from stdout or stderr")
+    text: str = Field(description="The line content (without trailing newline)")
 
 
 class CommandResult(FrozenModel):
@@ -11,13 +26,7 @@ class CommandResult(FrozenModel):
     exit_code: int = Field(description="Exit code of the command")
     stdout: str = Field(description="Captured standard output")
     stderr: str = Field(description="Captured standard error")
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def succeeded(self) -> bool:
-        return self.exit_code == 0
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def failed(self) -> bool:
-        return self.exit_code != 0
+    output_lines: tuple[OutputLine, ...] = Field(
+        default=(),
+        description="Interleaved stdout/stderr lines in the order they were produced",
+    )

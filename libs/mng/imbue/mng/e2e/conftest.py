@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 import tempfile
 from collections.abc import Callable
 from collections.abc import Generator
@@ -13,12 +14,26 @@ from imbue.skitwright.expect import expect
 from imbue.skitwright.runner import run_command
 from imbue.skitwright.session import Session
 
-_REPO_ROOT = Path(__file__).resolve().parents[5]
-
 _TRANSCRIPT_OUTPUT_DIR = Path(__file__).resolve().parent / ".test_output" / "transcripts"
 
 MngRunFn = Callable[..., CommandResult]
 """Type alias for the mng fixture: callable(args, timeout=30.0) -> CommandResult."""
+
+
+def _is_keep_on_failure() -> bool:
+    return os.environ.get("MNG_E2E_KEEP_ON_FAILURE", "").lower() in ("1", "true", "yes")
+
+
+_e2e_test_failed: dict[str, bool] = {}
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Generator[None, None, None]:
+    """Track whether the test call phase failed, for use in e2e fixture teardown."""
+    outcome = yield
+    rep = outcome.get_result()
+    if rep.when == "call" and rep.failed:
+        _e2e_test_failed[item.nodeid] = True
 
 
 @pytest.fixture
@@ -62,6 +77,32 @@ def e2e(
 
     yield session
 
+    # Save transcript
+    _TRANSCRIPT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    test_name = request.node.name
+    transcript_path = _TRANSCRIPT_OUTPUT_DIR / f"{test_name}.txt"
+    transcript_path.write_text(session.transcript)
+
+    # Detect test failure
+    test_failed = _e2e_test_failed.pop(request.node.nodeid, False)
+
+    if test_failed:
+        sys.stderr.write(f"\n  Transcript saved to: {transcript_path}\n")
+
+    if test_failed and _is_keep_on_failure():
+        sys.stderr.write("\n  MNG_E2E_KEEP_ON_FAILURE is set: agents and tmux session kept running.\n")
+        sys.stderr.write(f"  TMUX_TMPDIR={tmux_tmpdir}\n")
+        sys.stderr.write(f"  MNG_HOST_DIR={temp_host_dir}\n")
+        return
+
+    # Destroy all agents before killing tmux
+    run_command(
+        "mng destroy --all --force",
+        env=env,
+        cwd=temp_git_repo,
+        timeout=30.0,
+    )
+
     # Kill the isolated tmux server
     tmux_tmpdir_str = str(tmux_tmpdir)
     assert tmux_tmpdir_str.startswith("/tmp/mng-e2e-tmux-")
@@ -77,22 +118,11 @@ def e2e(
     )
     shutil.rmtree(tmux_tmpdir, ignore_errors=True)
 
-    # Save transcript
-    _TRANSCRIPT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    test_name = request.node.name
-    transcript_path = _TRANSCRIPT_OUTPUT_DIR / f"{test_name}.txt"
-    transcript_path.write_text(session.transcript)
-
-
-def _mng_command(args: str) -> str:
-    """Build a 'uv run mng ...' command string."""
-    return f"uv run --project {_REPO_ROOT} mng {args}"
-
 
 @pytest.fixture
 def mng(e2e: Session) -> MngRunFn:
-    """Run 'uv run mng <args>' via the e2e session and return the result."""
-    return lambda args, timeout=30.0: e2e.run(_mng_command(args), timeout=timeout)
+    """Run 'mng <args>' via the e2e session and return the result."""
+    return lambda args, timeout=30.0: e2e.run(f"mng {args}", timeout=timeout)
 
 
 CreateAgentFn = Callable[..., str]

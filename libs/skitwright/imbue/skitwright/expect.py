@@ -23,14 +23,14 @@ class ResultExpectation:
 
     def to_succeed(self) -> None:
         """Assert the command exited with code 0."""
-        if not self._result.succeeded:
+        if self._result.exit_code != 0:
             raise AssertionError(
                 f"Expected command to succeed but got exit code {self._result.exit_code}\n{self._format_context()}"
             )
 
     def to_fail(self) -> None:
         """Assert the command exited with a non-zero code."""
-        if not self._result.failed:
+        if self._result.exit_code == 0:
             raise AssertionError(f"Expected command to fail but it succeeded\n{self._format_context()}")
 
     def to_have_exit_code(self, expected_code: int) -> None:

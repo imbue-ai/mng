@@ -1,4 +1,5 @@
 from imbue.skitwright.data_types import CommandResult
+from imbue.skitwright.data_types import OutputSource
 
 
 class Transcript:
@@ -12,16 +13,20 @@ class Transcript:
         self._entries.append(result)
 
     def format(self) -> str:
-        """Format all recorded entries as an annotated transcript."""
+        """Format all recorded entries as an annotated transcript.
+
+        Uses the interleaved output_lines to preserve the real-time ordering
+        of stdout and stderr lines.
+        """
         lines: list[str] = []
         for entry in self._entries:
             lines.append(f"$ {entry.command}")
 
-            for stdout_line in entry.stdout.splitlines():
-                lines.append(f"  {stdout_line}")
-
-            for stderr_line in entry.stderr.splitlines():
-                lines.append(f"! {stderr_line}")
+            for output_line in entry.output_lines:
+                if output_line.source == OutputSource.STDOUT:
+                    lines.append(f"  {output_line.text}")
+                else:
+                    lines.append(f"! {output_line.text}")
 
             lines.append(f"? {entry.exit_code}")
         return "\n".join(lines) + "\n" if lines else ""
