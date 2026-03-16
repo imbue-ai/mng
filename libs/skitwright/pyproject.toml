@@ -3,6 +3,7 @@ name = "skitwright"
 version = "0.1.0"
 description = "Lightweight end-to-end testing framework for CLI applications"
 requires-python = ">=3.11"
+readme = "README.md"
 dependencies = [
     "imbue-common",
 ]
