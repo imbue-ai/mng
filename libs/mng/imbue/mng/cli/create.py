@@ -34,6 +34,8 @@ from imbue.mng.api.find import ensure_host_started
 from imbue.mng.api.find import get_host_from_list_by_id
 from imbue.mng.api.find import resolve_source_location
 from imbue.mng.api.providers import get_provider_instance
+from imbue.mng.cli.agent_addr import AgentAddress
+from imbue.mng.cli.agent_addr import parse_agent_address
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
@@ -112,6 +114,18 @@ class _CachedAgentHostLoader(MutableModel):
 
 
 @pure
+def _is_new_host_implied(address: AgentAddress) -> bool:
+    """True when the address implies creating a new host (NAME@.PROVIDER form)."""
+    return address.provider_name is not None and address.host_name is None
+
+
+@pure
+def _is_creating_new_host(address: AgentAddress, new_host_flag: bool) -> bool:
+    """Whether this address combined with the --new-host flag means creating a new host."""
+    return new_host_flag or _is_new_host_implied(address)
+
+
+@pure
 def _make_name_style_choices() -> list[str]:
     """Get lowercase name style choices."""
     return [s.value.lower() for s in AgentNameStyle]
@@ -145,37 +159,6 @@ def _make_transfer_mode_choices() -> list[str]:
 def _make_output_format_choices() -> list[str]:
     """Get lowercase output format choices."""
     return [f.value.lower() for f in OutputFormat]
-
-
-class AgentAddress(FrozenModel):
-    """Parsed agent address from [NAME][@[HOST][.PROVIDER]] format.
-
-    Used to specify an agent and optionally its target host and provider in a single
-    positional argument. Examples:
-      - "foo" -> agent named "foo", local host
-      - "foo@myhost" -> agent "foo" on existing host "myhost"
-      - "foo@myhost.modal" -> agent "foo" on existing host "myhost" (on modal provider)
-      - "foo@.modal" -> agent "foo" on a new host with auto-generated name on modal
-      - "@myhost.modal" -> auto-named agent on existing host "myhost" (on modal provider)
-    """
-
-    agent_name: AgentName | None = None
-    host_name: HostName | None = None
-    provider_name: ProviderInstanceName | None = None
-
-    @property
-    def is_new_host_implied(self) -> bool:
-        """True when the address implies creating a new host (NAME@.PROVIDER form)."""
-        return self.provider_name is not None and self.host_name is None
-
-    @property
-    def has_host_component(self) -> bool:
-        """True when any host or provider info was specified in the address."""
-        return self.host_name is not None or self.provider_name is not None
-
-    def is_creating_new_host(self, new_host_flag: bool) -> bool:
-        """Whether this address combined with the --new-host flag means creating a new host."""
-        return new_host_flag or self.is_new_host_implied
 
 
 @click.command()
@@ -411,7 +394,7 @@ def create(ctx: click.Context, **kwargs) -> None:
     # Both accept agent addresses; they are equivalent but mutually exclusive.
     if opts.positional_name and opts.name:
         raise UserInputError("Cannot specify both a positional agent address and --name. Use one or the other.")
-    address = _parse_agent_address(opts.positional_name or opts.name or "")
+    address = parse_agent_address(opts.positional_name or opts.name or "")
 
     # Merge --provider flag into the address (alternative to .PROVIDER in the address).
     if opts.provider:
@@ -770,7 +753,7 @@ def _parse_project_name(
     # the local working directory. If they differ, the user must specify --project explicitly
     # to avoid silently tagging the agent with the wrong project.
     is_external_source = opts.source_agent is not None or opts.source_host is not None
-    is_creating_new_host = address.is_creating_new_host(opts.new_host)
+    is_creating_new_host = _is_creating_new_host(address, opts.new_host)
     if is_external_source and is_creating_new_host:
         local_git_root = find_git_worktree_root(None, mng_ctx.concurrency_group)
         local_path = local_git_root if local_git_root is not None else Path(os.getcwd())
@@ -1032,7 +1015,7 @@ def _parse_agent_opts(
         # - GIT_WORKTREE for local git repos (fast, shares objects)
         # - GIT_PUSH for remote git repos (transfers only git objects via git push --mirror)
         # - RSYNC for non-git sources (rsync everything)
-        is_creating_new_host = address.is_creating_new_host(opts.new_host)
+        is_creating_new_host = _is_creating_new_host(address, opts.new_host)
         is_creating_remote_host = (
             is_creating_new_host
             and address.provider_name is not None
@@ -1230,7 +1213,7 @@ def _parse_target_host(
         # No host specified in address, use local host
         return None
 
-    is_new_host = address.is_creating_new_host(opts.new_host)
+    is_new_host = _is_creating_new_host(address, opts.new_host)
 
     if is_new_host:
         # Creating a new host - provider is required
@@ -1279,7 +1262,7 @@ def _parse_target_host(
     # Targeting an existing host
     if address.host_name is None:
         # This shouldn't happen: has_host_component is True but host_name is None
-        # means only provider_name is set, which is_new_host_implied catches above
+        # means only provider_name is set, which _is_new_host_implied catches above
         raise UserInputError("Cannot target an existing host without a host name.")
 
     agents_by_host = agent_and_host_loader()
@@ -1350,55 +1333,6 @@ def _parse_branch_flag(branch: str, agent_name: AgentName) -> tuple[str | None, 
 
     resolved_new = new.replace("*", str(agent_name))
     return (base or None, resolved_new, bool(base))
-
-
-@pure
-def _parse_agent_address(address_str: str) -> AgentAddress:
-    """Parse an agent address string into its components.
-
-    Format: [AGENT_NAME][@[HOST_NAME][.PROVIDER_NAME]]
-
-    The host part (after @) may contain at most one dot separating the host name
-    from the provider name. Additional dots are not allowed.
-
-    Examples:
-      - "" -> everything None (auto-generate name, local host)
-      - "foo" -> agent_name="foo"
-      - "foo@myhost" -> agent_name="foo", host_name="myhost"
-      - "foo@myhost.modal" -> agent_name="foo", host_name="myhost", provider_name="modal"
-      - "foo@.modal" -> agent_name="foo", provider_name="modal" (implies new host)
-      - "@myhost.modal" -> host_name="myhost", provider_name="modal" (auto-generate name)
-    """
-    if not address_str:
-        return AgentAddress()
-
-    if "@" not in address_str:
-        # Simple agent name with no host component
-        return AgentAddress(agent_name=AgentName(address_str))
-
-    agent_part, host_part = address_str.split("@", 1)
-    agent_name = AgentName(agent_part) if agent_part else None
-
-    if not host_part:
-        # "foo@" -> just agent name, no host component
-        return AgentAddress(agent_name=agent_name)
-
-    dot_count = host_part.count(".")
-    if dot_count > 1:
-        raise UserInputError(
-            f"Invalid agent address: host part '{host_part}' contains more than one dot. "
-            "Expected format: [NAME][@[HOST][.PROVIDER]]"
-        )
-
-    if dot_count == 1:
-        host_str, provider_str = host_part.split(".", 1)
-        host_name = HostName(host_str) if host_str else None
-        provider_name = ProviderInstanceName(provider_str) if provider_str else None
-    else:
-        host_name = HostName(host_part)
-        provider_name = None
-
-    return AgentAddress(agent_name=agent_name, host_name=host_name, provider_name=provider_name)
 
 
 class ParsedSourceString(FrozenModel):
