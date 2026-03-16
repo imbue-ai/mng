@@ -50,6 +50,45 @@ markable = true
 refresh_afterwards = true
 ```
 
+## Custom columns
+
+Add extra columns to the board that display per-agent data. The `source` field selects where the column reads from:
+
+- **`"labels"`** (default) -- reads `agent.labels[key]`, where `key` is the column's config key.
+- **`"agent"`** -- reads from `AgentDetails.plugin`, populated by `agent_field_generators` via `AgentInterface`. Works for both local and remote agents. Requires `plugin_name` and `field`.
+
+Values can be colored by mapping specific strings to urwid color names.
+
+```toml
+# Label-backed column (source = "labels" is the default)
+[plugins.kanpan.columns.blocked]
+header = "BLOCKED"
+[plugins.kanpan.columns.blocked.colors]
+unblocked = "light green"
+blocked = "light red"
+
+# Plugin data column: reads from AgentDetails.plugin (populated by agent_field_generators)
+[plugins.kanpan.columns.waiting]
+header = "WAIT"
+source = "agent"
+plugin_name = "claude"
+field = "waiting_reason"
+[plugins.kanpan.columns.waiting.colors]
+PERMISSIONS = "light red"
+END_OF_TURN = "light green"
+```
+
+By default, custom columns appear after the built-in columns (before LINK). To control the order of all columns, set `column_order`:
+
+```toml
+[plugins.kanpan]
+column_order = ["name", "state", "custom_blocked", "git", "pr", "ci", "link"]
+```
+
+Built-in column names are: `name`, `state`, `git`, `pr`, `ci`, `link`. Custom columns use `custom_<key>` (e.g. `custom_blocked` for a column defined under `[plugins.kanpan.columns.blocked]`). Columns not listed in `column_order` are omitted.
+
+When no label or plugin data is present for an agent, the column shows an empty cell.
+
 ## Refresh behavior
 
 Kanpan uses two refresh strategies:
@@ -66,3 +105,31 @@ refresh_interval_seconds = 600.0
 # Seconds before retrying after a failed full refresh
 retry_cooldown_seconds = 60.0
 ```
+
+## Refresh hooks
+
+Run shell commands before and/or after each full refresh. Each hook runs once per agent, in parallel across all agents. Hook failures are reported as board errors but do not block the refresh.
+
+```toml
+[plugins.kanpan.on_before_refresh.notify]
+name = "Pre-refresh notify"
+command = "echo Refreshing $MNG_AGENT_NAME"
+
+[plugins.kanpan.on_after_refresh.sync]
+name = "Post-refresh sync"
+command = "my-sync-script"
+```
+
+Before-hooks run against the previous snapshot's entries (skipped on the first refresh). After-hooks run against the new snapshot's entries. Set `enabled = false` to disable a hook without removing it.
+
+Each hook command receives the following environment variables:
+
+| Variable | Description |
+|---|---|
+| `MNG_AGENT_NAME` | Agent name |
+| `MNG_AGENT_BRANCH` | Git branch (empty if none) |
+| `MNG_AGENT_STATE` | Agent lifecycle state (e.g. `RUNNING`, `DONE`) |
+| `MNG_AGENT_PROVIDER` | Provider instance name |
+| `MNG_AGENT_PR_NUMBER` | PR number (empty if no PR) |
+| `MNG_AGENT_PR_URL` | PR URL (empty if no PR) |
+| `MNG_AGENT_PR_STATE` | PR state such as `OPEN`, `MERGED`, `CLOSED` (empty if no PR) |

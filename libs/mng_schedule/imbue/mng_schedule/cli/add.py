@@ -18,7 +18,7 @@ from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.deploy_utils import MngInstallMode
 from imbue.mng.providers.local.instance import LocalProviderInstance
-from imbue.mng.providers.modal.instance import ModalProviderInstance
+from imbue.mng_modal.instance import ModalProviderInstance
 from imbue.mng_schedule.cli.group import add_trigger_options
 from imbue.mng_schedule.cli.group import resolve_positional_name
 from imbue.mng_schedule.cli.group import schedule
@@ -206,8 +206,8 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
 
     \b
     Examples:
-      mng schedule add --command create --args "--type claude --message 'fix bugs' --in local" --schedule "0 2 * * *" --provider local
-      mng schedule add --command create --args "--type claude --message 'fix bugs' --in modal" --schedule "0 2 * * *" --provider modal
+      mng schedule add --command create --args "--type claude --message 'fix bugs'" --schedule "0 2 * * *" --provider local
+      mng schedule add --command create --args "--type claude --message 'fix bugs' --provider modal" --schedule "0 2 * * *" --provider modal
     """
     resolve_positional_name(ctx)
     # New schedules default to enabled. The shared options use None so that

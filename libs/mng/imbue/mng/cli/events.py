@@ -13,12 +13,12 @@ from imbue.mng.api.events import follow_event_file
 from imbue.mng.api.events import read_event_content
 from imbue.mng.api.events import resolve_events_target
 from imbue.mng.api.events import stream_all_events
-from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import emit_final_json
+from imbue.mng.config.data_types import CommonCliOptions
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
@@ -69,6 +69,7 @@ def _write_and_flush_stdout(content: str) -> None:
     help="Print the first N events (or lines when viewing a specific file)",
 )
 @optgroup.group("Filtering")
+# FIXME: this should be consistent with the rest of the API (two repeatable args, --include and --exclude, that can be used together to build up complex filters)
 @optgroup.option(
     "--filter",
     "filter",
@@ -207,7 +208,7 @@ def _emit_event_content(
 # Register help metadata for git-style help formatting
 CommandHelpMetadata(
     key="events",
-    one_line_description="View events from an agent or host [experimental]",
+    one_line_description="View events from an agent or host",
     synopsis="mng events TARGET [EVENT_FILE] [--filter CEL] [--follow] [--tail N] [--head N]",
     arguments_description=(
         "- `TARGET`: Agent or host name/ID whose events to view\n"

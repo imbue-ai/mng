@@ -78,7 +78,8 @@ PREVENT_WHILE_TRUE = RegexRatchetRule(
 PREVENT_TIME_SLEEP = RegexRatchetRule(
     rule_name="time.sleep usage",
     rule_description="time.sleep is an antipattern. Instead, poll for the condition that you expect to be true. See wait_for",
-    pattern_string=r"\btime\.sleep\s*\(|\bfrom\s+time\s+import\s+sleep\b",
+    pattern_string=r"^(?!\s*#).*(?:\btime\.sleep\s*\(|\bfrom\s+time\s+import\s+sleep\b)",
+    is_multiline=True,
 )
 
 PREVENT_GLOBAL_KEYWORD = RegexRatchetRule(
@@ -185,7 +186,7 @@ PREVENT_DATACLASSES_IMPORT = RegexRatchetRule(
 PREVENT_NAMEDTUPLE = RegexRatchetRule(
     rule_name="namedtuple usage",
     rule_description="namedtuple is banned per style guide. Use pydantic models instead",
-    pattern_string=r"\bnamedtuple\s*\(",
+    pattern_string=r"\bnamedtuple\s*\(|\bNamedTuple\b",
 )
 
 PREVENT_YAML_USAGE = RegexRatchetRule(

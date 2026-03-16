@@ -14,6 +14,7 @@ import imbue.mng.resources as mng_resources
 from imbue.mng.providers.ssh_host_setup import RequiredHostPackage
 from imbue.mng.providers.ssh_host_setup import WARNING_PREFIX
 from imbue.mng.providers.ssh_host_setup import _build_package_check_snippet
+from imbue.mng.providers.ssh_host_setup import build_add_authorized_keys_command
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -121,7 +122,7 @@ def test_load_resource_script_loads_activity_watcher() -> None:
     script = load_resource_script("activity_watcher.sh")
     assert isinstance(script, str)
     assert len(script) > 0
-    assert "#!/bin/bash" in script
+    assert "#!/usr/bin/env bash" in script
     assert "activity_watcher" in script.lower() or "HOST_DATA_DIR" in script
 
 
@@ -223,6 +224,26 @@ def test_build_add_known_hosts_command_escapes_quotes() -> None:
 
 
 # =============================================================================
+# build_add_authorized_keys_command tests
+# =============================================================================
+
+
+def test_build_add_authorized_keys_command_empty() -> None:
+    """Should return None when no entries are provided."""
+    result = build_add_authorized_keys_command("root", ())
+    assert result is None
+
+
+def test_build_add_authorized_keys_command_regular_user() -> None:
+    """Should use the correct path for non-root users."""
+    entry = "ssh-ed25519 AAAAC3... user@host"
+    cmd = build_add_authorized_keys_command("bob", (entry,))
+    assert cmd is not None
+    assert "/home/bob/.ssh" in cmd
+    assert "/root" not in cmd
+
+
+# =============================================================================
 # Activity Watcher Shell Function Tests
 #
 # These tests source the activity_watcher.sh script and exercise individual
@@ -244,7 +265,7 @@ def _create_test_script(script_path: str, host_data_dir: str, function_call: str
     individual functions without running the main loop.
     """
     lines = [
-        "#!/bin/bash",
+        "#!/usr/bin/env bash",
         "set -euo pipefail",
         "",
         f'HOST_DATA_DIR="{host_data_dir}"',

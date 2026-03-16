@@ -18,6 +18,7 @@ from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.consts import ROOT_CONFIG_FILENAME
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import CommandDefaults
+from imbue.mng.config.data_types import CreateCliOptions
 from imbue.mng.config.data_types import CreateTemplate
 from imbue.mng.config.data_types import CreateTemplateName
 from imbue.mng.config.data_types import MngConfig
@@ -65,6 +66,7 @@ def load_config(
     enabled_plugins: Sequence[str] | None = None,
     disabled_plugins: Sequence[str] | None = None,
     is_interactive: bool = False,
+    strict: bool | None = None,
 ) -> MngContext:
     """Load and merge configuration from all sources.
 
@@ -109,10 +111,11 @@ def load_config(
         commands={"create": CommandDefaults(defaults={"pass_host_env": ["EDITOR"]})},
     )
 
-    # When MNG_ALLOW_UNKNOWN_CONFIG is set, unknown fields in config files produce
-    # warnings instead of errors.  This is useful during development when a branch
-    # adds a new config field but other branches don't know about it yet.
-    allow_unknown = parse_bool_env(os.environ.get("MNG_ALLOW_UNKNOWN_CONFIG", ""))
+    if strict is None:
+        # When MNG_ALLOW_UNKNOWN_CONFIG is set, unknown fields in config files produce
+        # warnings instead of errors.  This is useful during development when a branch
+        # adds a new config field but other branches don't know about it yet.
+        strict = not parse_bool_env(os.environ.get("MNG_ALLOW_UNKNOWN_CONFIG", ""))
 
     # Load and merge config files in precedence order (user, project, local)
     for raw in (
@@ -121,9 +124,7 @@ def load_config(
         load_local_config(context_dir, root_name, concurrency_group),
     ):
         if raw is not None:
-            config = config.merge_with(
-                parse_config(raw, disabled_plugins=config_disabled_plugins, strict=not allow_unknown)
-            )
+            config = config.merge_with(parse_config(raw, disabled_plugins=config_disabled_plugins, strict=strict))
 
     # Apply environment variable overrides
     prefix = os.environ.get("MNG_PREFIX")
@@ -314,7 +315,11 @@ def _parse_providers(
                     f' the plugin or add `plugin = "<plugin-name>"` to this provider'
                     f" block. Currently disabled plugins: {', '.join(sorted(disabled_plugins))}"
                 )
-            raise ConfigParseError(msg) from e
+            if strict:
+                raise ConfigParseError(msg) from e
+            else:
+                logger.warning(msg)
+                continue
         _check_unknown_fields(raw_config, config_class, f"providers.{name}", strict=strict)
         providers[ProviderInstanceName(name)] = config_class.model_construct(**raw_config)
 
@@ -484,6 +489,13 @@ def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[Cr
     templates: dict[CreateTemplateName, CreateTemplate] = {}
 
     for template_name, raw_options in raw_templates.items():
+        # make sure the options don't define anything that cannot be handled:
+        for field in raw_options.keys():
+            if field not in CreateCliOptions.model_fields:
+                raise ConfigParseError(
+                    f"Unknown field '{field}' in create_templates.{template_name}. Valid fields: {sorted(CreateCliOptions.model_fields.keys())}"
+                )
+        # fine, add the template
         templates[CreateTemplateName(template_name)] = CreateTemplate.model_construct(options=raw_options)
 
     return templates
