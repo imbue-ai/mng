@@ -1262,7 +1262,6 @@ def _ws_handle_send(
     callback = _WsOutputCallback(wfile, ws_lock, [])
 
     result = _run_llm_prompt(cid, message, callback, "ws-chat-send")
-    _ws_mark_response_as_sent(cid, sent_ids)
 
     if result.error:
         _ws_send_json(wfile, ws_lock, {"type": "error", "error": result.error})
@@ -1278,6 +1277,7 @@ def _ws_handle_send(
             cid = real_cid
             current_cid[0] = real_cid
 
+    _ws_mark_response_as_sent(cid, sent_ids)
     _ws_send_json(wfile, ws_lock, {"type": "done", "conversation_id": cid, "full_text": result.stdout})
 
 
