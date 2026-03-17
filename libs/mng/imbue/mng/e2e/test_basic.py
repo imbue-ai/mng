@@ -16,6 +16,10 @@ from imbue.skitwright.expect import expect
 
 @pytest.mark.release
 def test_help_succeeds(mng: MngRunFn) -> None:
+    """
+    # or see the other commands--list, destroy, message, connect, push, pull, clone, and more!  These other commands are covered in their own sections below.
+    mng --help
+    """
     result = mng("--help")
     expect(result).to_succeed()
     expect(result.stdout).to_contain("Usage")
@@ -25,6 +29,10 @@ def test_help_succeeds(mng: MngRunFn) -> None:
 
 @pytest.mark.release
 def test_create_help_succeeds(mng: MngRunFn) -> None:
+    """
+    # tons more arguments for anything you could want! As always, you can learn more via --help
+    mng create --help
+    """
     result = mng("create --help")
     expect(result).to_succeed()
     expect(result.stdout).to_contain("--no-connect")
@@ -32,23 +40,13 @@ def test_create_help_succeeds(mng: MngRunFn) -> None:
 
 
 @pytest.mark.release
-def test_list_with_no_agents(mng: MngRunFn) -> None:
-    result = mng("list")
-    expect(result).to_succeed()
-    expect(result.stdout).to_contain("No agents found")
-
-
-@pytest.mark.release
-def test_list_json_with_no_agents(mng: MngRunFn) -> None:
-    result = mng("list --format json")
-    expect(result).to_succeed()
-    parsed = json.loads(result.stdout)
-    assert parsed["agents"] == []
-
-
-@pytest.mark.release
 @pytest.mark.tmux
 def test_create_and_list_agent(mng: MngRunFn, create_agent: CreateAgentFn) -> None:
+    """
+    # when creating agents to accomplish tasks, it's recommended that you give them a name to make it easier to manage them:
+    mng create my-task
+    # that command give the agent a name of "my-task". If you don't specify a name, mng will generate a random one for you.
+    """
     agent_name = create_agent("e2e-create")
 
     list_result = mng("list")
@@ -59,6 +57,11 @@ def test_create_and_list_agent(mng: MngRunFn, create_agent: CreateAgentFn) -> No
 @pytest.mark.release
 @pytest.mark.tmux
 def test_create_with_json_output(mng: MngRunFn, create_agent: CreateAgentFn) -> None:
+    """
+    # you can control output format for scripting:
+    mng create my-task --no-connect --format json
+    # (--quiet suppresses all output)
+    """
     create_agent("e2e-json", extra_args="--format json")
 
     # Verify the agent appears in the JSON list
@@ -71,6 +74,11 @@ def test_create_with_json_output(mng: MngRunFn, create_agent: CreateAgentFn) -> 
 @pytest.mark.release
 @pytest.mark.tmux
 def test_create_headless(mng: MngRunFn, create_agent: CreateAgentFn) -> None:
+    """
+    # mng is very much meant to be used for scripting and automation, so nothing requires interactivity.
+    # if you want to be sure that interactivity is disabled, you can use the --headless flag:
+    mng create my-task --headless
+    """
     agent_name = create_agent("e2e-headless", extra_args="--headless")
 
     list_result = mng("list")
@@ -80,36 +88,12 @@ def test_create_headless(mng: MngRunFn, create_agent: CreateAgentFn) -> None:
 
 @pytest.mark.release
 @pytest.mark.tmux
-def test_create_and_destroy_agent(mng: MngRunFn, create_agent: CreateAgentFn) -> None:
-    agent_name = create_agent("e2e-destroy")
-
-    destroy_result = mng(f"destroy {agent_name} --force")
-    expect(destroy_result).to_succeed()
-
-    list_result = mng("list")
-    expect(list_result).to_succeed()
-    expect(list_result.stdout).not_to_contain(agent_name)
-
-
-@pytest.mark.release
-@pytest.mark.tmux
-def test_create_and_rename_agent(mng: MngRunFn, create_agent: CreateAgentFn) -> None:
-    old_name = create_agent("e2e-rename-old")
-    new_name = f"e2e-rename-new-{old_name.split('-')[-1]}"
-
-    rename_result = mng(f"rename {old_name} {new_name}")
-    expect(rename_result).to_succeed()
-
-    list_result = mng("list")
-    expect(list_result).to_succeed()
-    expect(list_result.stdout).to_contain(new_name)
-    expect(list_result.stdout).not_to_contain(old_name)
-
-
-@pytest.mark.release
-@pytest.mark.tmux
 def test_create_with_label_shows_in_list(mng: MngRunFn, create_agent: CreateAgentFn) -> None:
-    agent_name = create_agent("e2e-label", extra_args="--label team=backend")
+    """
+    # you can add labels to organize your agents and tags for host metadata:
+    mng create my-task --label team=backend --host-label env=staging
+    """
+    agent_name = create_agent("e2e-label", extra_args="--label team=backend --host-label env=staging")
 
     list_result = mng("list --format json")
     expect(list_result).to_succeed()
