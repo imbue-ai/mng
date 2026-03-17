@@ -426,7 +426,10 @@ Supported build arguments for the modal provider:
             case ModalMode.TESTING:
                 testing_root = mng_ctx.profile_dir / "modal_testing"
                 testing_root.mkdir(parents=True, exist_ok=True)
-                modal_interface = TestingModalInterface(root_dir=testing_root)
+                modal_interface = TestingModalInterface(
+                    root_dir=testing_root,
+                    concurrency_group=mng_ctx.concurrency_group,
+                )
             case _ as unreachable:
                 assert_never(unreachable)
 

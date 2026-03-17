@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import HostNameConflictError
@@ -974,8 +975,9 @@ def test_build_provider_instance_truncates_long_names(
 def test_app_registry_caches_apps(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
-    modal_interface = make_testing_modal_interface(tmp_path)
+    modal_interface = make_testing_modal_interface(tmp_path, cg)
 
     app1, handle1 = ModalProviderBackend._get_or_create_app("registry-test", "env1", False, modal_interface)
     app2, handle2 = ModalProviderBackend._get_or_create_app("registry-test", "env1", False, modal_interface)
@@ -987,8 +989,9 @@ def test_app_registry_caches_apps(
 def test_app_registry_persistent_mode(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
-    modal_interface = make_testing_modal_interface(tmp_path)
+    modal_interface = make_testing_modal_interface(tmp_path, cg)
 
     app, handle = ModalProviderBackend._get_or_create_app("persistent-test", "env1", True, modal_interface)
     assert app.get_app_id().startswith("ap-")
@@ -1001,8 +1004,9 @@ def test_app_registry_persistent_mode(
 def test_close_app_removes_from_registry(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
-    modal_interface = make_testing_modal_interface(tmp_path)
+    modal_interface = make_testing_modal_interface(tmp_path, cg)
 
     ModalProviderBackend._get_or_create_app("close-test", "env1", False, modal_interface)
     assert "close-test" in ModalProviderBackend._app_registry
@@ -1014,8 +1018,9 @@ def test_close_app_removes_from_registry(
 def test_get_volume_for_app(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
-    modal_interface = make_testing_modal_interface(tmp_path)
+    modal_interface = make_testing_modal_interface(tmp_path, cg)
 
     ModalProviderBackend._get_or_create_app("vol-test", "env1", False, modal_interface)
     volume = ModalProviderBackend.get_volume_for_app("vol-test", modal_interface)
@@ -1027,8 +1032,9 @@ def test_get_volume_for_app(
 def test_get_volume_for_app_not_registered(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
-    modal_interface = make_testing_modal_interface(tmp_path)
+    modal_interface = make_testing_modal_interface(tmp_path, cg)
 
     with pytest.raises(MngError, match="not found in registry"):
         ModalProviderBackend.get_volume_for_app("nonexistent", modal_interface)
@@ -1795,41 +1801,41 @@ def test_parse_build_args_unknown_arg_raises(
 # ---------------------------------------------------------------------------
 
 
-def test_create_environment(tmp_path: Path) -> None:
-    modal = make_testing_modal_interface(tmp_path)
+def test_create_environment(tmp_path: Path, cg: ConcurrencyGroup) -> None:
+    modal = make_testing_modal_interface(tmp_path, cg)
     _create_environment("test-env", modal)
     assert "test-env" in modal._environments
 
 
-def test_create_environment_rejects_bad_mng_prefix(tmp_path: Path) -> None:
-    modal = make_testing_modal_interface(tmp_path)
+def test_create_environment_rejects_bad_mng_prefix(tmp_path: Path, cg: ConcurrencyGroup) -> None:
+    modal = make_testing_modal_interface(tmp_path, cg)
     with pytest.raises(MngError, match="Refusing to create"):
         _create_environment("mng_bad-name", modal)
 
 
-def test_create_environment_allows_mng_test_prefix(tmp_path: Path) -> None:
-    modal = make_testing_modal_interface(tmp_path)
+def test_create_environment_allows_mng_test_prefix(tmp_path: Path, cg: ConcurrencyGroup) -> None:
+    modal = make_testing_modal_interface(tmp_path, cg)
     _create_environment("mng_test-good-name", modal)
     assert "mng_test-good-name" in modal._environments
 
 
-def test_lookup_persistent_app_with_env_retry(tmp_path: Path) -> None:
-    modal = make_testing_modal_interface(tmp_path)
+def test_lookup_persistent_app_with_env_retry(tmp_path: Path, cg: ConcurrencyGroup) -> None:
+    modal = make_testing_modal_interface(tmp_path, cg)
     modal.environment_create("env1")
     app = _lookup_persistent_app_with_env_retry("my-app", "env1", modal)
     assert app.get_name() == "my-app"
 
 
-def test_enter_ephemeral_app_context_with_env_retry(tmp_path: Path) -> None:
-    modal = make_testing_modal_interface(tmp_path)
+def test_enter_ephemeral_app_context_with_env_retry(tmp_path: Path, cg: ConcurrencyGroup) -> None:
+    modal = make_testing_modal_interface(tmp_path, cg)
     modal.environment_create("env1")
     app = modal.app_create("eph-app")
     gen = _enter_ephemeral_app_context_with_env_retry(app, "env1", modal)
     assert gen is not None
 
 
-def test_exit_modal_app_context_with_ephemeral(tmp_path: Path) -> None:
-    modal = make_testing_modal_interface(tmp_path)
+def test_exit_modal_app_context_with_ephemeral(tmp_path: Path, cg: ConcurrencyGroup) -> None:
+    modal = make_testing_modal_interface(tmp_path, cg)
     modal.environment_create("env1")
     app = modal.app_create("exit-test")
     gen = app.run(environment_name="env1")
@@ -1864,8 +1870,8 @@ def test_exit_modal_app_context_persistent(tmp_path: Path) -> None:
     _exit_modal_app_context(handle)
 
 
-def test_reset_app_registry(tmp_path: Path) -> None:
-    modal = make_testing_modal_interface(tmp_path)
+def test_reset_app_registry(tmp_path: Path, cg: ConcurrencyGroup) -> None:
+    modal = make_testing_modal_interface(tmp_path, cg)
     ModalProviderBackend._get_or_create_app("reset-a", "env1", False, modal)
     ModalProviderBackend._get_or_create_app("reset-b", "env1", False, modal)
     assert len(ModalProviderBackend._app_registry) >= 2
@@ -2003,16 +2009,14 @@ def test_build_modal_volumes(
 # ---------------------------------------------------------------------------
 
 
-def test_build_modal_secrets_from_env_empty() -> None:
-    modal = TestingModalInterface(root_dir=Path("/tmp"))
-    result = _build_modal_secrets_from_env([], modal)
+def test_build_modal_secrets_from_env_empty(testing_modal: TestingModalInterface) -> None:
+    result = _build_modal_secrets_from_env([], testing_modal)
     assert result == []
 
 
-def test_build_modal_secrets_from_env_missing_var() -> None:
-    modal = TestingModalInterface(root_dir=Path("/tmp"))
+def test_build_modal_secrets_from_env_missing_var(testing_modal: TestingModalInterface) -> None:
     with pytest.raises(MngError, match="not set"):
-        _build_modal_secrets_from_env(["DEFINITELY_NOT_SET_VAR_12345"], modal)
+        _build_modal_secrets_from_env(["DEFINITELY_NOT_SET_VAR_12345"], testing_modal)
 
 
 # ---------------------------------------------------------------------------
@@ -2151,8 +2155,8 @@ def test_discover_hosts_running_sandbox_without_host_record(
     assert host_id not in host_ids
 
 
-def test_get_or_create_app_caches_volume(tmp_path: Path) -> None:
-    modal = make_testing_modal_interface(tmp_path)
+def test_get_or_create_app_caches_volume(tmp_path: Path, cg: ConcurrencyGroup) -> None:
+    modal = make_testing_modal_interface(tmp_path, cg)
     ModalProviderBackend._get_or_create_app("vol-cache-test", "env1", False, modal)
 
     # Get volume twice -- should return the same object
@@ -2249,8 +2253,9 @@ def test_host_record_roundtrip() -> None:
 def test_modal_provider_app_full_lifecycle(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
-    modal = make_testing_modal_interface(tmp_path)
+    modal = make_testing_modal_interface(tmp_path, cg)
     provider = make_testing_provider(temp_mng_ctx, modal)
 
     # Write a host record

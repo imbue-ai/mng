@@ -8,6 +8,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.interfaces.data_types import CertifiedHostData
 from imbue.mng.interfaces.data_types import SnapshotRecord
@@ -30,11 +31,11 @@ from imbue.modal_proxy.testing import TestingModalInterface
 _DEFAULT_SANDBOX_CONFIG = SandboxConfig()
 
 
-def make_testing_modal_interface(tmp_path: Path) -> TestingModalInterface:
+def make_testing_modal_interface(tmp_path: Path, cg: ConcurrencyGroup) -> TestingModalInterface:
     """Create a TestingModalInterface rooted in a temp directory."""
     root = tmp_path / "modal_testing"
     root.mkdir(parents=True, exist_ok=True)
-    return TestingModalInterface(root_dir=root)
+    return TestingModalInterface(root_dir=root, concurrency_group=cg)
 
 
 def make_testing_provider(

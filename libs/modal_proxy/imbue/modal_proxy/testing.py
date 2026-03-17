@@ -1,14 +1,10 @@
 # Testing implementation of ModalInterface that fakes Modal locally.
 #
 # Volumes are backed by real directories on disk. Sandboxes run commands
-# locally via subprocess. Images are lightweight no-ops. Apps and
-# environments are thin metadata.
+# via ConcurrencyGroup (which handles process tracking and cleanup).
+# Images are lightweight no-ops. Apps and environments are thin metadata.
 
-import os
 import shutil
-import signal
-import subprocess
-import time
 import uuid
 from collections.abc import Generator
 from pathlib import Path
@@ -20,6 +16,8 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import PrivateAttr
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.local_process import RunningProcess
 from imbue.modal_proxy.data_types import FileEntry
 from imbue.modal_proxy.data_types import FileEntryType
 from imbue.modal_proxy.data_types import StreamType
@@ -42,7 +40,7 @@ from imbue.modal_proxy.interface import VolumeInterface
 
 
 class TestingExecOutput(ExecOutput):
-    """Exec output backed by a completed subprocess result."""
+    """Exec output backed by a completed process result."""
 
     output_text: str = Field(default="", description="The captured stdout text")
 
@@ -51,25 +49,21 @@ class TestingExecOutput(ExecOutput):
 
 
 class TestingExecProcess(ExecProcess):
-    """Exec process backed by a local subprocess."""
+    """Exec process backed by a ConcurrencyGroup-managed process."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     _completed_text: str = PrivateAttr(default="")
-    _process: subprocess.Popen[str] | None = PrivateAttr(default=None)
+    _running_process: RunningProcess | None = PrivateAttr(default=None)
 
     def get_stdout(self) -> ExecOutput:
-        if self._process is not None:
-            # Background process -- read what's available
-            stdout_text = ""
-            if self._process.stdout is not None:
-                stdout_text = self._process.stdout.read() or ""
-            return TestingExecOutput(output_text=stdout_text)
+        if self._running_process is not None:
+            return TestingExecOutput(output_text=self._running_process.read_stdout())
         return TestingExecOutput(output_text=self._completed_text)
 
     def wait(self) -> None:
-        if self._process is not None:
-            self._process.wait()
+        if self._running_process is not None:
+            self._running_process.wait()
 
 
 class TestingSecret(SecretInterface):
@@ -185,10 +179,10 @@ class TestingVolume(VolumeInterface):
 
 
 class TestingSandbox(SandboxInterface):
-    """Sandbox that runs commands locally via subprocess.
+    """Sandbox that runs commands locally via ConcurrencyGroup.
 
-    Processes launched via exec are tracked so they can be cleaned up
-    when the sandbox is terminated.
+    Background processes are tracked by the ConcurrencyGroup and cleaned
+    up automatically when the sandbox is terminated or the CG exits.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -196,7 +190,7 @@ class TestingSandbox(SandboxInterface):
     sandbox_id: str = Field(description="Unique identifier for this sandbox")
     _tags: dict[str, str] = PrivateAttr(default_factory=dict)
     _is_terminated: bool = PrivateAttr(default=False)
-    _background_processes: list[subprocess.Popen[str]] = PrivateAttr(default_factory=list)
+    _cg: ConcurrencyGroup | None = PrivateAttr(default=None)
     _snapshot_count: int = PrivateAttr(default=0)
 
     def get_object_id(self) -> str:
@@ -211,8 +205,8 @@ class TestingSandbox(SandboxInterface):
         if self._is_terminated:
             raise ModalProxyError("Sandbox has been terminated")
 
-        stdout_pipe = subprocess.PIPE if stdout == StreamType.PIPE else subprocess.DEVNULL
-        stderr_pipe = subprocess.PIPE if stderr == StreamType.PIPE else subprocess.DEVNULL
+        if self._cg is None:
+            raise ModalProxyError("Sandbox has no ConcurrencyGroup")
 
         # Check if this is a "background" command (like sshd -D or nohup)
         # that should not block
@@ -225,26 +219,21 @@ class TestingSandbox(SandboxInterface):
             is_background = True
 
         if is_background:
-            process = subprocess.Popen(
-                args,
-                stdout=stdout_pipe,
-                stderr=stderr_pipe,
-                text=True,
+            running = self._cg.run_process_in_background(
+                list(args),
+                is_checked_by_group=False,
             )
-            self._background_processes.append(process)
             exec_proc = TestingExecProcess()
-            exec_proc._process = process
+            exec_proc._running_process = running
             return exec_proc
         else:
-            result = subprocess.run(
-                args,
-                stdout=stdout_pipe,
-                stderr=stderr_pipe,
-                text=True,
+            finished = self._cg.run_process_to_completion(
+                list(args),
                 timeout=60,
+                is_checked_after=False,
             )
             exec_proc = TestingExecProcess()
-            exec_proc._completed_text = result.stdout or ""
+            exec_proc._completed_text = finished.stdout
             return exec_proc
 
     def tunnels(self) -> dict[int, TunnelInfo]:
@@ -271,17 +260,10 @@ class TestingSandbox(SandboxInterface):
         if self._is_terminated:
             return
         self._is_terminated = True
-        # Kill all tracked background processes
-        for process in self._background_processes:
-            try:
-                os.kill(process.pid, signal.SIGTERM)
-                process.wait(timeout=5)
-            except (ProcessLookupError, subprocess.TimeoutExpired, OSError):
-                try:
-                    os.kill(process.pid, signal.SIGKILL)
-                except (ProcessLookupError, OSError):
-                    pass
-        self._background_processes.clear()
+        # Terminate all tracked processes via the ConcurrencyGroup
+        if self._cg is not None:
+            for process in self._cg.unfinished_processes:
+                process.terminate(force_kill_seconds=2.0)
 
 
 class TestingApp(AppInterface):
@@ -311,11 +293,16 @@ class TestingModalInterface(ModalInterface):
     All state is held in memory and on the local filesystem (for volumes).
     No network calls are made. This implementation is designed for testing
     mng_modal without requiring Modal credentials or a Modal account.
+
+    Requires a ConcurrencyGroup for process lifecycle management. Sandboxes
+    create child ConcurrencyGroups so their processes are tracked and cleaned
+    up automatically.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     root_dir: Path = Field(description="Root directory for volume storage")
+    concurrency_group: ConcurrencyGroup = Field(description="Root ConcurrencyGroup for process management")
     _environments: set[str] = PrivateAttr(default_factory=set)
     _apps: dict[str, TestingApp] = PrivateAttr(default_factory=dict)
     _volumes: dict[str, TestingVolume] = PrivateAttr(default_factory=dict)
@@ -396,6 +383,13 @@ class TestingModalInterface(ModalInterface):
     ) -> SandboxInterface:
         sandbox_id = f"sb-{uuid.uuid4().hex}"
         sandbox = TestingSandbox(sandbox_id=sandbox_id)
+        # Create a child ConcurrencyGroup for this sandbox's processes
+        child_cg = self.concurrency_group.make_concurrency_group(
+            name=f"sandbox-{sandbox_id}",
+            exit_timeout_seconds=5.0,
+        )
+        child_cg.__enter__()
+        sandbox._cg = child_cg
         self._sandboxes.append(sandbox)
         return sandbox
 
@@ -498,24 +492,14 @@ class TestingModalInterface(ModalInterface):
     # =====================================================================
 
     def cleanup(self) -> None:
-        """Terminate all sandboxes and clean up resources."""
+        """Terminate all sandboxes and exit their ConcurrencyGroups."""
         for sandbox in self._sandboxes:
             sandbox.terminate()
+            if sandbox._cg is not None:
+                sandbox._cg.__exit__(None, None, None)
+                sandbox._cg = None
         self._sandboxes.clear()
 
     def get_sandbox_count(self) -> int:
         """Get the number of active (non-terminated) sandboxes."""
         return sum(1 for sb in self._sandboxes if not sb._is_terminated)
-
-    def wait_for_idle(self, timeout: float = 5.0) -> None:
-        """Wait for all background processes in all sandboxes to complete."""
-        deadline = time.monotonic() + timeout
-        for sandbox in self._sandboxes:
-            for proc in sandbox._background_processes:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                try:
-                    proc.wait(timeout=max(0.1, remaining))
-                except subprocess.TimeoutExpired:
-                    pass

@@ -460,8 +460,8 @@ def modal_session_cleanup() -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def testing_modal(tmp_path: Path) -> TestingModalInterface:
-    return make_testing_modal_interface(tmp_path)
+def testing_modal(tmp_path: Path, cg: ConcurrencyGroup) -> TestingModalInterface:
+    return make_testing_modal_interface(tmp_path, cg)
 
 
 @pytest.fixture

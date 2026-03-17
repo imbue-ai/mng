@@ -5,6 +5,7 @@ description = "Abstraction layer over Modal SDK for mng: supports direct, testin
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "concurrency-group",
     "imbue-common",
     "mng==0.1.7",
     "modal==1.3.1",
@@ -19,6 +20,7 @@ build-backend = "hatchling.build"
 packages = ["imbue"]
 
 [tool.uv.sources]
+concurrency-group = { workspace = true }
 imbue-common = { workspace = true }
 mng = { workspace = true }
 resource-guards = { workspace = true }
