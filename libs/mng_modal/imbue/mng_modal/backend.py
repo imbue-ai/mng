@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 from typing import ClassVar
 from typing import Final
+from typing import assert_never
 
 from loguru import logger
 from pydantic import ConfigDict
@@ -42,6 +43,7 @@ from imbue.modal_proxy.errors import ModalProxyNotFoundError
 from imbue.modal_proxy.interface import AppInterface
 from imbue.modal_proxy.interface import ModalInterface
 from imbue.modal_proxy.interface import VolumeInterface
+from imbue.modal_proxy.testing import TestingModalInterface
 
 MODAL_BACKEND_NAME: Final[ProviderBackendName] = ProviderBackendName("modal")
 STATE_VOLUME_SUFFIX: Final[str] = "-state"
@@ -238,10 +240,20 @@ class ModalProviderBackend(ProviderBackendInterface):
             return cls._app_registry[app_name]
 
         with log_span("Creating ephemeral Modal app with output capture: {} (env: {})", app_name, environment_name):
-            # Enter the output capture context first
-            with log_span("Enabling Modal output capture"):
-                output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
-                output_buffer, loguru_writer = output_capture_context.__enter__()
+            # Enter the output capture context first -- for testing mode we skip
+            # modal's output manager since it depends on modal internals
+            is_testing = isinstance(modal_interface, TestingModalInterface)
+
+            if is_testing:
+                output_buffer = StringIO()
+                loguru_writer: ModalLoguruWriter | None = None
+                output_capture_context: AbstractContextManager[tuple[StringIO, ModalLoguruWriter | None]] = (
+                    contextlib.nullcontext((output_buffer, loguru_writer))
+                )
+            else:
+                with log_span("Enabling Modal output capture"):
+                    output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
+                    output_buffer, loguru_writer = output_capture_context.__enter__()
 
             if is_persistent:
                 with log_span("Looking up persistent Modal app: {}", app_name):
@@ -412,8 +424,12 @@ Supported build arguments for the modal provider:
         match config.mode:
             case ModalMode.DIRECT:
                 modal_interface: ModalInterface = DirectModalInterface()
-            case _:
-                raise MngError(f"Unsupported modal mode: {config.mode}")
+            case ModalMode.TESTING:
+                testing_root = mng_ctx.profile_dir / "modal_testing"
+                testing_root.mkdir(parents=True, exist_ok=True)
+                modal_interface = TestingModalInterface(root_dir=testing_root)
+            case _ as unreachable:
+                assert_never(unreachable)
 
         # Use prefix + user_id for the environment name, ensuring isolation
         # between different mng installations sharing the same Modal account.

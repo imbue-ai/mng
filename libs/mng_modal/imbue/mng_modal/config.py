@@ -15,6 +15,7 @@ class ModalMode(UpperCaseStrEnum):
     """Mode for the Modal provider backend."""
 
     DIRECT = auto()
+    TESTING = auto()
 
 
 class ModalProviderConfig(ProviderInstanceConfig):
