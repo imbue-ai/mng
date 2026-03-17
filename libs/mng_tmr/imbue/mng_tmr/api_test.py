@@ -7,11 +7,14 @@ import pytest
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
+from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng_tmr.api import CollectTestsError
 from imbue.mng_tmr.api import PLUGIN_NAME
 from imbue.mng_tmr.api import _build_agent_prompt
 from imbue.mng_tmr.api import _build_grouped_tables
 from imbue.mng_tmr.api import _build_stacked_bar
+from imbue.mng_tmr.api import _copy_mode_for_provider
 from imbue.mng_tmr.api import _render_markdown
 from imbue.mng_tmr.api import _sanitize_test_name_for_agent
 from imbue.mng_tmr.api import _short_random_id
@@ -66,6 +69,15 @@ def test_sanitize_special_characters() -> None:
 def test_sanitize_single_part() -> None:
     result = _sanitize_test_name_for_agent("simple_test")
     assert result == "simple-test"
+
+
+def test_copy_mode_local_provider_uses_worktree() -> None:
+    assert _copy_mode_for_provider(ProviderInstanceName("local")) == WorkDirCopyMode.WORKTREE
+
+
+def test_copy_mode_remote_provider_uses_copy() -> None:
+    assert _copy_mode_for_provider(ProviderInstanceName("docker")) == WorkDirCopyMode.COPY
+    assert _copy_mode_for_provider(ProviderInstanceName("modal")) == WorkDirCopyMode.COPY
 
 
 def test_build_agent_prompt_contains_test_id() -> None:

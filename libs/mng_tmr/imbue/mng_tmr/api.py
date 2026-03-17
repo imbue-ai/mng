@@ -19,6 +19,7 @@ from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.mng.api.create import create as api_create
 from imbue.mng.api.data_types import CreateAgentResult
 from imbue.mng.api.list import list_agents
+from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.api.pull import pull_git
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
@@ -30,6 +31,7 @@ from imbue.mng.interfaces.host import AgentEnvironmentOptions
 from imbue.mng.interfaces.host import AgentGitOptions
 from imbue.mng.interfaces.host import AgentLabelOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import NewHostBuildOptions
 from imbue.mng.interfaces.host import NewHostOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentId
@@ -37,7 +39,9 @@ from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import ErrorBehavior
+from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.primitives import SnapshotName
 from imbue.mng.primitives import UncommittedChangesMode
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng_tmr.data_types import TestAgentInfo
@@ -185,6 +189,17 @@ def _sanitize_test_name_for_agent(test_node_id: str) -> str:
     return sanitized.strip("-").lower()[:40]
 
 
+def _copy_mode_for_provider(provider_name: ProviderInstanceName) -> WorkDirCopyMode:
+    """Determine the git copy mode based on the provider.
+
+    WORKTREE only works when source and target are on the same host, so it is
+    only usable with the local provider. Remote providers (docker, modal, etc.)
+    must use COPY.
+    """
+    is_local = provider_name.lower() == LOCAL_PROVIDER_NAME
+    return WorkDirCopyMode.WORKTREE if is_local else WorkDirCopyMode.COPY
+
+
 def launch_test_agent(
     test_node_id: str,
     source_dir: Path,
@@ -196,6 +211,7 @@ def launch_test_agent(
     env_options: AgentEnvironmentOptions,
     label_options: AgentLabelOptions,
     prompt_suffix: str = "",
+    snapshot: SnapshotName | None = None,
 ) -> tuple[TestAgentInfo, OnlineHostInterface]:
     """Launch a single agent to run and optionally fix one test."""
     agent_name_suffix = _sanitize_test_name_for_agent(test_node_id)
@@ -203,12 +219,13 @@ def launch_test_agent(
     agent_name = AgentName(f"tmr-{agent_name_suffix}-{short_id}")
     prompt = _build_agent_prompt(test_node_id, pytest_flags, prompt_suffix)
 
+    copy_mode = _copy_mode_for_provider(provider_name)
     agent_options = CreateAgentOptions(
         agent_type=agent_type,
         name=agent_name,
         initial_message=prompt,
         git=AgentGitOptions(
-            copy_mode=WorkDirCopyMode.WORKTREE,
+            copy_mode=copy_mode,
             new_branch_name=f"mng-tmr/{agent_name_suffix}-{short_id}",
         ),
         environment=env_options,
@@ -216,7 +233,8 @@ def launch_test_agent(
     )
 
     source_location = HostLocation(host=source_host, path=source_dir)
-    target_host = NewHostOptions(provider=provider_name)
+    build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
+    target_host = NewHostOptions(provider=provider_name, build=build)
 
     logger.info("Launching agent '{}' for test: {}", agent_name, test_node_id)
     create_result: CreateAgentResult = api_create(
@@ -247,41 +265,114 @@ def launch_all_test_agents(
     env_options: AgentEnvironmentOptions,
     label_options: AgentLabelOptions,
     prompt_suffix: str = "",
-) -> tuple[list[TestAgentInfo], dict[str, OnlineHostInterface]]:
+    use_snapshot: bool = False,
+) -> tuple[list[TestAgentInfo], dict[str, OnlineHostInterface], SnapshotName | None]:
     """Launch agents for all collected tests.
 
-    Returns (agent_infos, agent_hosts) where agent_hosts maps agent_id strings
-    to the host each agent was created on.
+    Returns (agent_infos, agent_hosts, snapshot_name) where agent_hosts maps
+    agent_id strings to the host each agent was created on, and snapshot_name
+    is the snapshot used (if use_snapshot was True and the provider supports it).
+
+    When use_snapshot is True and there are multiple tests, the first agent is
+    launched normally (full host build + provisioning), its host is snapshotted,
+    and remaining agents are launched from the snapshot for faster startup.
     """
     agents: list[TestAgentInfo] = []
     agent_hosts: dict[str, OnlineHostInterface] = {}
-    with ConcurrencyGroupExecutor(
-        parent_cg=mng_ctx.concurrency_group,
-        name="tmr_launch",
-        max_workers=8,
-    ) as executor:
-        futures = [
-            executor.submit(
-                launch_test_agent,
-                test_node_id,
-                source_dir,
-                source_host,
-                mng_ctx,
-                agent_type,
-                pytest_flags,
-                provider_name,
-                env_options,
-                label_options,
-                prompt_suffix,
+    snapshot_name: SnapshotName | None = None
+
+    # Determine whether to use the snapshot optimization
+    should_snapshot = use_snapshot and len(test_node_ids) > 1
+    if should_snapshot:
+        provider = get_provider_instance(provider_name, mng_ctx)
+        if not provider.supports_snapshots:
+            logger.warning(
+                "Provider '{}' does not support snapshots, launching all agents without snapshot", provider_name
             )
-            for test_node_id in test_node_ids
-        ]
-        for future in futures:
-            info, host = future.result()
-            agents.append(info)
-            agent_hosts[str(info.agent_id)] = host
+            should_snapshot = False
+
+    if should_snapshot:
+        # Launch first agent without snapshot (full build + provisioning)
+        logger.info("Launching first agent to create snapshot...")
+        first_info, first_host = launch_test_agent(
+            test_node_ids[0],
+            source_dir,
+            source_host,
+            mng_ctx,
+            agent_type,
+            pytest_flags,
+            provider_name,
+            env_options,
+            label_options,
+            prompt_suffix,
+        )
+        agents.append(first_info)
+        agent_hosts[str(first_info.agent_id)] = first_host
+
+        # Snapshot the first agent's host
+        provider = get_provider_instance(provider_name, mng_ctx)
+        snapshot_id = provider.create_snapshot(first_host)
+        snapshot_name = SnapshotName(str(snapshot_id))
+        logger.info("Created snapshot '{}' from first agent's host", snapshot_name)
+
+        # Launch remaining agents from the snapshot
+        remaining_ids = test_node_ids[1:]
+        with ConcurrencyGroupExecutor(
+            parent_cg=mng_ctx.concurrency_group,
+            name="tmr_launch",
+            max_workers=8,
+        ) as executor:
+            futures = [
+                executor.submit(
+                    launch_test_agent,
+                    test_node_id,
+                    source_dir,
+                    source_host,
+                    mng_ctx,
+                    agent_type,
+                    pytest_flags,
+                    provider_name,
+                    env_options,
+                    label_options,
+                    prompt_suffix,
+                    snapshot_name,
+                )
+                for test_node_id in remaining_ids
+            ]
+            for future in futures:
+                info, host = future.result()
+                agents.append(info)
+                agent_hosts[str(info.agent_id)] = host
+    else:
+        # Launch all agents without snapshot
+        with ConcurrencyGroupExecutor(
+            parent_cg=mng_ctx.concurrency_group,
+            name="tmr_launch",
+            max_workers=8,
+        ) as executor:
+            futures = [
+                executor.submit(
+                    launch_test_agent,
+                    test_node_id,
+                    source_dir,
+                    source_host,
+                    mng_ctx,
+                    agent_type,
+                    pytest_flags,
+                    provider_name,
+                    env_options,
+                    label_options,
+                    prompt_suffix,
+                )
+                for test_node_id in test_node_ids
+            ]
+            for future in futures:
+                info, host = future.result()
+                agents.append(info)
+                agent_hosts[str(info.agent_id)] = host
+
     logger.info("Launched {} agent(s)", len(agents))
-    return agents, agent_hosts
+    return agents, agent_hosts, snapshot_name
 
 
 def poll_until_all_done(
@@ -687,6 +778,7 @@ def launch_integrator_agent(
     provider_name: ProviderInstanceName,
     env_options: AgentEnvironmentOptions,
     label_options: AgentLabelOptions,
+    snapshot: SnapshotName | None = None,
 ) -> tuple[TestAgentInfo, OnlineHostInterface]:
     """Launch an integrator agent that merges all fix branches into one."""
     short_id = _short_random_id()
@@ -704,12 +796,13 @@ Write the result to $MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json with:
 If merging fails, use outcome FIX_IMPL_FAILED.
 """
 
+    copy_mode = _copy_mode_for_provider(provider_name)
     agent_options = CreateAgentOptions(
         agent_type=agent_type,
         name=agent_name,
         initial_message=prompt,
         git=AgentGitOptions(
-            copy_mode=WorkDirCopyMode.WORKTREE,
+            copy_mode=copy_mode,
             new_branch_name=branch_name,
         ),
         environment=env_options,
@@ -717,7 +810,8 @@ If merging fails, use outcome FIX_IMPL_FAILED.
     )
 
     source_location = HostLocation(host=source_host, path=source_dir)
-    target_host = NewHostOptions(provider=provider_name)
+    build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
+    target_host = NewHostOptions(provider=provider_name, build=build)
 
     logger.info("Launching integrator agent '{}' to merge {} branches", agent_name, len(fix_branches))
     create_result: CreateAgentResult = api_create(

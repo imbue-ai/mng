@@ -53,6 +53,7 @@ class TmrCliOptions(CommonCliOptions):
     env: tuple[str, ...]
     label: tuple[str, ...]
     prompt_suffix: str | None
+    use_snapshot: bool
     poll_interval: float
     timeout: float
     integrator_timeout: float
@@ -145,6 +146,12 @@ def _emit_report_path(path: Path, output_opts: OutputOptions) -> None:
     help="Additional text to append to the agent prompt",
 )
 @click.option(
+    "--use-snapshot",
+    is_flag=True,
+    default=False,
+    help="Build one agent first, snapshot its host, then launch remaining agents from the snapshot (faster for remote providers)",
+)
+@click.option(
     "--poll-interval",
     default=10.0,
     show_default=True,
@@ -214,7 +221,7 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
     source_host, _ = ensure_host_started(local_host_ref, is_start_desired=True, provider=local_provider)
 
     # Step 3: Launch agents (testing flags are passed to individual pytest invocations)
-    agent_infos, agent_hosts = launch_all_test_agents(
+    agent_infos, agent_hosts, snapshot_name = launch_all_test_agents(
         test_node_ids=test_node_ids,
         source_dir=source_dir,
         source_host=source_host,
@@ -225,6 +232,7 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         env_options=env_options,
         label_options=label_options,
         prompt_suffix=opts.prompt_suffix or "",
+        use_snapshot=opts.use_snapshot,
     )
     _emit_agents_launched(len(agent_infos), output_opts)
 
@@ -281,6 +289,7 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
             provider_name=provider_name,
             env_options=env_options,
             label_options=label_options,
+            snapshot=snapshot_name,
         )
 
         # Step 10: Wait for integrator
@@ -334,7 +343,7 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
 CommandHelpMetadata(
     key="tmr",
     one_line_description="Run and fix tests in parallel using agents (test map-reduce)",
-    synopsis="mng tmr [TEST_PATHS...] [-- TESTING_FLAGS...] [--provider <PROVIDER>] [--env KEY=VALUE] [--label KEY=VALUE] [--prompt-suffix <TEXT>] [--timeout <SECS>] [--agent-type <TYPE>]",
+    synopsis="mng tmr [TEST_PATHS...] [-- TESTING_FLAGS...] [--provider <PROVIDER>] [--use-snapshot] [--env KEY=VALUE] [--label KEY=VALUE] [--timeout <SECS>] [--agent-type <TYPE>]",
     description="""This command implements a map-reduce pattern for tests:
 
 1. Collects tests using pytest --collect-only, passing through all arguments.
@@ -358,6 +367,8 @@ This discovers tests with `pytest --collect-only tests/e2e -m release` and runs
 each test with `pytest tests/e2e/test_foo.py::test_bar -m release`.
 
 Use --provider to run agents on a specific provider (e.g. docker, modal).
+Use --use-snapshot with remote providers to build and provision one host first,
+snapshot it, then launch all remaining agents from the snapshot (much faster).
 Use --env to pass environment variables and --label to tag all agents.
 Use --prompt-suffix to append custom instructions to the agent prompt.
 
@@ -368,6 +379,7 @@ with an outcome enum and a markdown summary.""",
         ("Run tests in a specific file", "mng tmr tests/test_foo.py"),
         ("Run tests with a marker", "mng tmr tests/e2e -- -m release"),
         ("Use Docker provider", "mng tmr --provider docker tests/"),
+        ("Modal with snapshot", "mng tmr --provider modal --use-snapshot tests/"),
         ("Pass env vars and labels", "mng tmr --env API_KEY=xxx --label batch=run1"),
         ("Custom poll interval", "mng tmr --poll-interval 30"),
         ("Specify output location", "mng tmr --output-html report.html"),
