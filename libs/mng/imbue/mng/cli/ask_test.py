@@ -10,7 +10,6 @@ from imbue.mng.cli.ask import ClaudeBackendInterface
 from imbue.mng.cli.ask import _accumulate_chunks
 from imbue.mng.cli.ask import _build_ask_context
 from imbue.mng.cli.ask import _execute_response
-from imbue.mng.cli.ask import _extract_text_delta
 from imbue.mng.cli.ask import _show_command_summary
 from imbue.mng.cli.ask import ask
 from imbue.mng.errors import MngError
@@ -43,7 +42,7 @@ class FakeClaudeError(ClaudeBackendInterface):
 def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaude:
     """Provide a FakeClaude backend and monkeypatch it into the ask module."""
     backend = FakeClaude()
-    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
+    monkeypatch.setattr(ask_module, "HeadlessClaudeBackend", lambda **kwargs: backend)
     return backend
 
 
@@ -132,7 +131,7 @@ def test_ask_claude_error_shows_message(
 ) -> None:
     """When the claude backend raises an error, it should be displayed to the user."""
     backend = FakeClaudeError(error_message=error_message)
-    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
+    monkeypatch.setattr(ask_module, "HeadlessClaudeBackend", lambda **kwargs: backend)
 
     result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
 
@@ -152,54 +151,6 @@ def test_ask_human_streams_output(
 
     assert result.exit_code == 0
     assert "Use mng create" in result.output
-
-
-def test_extract_text_delta_valid_event() -> None:
-    """A valid content_block_delta event should return the text."""
-    event = json.dumps(
-        {
-            "type": "stream_event",
-            "event": {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "text_delta", "text": "hello"},
-            },
-        }
-    )
-    assert _extract_text_delta(event) == "hello"
-
-
-def test_extract_text_delta_non_delta_event() -> None:
-    """Non-delta events should return None."""
-    event = json.dumps(
-        {
-            "type": "stream_event",
-            "event": {"type": "content_block_start", "index": 0},
-        }
-    )
-    assert _extract_text_delta(event) is None
-
-
-def test_extract_text_delta_malformed_json() -> None:
-    """Malformed JSON should return None, not raise."""
-    assert _extract_text_delta("not valid json {{{") is None
-
-
-def test_extract_text_delta_non_stream_event() -> None:
-    """Events that are not stream_event type should return None."""
-    event = json.dumps({"type": "result", "subtype": "success"})
-    assert _extract_text_delta(event) is None
-
-
-def test_extract_text_delta_missing_delta() -> None:
-    """content_block_delta without a delta field should return None."""
-    event = json.dumps(
-        {
-            "type": "stream_event",
-            "event": {"type": "content_block_delta", "index": 0},
-        }
-    )
-    assert _extract_text_delta(event) is None
 
 
 def test_execute_response_raises_on_empty_response() -> None:
@@ -233,59 +184,6 @@ def test_no_query_json_output(
     result = cli_runner.invoke(ask, ["--format", "json"], obj=plugin_manager, catch_exceptions=False)
     assert result.exit_code == 0
     assert '"commands"' in result.output
-
-
-# =============================================================================
-# Additional tests for _extract_text_delta edge cases
-# =============================================================================
-
-
-def test_extract_text_delta_event_not_dict() -> None:
-    """_extract_text_delta should return None when event is not a dict."""
-    event = json.dumps({"type": "stream_event", "event": "not_a_dict"})
-    assert _extract_text_delta(event) is None
-
-
-def test_extract_text_delta_non_text_delta_type() -> None:
-    """_extract_text_delta should return None when delta type is not text_delta."""
-    event = json.dumps(
-        {
-            "type": "stream_event",
-            "event": {
-                "type": "content_block_delta",
-                "delta": {"type": "input_json_delta", "partial_json": "{}"},
-            },
-        }
-    )
-    assert _extract_text_delta(event) is None
-
-
-def test_extract_text_delta_delta_not_dict() -> None:
-    """_extract_text_delta should return None when delta is not a dict."""
-    event = json.dumps(
-        {
-            "type": "stream_event",
-            "event": {
-                "type": "content_block_delta",
-                "delta": "not_a_dict",
-            },
-        }
-    )
-    assert _extract_text_delta(event) is None
-
-
-def test_extract_text_delta_text_not_string() -> None:
-    """_extract_text_delta should return None when text is not a string."""
-    event = json.dumps(
-        {
-            "type": "stream_event",
-            "event": {
-                "type": "content_block_delta",
-                "delta": {"type": "text_delta", "text": 42},
-            },
-        }
-    )
-    assert _extract_text_delta(event) is None
 
 
 # =============================================================================

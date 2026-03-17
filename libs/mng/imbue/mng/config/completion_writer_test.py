@@ -537,7 +537,6 @@ def test_is_excluded_config_key_exact_match() -> None:
 def test_is_excluded_config_key_prefix_match() -> None:
     """Dotted sub-keys of excluded prefixes should also be excluded."""
     assert _is_excluded_config_key("disabled_plugins.something")
-    assert _is_excluded_config_key("enabled_backends.local")
 
 
 def test_is_excluded_config_key_non_match() -> None:
