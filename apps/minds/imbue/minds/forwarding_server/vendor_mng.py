@@ -71,7 +71,7 @@ _VENDOR_GIT_USER_NAME: Final[str] = "minds"
 _VENDOR_GIT_USER_EMAIL: Final[str] = "minds@localhost"
 
 
-def _ensure_git_identity(repo_dir: Path) -> None:
+def ensure_git_identity(repo_dir: Path) -> None:
     """Ensure git user.name and user.email are configured in the repo.
 
     ``git subtree add`` creates merge commits, which require a committer
@@ -87,12 +87,12 @@ def _ensure_git_identity(repo_dir: Path) -> None:
             is_checked_after=False,
         )
     if name_result.returncode != 0:
-        _run_git(
+        run_git(
             ["config", "user.name", _VENDOR_GIT_USER_NAME],
             cwd=repo_dir,
             error_message="Failed to set git user.name",
         )
-        _run_git(
+        run_git(
             ["config", "user.email", _VENDOR_GIT_USER_EMAIL],
             cwd=repo_dir,
             error_message="Failed to set git user.email",
@@ -110,7 +110,7 @@ def vendor_repos(
     Raises DirtyRepoError if a local repo has uncommitted or untracked changes.
     Raises VendorError if any git operation fails.
     """
-    _ensure_git_identity(mind_dir)
+    ensure_git_identity(mind_dir)
     for config in configs:
         vendor_subdir = mind_dir / VENDOR_DIR_NAME / config.name
         if vendor_subdir.exists():
@@ -135,7 +135,7 @@ def check_repo_is_clean(repo_path: Path) -> None:
 
     Raises DirtyRepoError if the working tree is not clean.
     """
-    status_output = _run_git(
+    status_output = run_git(
         ["status", "--porcelain"],
         cwd=repo_path,
         error_message="Failed to check git status of {}".format(repo_path),
@@ -163,7 +163,7 @@ def _resolve_ref_local(repo_path: Path, ref: str | None) -> str:
     """Resolve the git ref for a local repo, defaulting to HEAD."""
     if ref is not None:
         return ref
-    return _run_git(
+    return run_git(
         ["rev-parse", "HEAD"],
         cwd=repo_path,
         error_message="Failed to resolve HEAD of {}".format(repo_path),
@@ -185,7 +185,7 @@ def _resolve_ref_remote(
     """Resolve the git ref for a remote repo, defaulting to HEAD."""
     if ref is not None:
         return ref
-    ls_output = _run_git(
+    ls_output = run_git(
         ["ls-remote", url, "HEAD"],
         cwd=Path.cwd(),
         on_output=on_output,
@@ -206,7 +206,7 @@ def _add_subtree(
 ) -> None:
     """Run ``git subtree add`` to add a repository under vendor/<name>/."""
     prefix = "{}/{}".format(VENDOR_DIR_NAME, name)
-    _run_git(
+    run_git(
         ["subtree", "add", "--prefix", prefix, url_or_path, ref, "--squash"],
         cwd=mind_dir,
         on_output=on_output,
@@ -214,7 +214,62 @@ def _add_subtree(
     )
 
 
-def _run_git(
+def pull_subtree(
+    mind_dir: Path,
+    name: str,
+    url_or_path: str,
+    ref: str,
+    on_output: Callable[[str, bool], None] | None = None,
+) -> None:
+    """Run ``git subtree pull`` to update a repository under vendor/<name>/.
+
+    Merges the latest changes from the source repository into the existing
+    subtree. The subtree must already exist (i.e. was previously added via
+    ``_add_subtree``). Raises VendorError if the pull fails.
+    """
+    prefix = "{}/{}".format(VENDOR_DIR_NAME, name)
+    run_git(
+        ["subtree", "pull", "--prefix", prefix, url_or_path, ref, "--squash"],
+        cwd=mind_dir,
+        on_output=on_output,
+        error_message="Failed to pull git subtree for {}".format(name),
+    )
+
+
+def update_vendor_repos(
+    mind_dir: Path,
+    configs: tuple[VendorRepoConfig, ...],
+    on_output: Callable[[str, bool], None] | None = None,
+) -> None:
+    """Pull the latest changes for each vendored git subtree.
+
+    Only updates subtrees whose ``vendor/<name>`` directory already exists.
+    Subtrees that were never added are skipped (use ``vendor_repos`` first).
+
+    Raises DirtyRepoError if a local repo has uncommitted or untracked changes.
+    Raises VendorError if any git operation fails.
+    """
+    ensure_git_identity(mind_dir)
+    for config in configs:
+        vendor_subdir = mind_dir / VENDOR_DIR_NAME / config.name
+        if not vendor_subdir.exists():
+            logger.debug("vendor/{} does not exist, skipping update", config.name)
+            continue
+
+        if config.is_local:
+            repo_path = _resolve_local_path(config.path)
+            check_repo_is_clean(repo_path)
+            ref = _resolve_ref_local(repo_path, config.ref)
+            logger.debug("Updating vendor/{} from local repo {} at {}", config.name, repo_path, ref)
+            pull_subtree(mind_dir, config.name, str(repo_path), ref, on_output)
+        else:
+            url = _require_url(config.url)
+            ref = _resolve_ref_remote(url, config.ref, on_output)
+            logger.debug("Updating vendor/{} from {} at {}", config.name, url, ref)
+            pull_subtree(mind_dir, config.name, url, ref, on_output)
+
+
+def run_git(
     args: list[str],
     cwd: Path,
     on_output: Callable[[str, bool], None] | None = None,

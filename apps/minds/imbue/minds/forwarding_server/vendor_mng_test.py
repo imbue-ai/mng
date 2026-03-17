@@ -10,6 +10,7 @@ from imbue.minds.forwarding_server.vendor_mng import VENDOR_DIR_NAME
 from imbue.minds.forwarding_server.vendor_mng import check_repo_is_clean
 from imbue.minds.forwarding_server.vendor_mng import default_vendor_configs
 from imbue.minds.forwarding_server.vendor_mng import find_mng_repo_root
+from imbue.minds.forwarding_server.vendor_mng import update_vendor_repos
 from imbue.minds.forwarding_server.vendor_mng import vendor_repos
 from imbue.minds.testing import add_and_commit_git_repo
 from imbue.minds.testing import init_and_commit_git_repo
@@ -211,3 +212,54 @@ def test_vendor_repos_remote_adds_subtree(tmp_path: Path) -> None:
     vendor_subdir = mind_dir / VENDOR_DIR_NAME / "remote-lib"
     assert vendor_subdir.is_dir()
     assert (vendor_subdir / "hello.txt").read_text() == "hello"
+
+
+# -- update_vendor_repos tests --
+
+
+def test_update_vendor_repos_pulls_local_changes(tmp_path: Path) -> None:
+    """update_vendor_repos pulls new changes from a local source repo."""
+    source = _make_source_repo(tmp_path)
+    mind_dir = _make_mind_repo(tmp_path)
+
+    config = VendorRepoConfig(name=NonEmptyStr("my-lib"), path=str(source))
+    vendor_repos(mind_dir, (config,))
+
+    # Make a change in the source repo
+    (source / "hello.txt").write_text("updated")
+    add_and_commit_git_repo(source, tmp_path, message="update hello")
+
+    # Update the subtree
+    update_vendor_repos(mind_dir, (config,))
+
+    assert (mind_dir / VENDOR_DIR_NAME / "my-lib" / "hello.txt").read_text() == "updated"
+
+
+def test_update_vendor_repos_skips_missing_subtree(tmp_path: Path) -> None:
+    """update_vendor_repos skips configs whose vendor directory does not exist."""
+    mind_dir = _make_mind_repo(tmp_path)
+    source = _make_source_repo(tmp_path)
+
+    config = VendorRepoConfig(name=NonEmptyStr("not-vendored"), path=str(source))
+    # Should not raise -- just skip the non-existent subtree
+    update_vendor_repos(mind_dir, (config,))
+
+    assert not (mind_dir / VENDOR_DIR_NAME / "not-vendored").exists()
+
+
+def test_update_vendor_repos_remote_pulls_changes(tmp_path: Path) -> None:
+    """update_vendor_repos pulls changes from a remote repo (using local path as URL)."""
+    source = _make_source_repo(tmp_path)
+    mind_dir = _make_mind_repo(tmp_path)
+
+    config = VendorRepoConfig(name=NonEmptyStr("remote-lib"), url=str(source))
+    vendor_repos(mind_dir, (config,))
+
+    # Make a change in the source repo
+    (source / "new_file.txt").write_text("new content")
+    add_and_commit_git_repo(source, tmp_path, message="add new file")
+
+    # Update the subtree
+    update_vendor_repos(mind_dir, (config,))
+
+    assert (mind_dir / VENDOR_DIR_NAME / "remote-lib" / "new_file.txt").read_text() == "new content"

@@ -32,6 +32,7 @@ from imbue.minds.config.data_types import MindPaths
 from imbue.minds.errors import GitCloneError
 from imbue.minds.errors import MngCommandError
 from imbue.minds.errors import VendorError
+from imbue.minds.forwarding_server.parent_tracking import setup_mind_branch_and_parent
 from imbue.minds.forwarding_server.vendor_mng import default_vendor_configs
 from imbue.minds.forwarding_server.vendor_mng import find_mng_repo_root
 from imbue.minds.forwarding_server.vendor_mng import vendor_repos
@@ -273,6 +274,9 @@ class AgentCreator(MutableModel):
 
                 log_queue.put("[minds] Cloning {}...".format(git_url))
                 clone_git_repo(GitUrl(git_url), mind_dir, on_output=emit_log)
+
+                log_queue.put("[minds] Setting up branch and parent tracking...")
+                setup_mind_branch_and_parent(mind_dir, agent_name, git_url, on_output=emit_log)
 
                 settings = load_creation_settings(mind_dir)
 
