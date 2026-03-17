@@ -41,11 +41,14 @@ def find_pytest_functions(test_dir: Path) -> list[tuple[str, str | None, Path]]:
     results: list[tuple[str, str | None, Path]] = []
 
     for py_file in sorted(test_dir.rglob("*.py")):
+        source = py_file.read_text()
         try:
-            tree = ast.parse(py_file.read_text())
+            tree = ast.parse(source)
         except SyntaxError:
+            print(f"Warning: skipping {py_file} due to syntax error", file=sys.stderr)
             continue
 
+        source_lines = source.splitlines()
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -53,7 +56,6 @@ def find_pytest_functions(test_dir: Path) -> list[tuple[str, str | None, Path]]:
                 continue
 
             # Reconstruct the signature line from source.
-            source_lines = py_file.read_text().splitlines()
             # Find the def line(s) -- handle multi-line signatures.
             sig_lines: list[str] = []
             for line_idx in range(node.lineno - 1, min(node.end_lineno or node.lineno, len(source_lines))):
