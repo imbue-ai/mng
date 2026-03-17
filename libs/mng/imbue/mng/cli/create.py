@@ -38,6 +38,7 @@ from imbue.mng.cli.agent_addr import parse_agent_address
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
+from imbue.mng.cli.env_utils import resolve_labels
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import emit_event
@@ -1105,13 +1106,7 @@ def _parse_agent_opts(
     )
 
     # Parse label options
-    labels_dict: dict[str, str] = {}
-    for label_string in opts.label:
-        if "=" not in label_string:
-            raise UserInputError(f"Label must be in KEY=VALUE format, got: {label_string}")
-        key, value = label_string.split("=", 1)
-        labels_dict[key.strip()] = value.strip()
-    label_options = AgentLabelOptions(labels=labels_dict)
+    label_options = resolve_labels(opts.label)
 
     # Parse provisioning options
     provisioning = AgentProvisioningOptions(
