@@ -271,11 +271,18 @@ class ClaudeMindAgent(ClaudeAgent):
         data["bypassPermissionsModeAccepted"] = True
         # approve the API key so that the agent doesnt get blocked
         user_claude_json_data = build_claude_json_for_agent(True, Path("."), None)
+        env_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        conf_key = user_claude_json_data.get("primaryApiKey", os.environ.get("ANTHROPIC_API_KEY", ""))
         api_key = user_claude_json_data.get("primaryApiKey", os.environ.get("ANTHROPIC_API_KEY", ""))
-        if api_key:
-            approved_keys = data.setdefault("customApiKeyResponses", {})
-            approved_keys["approved"] = approved_keys.get("approved", []) + [api_key[-20:]]
-            approved_keys["rejected"] = []
+        if env_key or conf_key:
+            approved_section = data.setdefault("customApiKeyResponses", {})
+            approved_list = approved_section.get("approved", [])
+            if api_key[-20:] not in approved_list:
+                approved_list.append(api_key[-20:])
+            if conf_key[-20:] not in approved_list:
+                approved_list.append(conf_key[-20:])
+            approved_section["approved"] = approved_list
+            approved_section["rejected"] = []
 
         return data
 
