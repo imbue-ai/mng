@@ -126,7 +126,12 @@ def _ws_encode_frame(payload: bytes, opcode: int = 0x1) -> bytes:
 
 
 def _ws_read_frame(rfile: Any) -> tuple[int, bytes] | None:
-    """Read a WebSocket frame. Returns (opcode, payload) or None on error/EOF."""
+    """Read a WebSocket frame. Returns (opcode, payload) or None on error/EOF.
+
+    Supports text (0x1), binary (0x2), close (0x8), ping (0x9), and pong (0xA)
+    frames. Continuation frames (0x0) are not supported; callers should close
+    the connection if they receive one.
+    """
     try:
         header = rfile.read(2)
     except OSError:
@@ -894,52 +899,84 @@ def _finalize_new_conversation(rowid_before: int) -> str | None:
     return real_cid
 
 
-def _handle_chat_send(conversation_id: str, message: str, wfile: Any) -> None:
-    """Send a message to the LLM and stream the response via SSE.
+class _LlmPromptResult:
+    """Result of running ``llm prompt`` via _run_llm_prompt."""
 
-    Runs ``llm prompt`` via ConcurrencyGroup with an on_output callback that
-    sends each stdout line as an SSE "chunk" event. Line-buffered: chunks are
-    sent per-line as the LLM produces newlines in its output.
+    def __init__(
+        self,
+        collected_lines: list[str],
+        stdout: str,
+        returncode: int,
+        stderr: str,
+        error: str | None,
+    ) -> None:
+        self.collected_lines = collected_lines
+        self.stdout = stdout
+        self.returncode = returncode
+        self.stderr = stderr
+        self.error = error
+
+    @property
+    def success(self) -> bool:
+        return self.error is None and self.returncode == 0
+
+
+def _run_llm_prompt(
+    conversation_id: str,
+    message: str,
+    on_output: Any,
+    label: str,
+) -> _LlmPromptResult:
+    """Run ``llm prompt`` via ConcurrencyGroup with the given output callback.
+
+    Returns an _LlmPromptResult with the collected output and error info.
+    This is the shared core used by both the SSE and WebSocket send handlers.
     """
-
-    is_new_conversation = conversation_id == "NEW"
     model_id = _get_default_chat_model()
-    rowid_before = _get_max_response_rowid() if is_new_conversation else 0
     cmd = _build_llm_prompt_cmd(conversation_id, message, model_id)
     env = _build_llm_env()
-
-    _log(f"[chat-stream] starting llm prompt: cid={conversation_id} model={model_id}")
-    _log(f"[chat-stream] cmd={cmd}")
+    _log(f"[{label}] starting: cid={conversation_id} model={model_id}")
 
     collected_lines: list[str] = []
-    callback = _SseOutputCallback(wfile, collected_lines)
+    original_callback = on_output
+
+    def collecting_callback(line: str, is_stdout: bool) -> None:
+        original_callback(line, is_stdout)
+        if is_stdout:
+            collected_lines.append(line)
 
     try:
-        with ConcurrencyGroup(name="web-chat-send") as cg:
-            _log("[chat-stream] ConcurrencyGroup created, calling run_process_to_completion")
+        with ConcurrencyGroup(name=label) as cg:
             result = cg.run_process_to_completion(
                 cmd,
                 timeout=300.0,
                 is_checked_after=False,
-                on_output=callback,
+                on_output=collecting_callback,
                 env=env,
             )
-        _log(
-            f"[chat-stream] process finished: returncode={result.returncode} "
-            f"stdout_len={len(result.stdout)} stderr_len={len(result.stderr)} "
-            f"callback_lines={len(collected_lines)} timed_out={result.is_timed_out}"
-        )
     except FileNotFoundError as e:
-        _log(f"[chat-stream] command not found: {e}")
-        error_data = json.dumps({"error": f"command not found: {e}"})
-        wfile.write(f"event: error\ndata: {error_data}\n\n".encode())
-        wfile.flush()
-        return
+        _log(f"[{label}] command not found: {e}")
+        return _LlmPromptResult([], "", 1, "", f"command not found: {e}")
 
-    if result.returncode != 0:
-        stderr_text = result.stderr[:500] if result.stderr else "(empty)"
-        _log(f"[chat-stream] llm prompt failed (exit {result.returncode}): {stderr_text}")
-        error_data = json.dumps({"error": f"LLM failed (exit {result.returncode}): {result.stderr[:200]}"})
+    returncode = result.returncode or 0
+    _log(f"[{label}] finished: returncode={returncode} lines={len(collected_lines)}")
+    error = None
+    if returncode != 0:
+        error = f"LLM failed (exit {returncode}): {result.stderr[:200]}"
+
+    return _LlmPromptResult(collected_lines, result.stdout, returncode, result.stderr, error)
+
+
+def _handle_chat_send(conversation_id: str, message: str, wfile: Any) -> None:
+    """Send a message to the LLM and stream the response via SSE."""
+    is_new_conversation = conversation_id == "NEW"
+    rowid_before = _get_max_response_rowid() if is_new_conversation else 0
+
+    callback = _SseOutputCallback(wfile, [])
+    result = _run_llm_prompt(conversation_id, message, callback, "web-chat-send")
+
+    if result.error:
+        error_data = json.dumps({"error": result.error})
         try:
             wfile.write(f"event: error\ndata: {error_data}\n\n".encode())
             wfile.flush()
@@ -947,19 +984,9 @@ def _handle_chat_send(conversation_id: str, message: str, wfile: Any) -> None:
             _log(f"[chat-stream] SSE error write failed: {e}")
         return
 
-    # If lines came via the callback they were already streamed. If the callback
-    # missed some (e.g. incomplete trailing line), send the full stdout as a
-    # final chunk so the client gets the complete text.
-    full_text_from_callback = "".join(collected_lines)
-    full_text_from_result = result.stdout
-    _log(
-        f"[chat-stream] callback_text_len={len(full_text_from_callback)} "
-        f"result_stdout_len={len(full_text_from_result)}"
-    )
-
-    if len(full_text_from_result) > len(full_text_from_callback):
-        remainder = full_text_from_result[len(full_text_from_callback) :]
-        _log(f"[chat-stream] sending remainder chunk ({len(remainder)} chars)")
+    full_text_from_callback = "".join(result.collected_lines)
+    if len(result.stdout) > len(full_text_from_callback):
+        remainder = result.stdout[len(full_text_from_callback) :]
         chunk_data = json.dumps({"chunk": remainder})
         try:
             wfile.write(f"event: chunk\ndata: {chunk_data}\n\n".encode())
@@ -967,20 +994,15 @@ def _handle_chat_send(conversation_id: str, message: str, wfile: Any) -> None:
         except OSError as e:
             _log(f"[chat-stream] SSE remainder write failed: {e}")
 
-    if is_new_conversation and result.returncode == 0:
+    if is_new_conversation:
         real_cid = _finalize_new_conversation(rowid_before)
         if real_cid:
-            _log(f"[chat-stream] new conversation created by llm: {real_cid}")
             conversation_id = real_cid
-        else:
-            _log("[chat-stream] WARNING: llm prompt succeeded but no new response found in database")
 
-    done_data = json.dumps({"conversation_id": conversation_id, "full_text": full_text_from_result})
-    _log("[chat-stream] sending done event")
+    done_data = json.dumps({"conversation_id": conversation_id, "full_text": result.stdout})
     try:
         wfile.write(f"event: done\ndata: {done_data}\n\n".encode())
         wfile.flush()
-        _log("[chat-stream] done event sent successfully")
     except OSError as e:
         _log(f"[chat-stream] SSE done write failed: {e}")
 
@@ -1092,6 +1114,12 @@ def _handle_websocket(handler: BaseHTTPRequestHandler, conversation_id: str) -> 
     key = handler.headers.get("Sec-WebSocket-Key", "")
     if not key:
         handler.send_error(400, "Missing Sec-WebSocket-Key")
+        return
+    version = handler.headers.get("Sec-WebSocket-Version", "")
+    if version and version != "13":
+        handler.send_response(426, "Upgrade Required")
+        handler.send_header("Sec-WebSocket-Version", "13")
+        handler.end_headers()
         return
     accept = _ws_accept_key(key)
     handler.send_response(101, "Switching Protocols")
@@ -1217,9 +1245,9 @@ def _ws_handle_send(
 ) -> None:
     """Process a 'send' message from the WebSocket client.
 
-    Runs ``llm prompt`` and streams the response back via the WebSocket.
-    Updates ``current_cid``, ``last_polled_rowid``, and ``sent_ids``
-    to keep the polling thread in sync.
+    Uses the shared ``_run_llm_prompt`` to execute the LLM and streams
+    the response back via the WebSocket. Updates shared state to keep
+    the polling thread in sync.
     """
     cid = msg.get("conversation_id", current_cid[0])
     message = msg.get("message", "")
@@ -1228,60 +1256,32 @@ def _ws_handle_send(
         return
 
     is_new = cid == "NEW"
-    model_id = _get_default_chat_model()
     rowid_before = _get_max_response_rowid() if is_new else 0
-    cmd = _build_llm_prompt_cmd(cid, message, model_id)
-    env = _build_llm_env()
-
-    _log(f"[ws-send] starting: cid={cid} model={model_id}")
-    collected_lines: list[str] = []
-    callback = _WsOutputCallback(wfile, ws_lock, collected_lines)
+    callback = _WsOutputCallback(wfile, ws_lock, [])
 
     is_streaming[0] = True
     try:
-        with ConcurrencyGroup(name="ws-chat-send") as cg:
-            result = cg.run_process_to_completion(
-                cmd,
-                timeout=300.0,
-                is_checked_after=False,
-                on_output=callback,
-                env=env,
-            )
-    except FileNotFoundError as e:
-        _log(f"[ws-send] command not found: {e}")
-        _ws_send_json(wfile, ws_lock, {"type": "error", "error": f"command not found: {e}"})
-        return
+        result = _run_llm_prompt(cid, message, callback, "ws-chat-send")
     finally:
-        # Update sent_ids and rowid BEFORE clearing is_streaming to prevent
-        # the polling thread from re-sending the response we just streamed.
         _ws_mark_response_as_sent(cid, sent_ids)
         last_polled_rowid[0] = _get_max_response_rowid()
         is_streaming[0] = False
 
-    if result.returncode != 0:
-        _ws_send_json(
-            wfile,
-            ws_lock,
-            {
-                "type": "error",
-                "error": f"LLM failed (exit {result.returncode}): {result.stderr[:200]}",
-            },
-        )
+    if result.error:
+        _ws_send_json(wfile, ws_lock, {"type": "error", "error": result.error})
         return
 
-    full_cb = "".join(collected_lines)
-    full_result = result.stdout
-    if len(full_result) > len(full_cb):
-        _ws_send_json(wfile, ws_lock, {"type": "chunk", "chunk": full_result[len(full_cb) :]})
+    full_cb = "".join(result.collected_lines)
+    if len(result.stdout) > len(full_cb):
+        _ws_send_json(wfile, ws_lock, {"type": "chunk", "chunk": result.stdout[len(full_cb) :]})
 
     if is_new:
         real_cid = _finalize_new_conversation(rowid_before)
         if real_cid:
             cid = real_cid
             current_cid[0] = real_cid
-            _log(f"[ws-send] new conversation: {real_cid}")
 
-    _ws_send_json(wfile, ws_lock, {"type": "done", "conversation_id": cid, "full_text": full_result})
+    _ws_send_json(wfile, ws_lock, {"type": "done", "conversation_id": cid, "full_text": result.stdout})
 
 
 # -- Web chat page rendering --
@@ -1560,6 +1560,7 @@ function connectWebSocket() {{
 
   ws.onclose = function() {{
     ws = null;
+    finishStreaming();
     if (shouldReconnect) {{
       setTimeout(connectWebSocket, 3000);
     }}
