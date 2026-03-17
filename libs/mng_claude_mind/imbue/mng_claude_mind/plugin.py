@@ -276,7 +276,6 @@ class ClaudeMindAgent(ClaudeAgent):
             approved_keys = data.setdefault("customApiKeyResponses", {})
             approved_keys["approved"] = approved_keys.get("approved", []) + [api_key[-20:]]
             approved_keys["rejected"] = []
-        files[Path("~/.claude.json")] = json.dumps(data, indent=2) + "\n"
 
         return data
 
