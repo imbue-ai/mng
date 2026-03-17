@@ -24,22 +24,23 @@ Pay close attention to:
 - What the tutorial script is demonstrating (the commands, their arguments, expected behavior)
 - The patterns used for docstrings (the block must appear verbatim in the docstring)
 
-## Step 3: Add missing pytest functions
+## Step 3: Handle unmatched pytest functions
 
-For each unmatched script block reported by the matcher:
+Handle these FIRST, before adding new tests, because some of these may pair up with unmatched script blocks.
+
+For each pytest function that doesn't correspond to any script block, compare its docstring against the list of unmatched script blocks. If there is a script block that mostly matches (e.g., a command was renamed, a flag was added, or a line was changed), the script block was likely modified after the test was written. In that case, update the test's docstring to exactly reproduce the current script block, and update the test logic to match the new behavior. This also resolves that script block, so it no longer needs a new test in step 4.
+
+If no script block is even a close match, the block was removed from the script entirely. Remove the test function.
+
+## Step 4: Add tests for remaining unmatched script blocks
+
+After step 3, some script blocks may still lack tests. For each one:
 
 1. Understand what the block does by reading the surrounding context in the tutorial script.
-2. Write a pytest function that tests the behavior demonstrated by that block.
-3. The function's docstring MUST contain the exact text of the script block (indented to match Python syntax). The docstring may contain additional content beyond the block.
+2. Write one or more pytest functions that test the behavior demonstrated by that block. A single block may warrant multiple tests if it demonstrates multiple behaviors or has interesting edge cases.
+3. Each function's docstring MUST contain the exact text of the script block (indented to match Python syntax). The docstring may contain additional content beyond the block.
 4. The function name should be descriptive of what the block does (e.g., `test_create_task` for a block that runs `mng create ...`).
 5. Follow the existing test patterns in the directory for style, fixtures, and assertions.
-
-## Step 4: Handle unmatched pytest functions
-
-For each pytest function that doesn't correspond to any script block:
-
-- If the block was removed from the script, consider whether the test is still useful. If not, remove it.
-- If the docstring has a typo or doesn't exactly match the block, fix the docstring.
 
 ## Step 5: Verify
 
