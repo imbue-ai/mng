@@ -194,10 +194,10 @@ def _copy_mode_for_provider(provider_name: ProviderInstanceName) -> WorkDirCopyM
 
     WORKTREE only works when source and target are on the same host, so it is
     only usable with the local provider. Remote providers (docker, modal, etc.)
-    must use COPY.
+    use CLONE to transfer git history efficiently.
     """
     is_local = provider_name.lower() == LOCAL_PROVIDER_NAME
-    return WorkDirCopyMode.WORKTREE if is_local else WorkDirCopyMode.COPY
+    return WorkDirCopyMode.WORKTREE if is_local else WorkDirCopyMode.CLONE
 
 
 def launch_test_agent(
