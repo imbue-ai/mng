@@ -100,6 +100,10 @@ def _log(message: str) -> None:
 
 
 # -- WebSocket protocol --
+# Minimal RFC 6455 implementation using only stdlib. This file is deployed
+# as a standalone resource to agent hosts where third-party WebSocket
+# libraries (websockets, wsproto) are not available. Only single-frame
+# text/close/ping/pong messages are supported; continuation frames are not.
 
 
 def _ws_accept_key(key: str) -> str:
