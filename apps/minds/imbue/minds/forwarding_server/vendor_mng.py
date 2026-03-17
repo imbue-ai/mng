@@ -225,7 +225,7 @@ def pull_subtree(
 
     Merges the latest changes from the source repository into the existing
     subtree. The subtree must already exist (i.e. was previously added via
-    ``_add_subtree``). Raises VendorError if the pull fails.
+    ``vendor_repos``). Raises VendorError if the pull fails.
     """
     prefix = "{}/{}".format(VENDOR_DIR_NAME, name)
     run_git(

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from imbue.minds.errors import VendorError
+from imbue.minds.forwarding_server.conftest import make_git_repo
 from imbue.minds.forwarding_server.parent_tracking import MIND_BRANCH_PREFIX
 from imbue.minds.forwarding_server.parent_tracking import PARENT_FILE_NAME
 from imbue.minds.forwarding_server.parent_tracking import ParentInfo
@@ -15,46 +16,39 @@ from imbue.minds.forwarding_server.parent_tracking import read_parent_info
 from imbue.minds.forwarding_server.parent_tracking import setup_mind_branch_and_parent
 from imbue.minds.forwarding_server.parent_tracking import write_parent_info
 from imbue.minds.forwarding_server.vendor_mng import run_git
+from imbue.minds.primitives import GitBranch
+from imbue.minds.primitives import GitCommitHash
+from imbue.minds.primitives import GitUrl
 from imbue.minds.testing import add_and_commit_git_repo
-from imbue.minds.testing import init_and_commit_git_repo
-
-
-def _make_repo(tmp_path: Path, name: str = "repo") -> Path:
-    """Create a minimal git repo with a committed file."""
-    repo = tmp_path / name
-    repo.mkdir()
-    (repo / "hello.txt").write_text("hello")
-    init_and_commit_git_repo(repo, tmp_path)
-    return repo
 
 
 def test_get_current_branch_returns_branch_name(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path)
+    repo = make_git_repo(tmp_path)
     branch = get_current_branch(repo)
     # Default branch is typically "master" or "main" depending on git config
     assert branch in ("master", "main")
 
 
 def test_get_current_commit_hash_returns_full_hash(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path)
+    repo = make_git_repo(tmp_path)
     commit_hash = get_current_commit_hash(repo)
     assert len(commit_hash) == 40
     assert all(c in "0123456789abcdef" for c in commit_hash)
 
 
 def test_checkout_mind_branch_creates_new_branch(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path)
+    repo = make_git_repo(tmp_path)
     checkout_mind_branch(repo, "selene")
     branch = get_current_branch(repo)
     assert branch == "{}selene".format(MIND_BRANCH_PREFIX)
 
 
 def test_write_and_read_parent_info_roundtrips(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path)
+    repo = make_git_repo(tmp_path)
     parent = ParentInfo(
-        url="https://github.com/org/repo.git",
-        branch="main",
-        hash="abc123def456" * 3 + "abcd",
+        url=GitUrl("https://github.com/org/repo.git"),
+        branch=GitBranch("main"),
+        hash=GitCommitHash("abc123def456" * 3 + "abcd"),
     )
     write_parent_info(repo, parent)
     result = read_parent_info(repo)
@@ -62,14 +56,16 @@ def test_write_and_read_parent_info_roundtrips(tmp_path: Path) -> None:
 
 
 def test_read_parent_info_raises_when_file_missing(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path)
+    repo = make_git_repo(tmp_path)
     with pytest.raises(VendorError, match="Failed to read parent.url"):
         read_parent_info(repo)
 
 
 def test_commit_parent_file_creates_commit(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path)
-    parent = ParentInfo(url="https://example.com/repo.git", branch="main", hash="a" * 40)
+    repo = make_git_repo(tmp_path)
+    parent = ParentInfo(
+        url=GitUrl("https://example.com/repo.git"), branch=GitBranch("main"), hash=GitCommitHash("a" * 40)
+    )
     write_parent_info(repo, parent)
     commit_parent_file(repo)
 
@@ -83,7 +79,7 @@ def test_commit_parent_file_creates_commit(tmp_path: Path) -> None:
 
 def test_setup_mind_branch_and_parent_full_flow(tmp_path: Path) -> None:
     """Verify the full setup flow: branch creation, parent tracking, and commit."""
-    source = _make_repo(tmp_path, "source")
+    source = make_git_repo(tmp_path, "source")
     clone_dir = tmp_path / "clone"
 
     run_git(["clone", str(source), str(clone_dir)], cwd=tmp_path, error_message="clone failed")
@@ -106,7 +102,7 @@ def test_setup_mind_branch_and_parent_full_flow(tmp_path: Path) -> None:
 
 def test_fetch_and_merge_parent_merges_changes(tmp_path: Path) -> None:
     """Verify that fetch_and_merge_parent pulls new changes from parent."""
-    source = _make_repo(tmp_path, "source")
+    source = make_git_repo(tmp_path, "source")
     clone_dir = tmp_path / "clone"
 
     run_git(["clone", str(source), str(clone_dir)], cwd=tmp_path, error_message="clone failed")
@@ -133,7 +129,7 @@ def test_fetch_and_merge_parent_merges_changes(tmp_path: Path) -> None:
 
 def test_fetch_and_merge_parent_noop_when_up_to_date(tmp_path: Path) -> None:
     """Verify fetch_and_merge_parent succeeds when already up to date."""
-    source = _make_repo(tmp_path, "source")
+    source = make_git_repo(tmp_path, "source")
     clone_dir = tmp_path / "clone"
 
     run_git(["clone", str(source), str(clone_dir)], cwd=tmp_path, error_message="clone failed")

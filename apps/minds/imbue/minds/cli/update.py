@@ -10,12 +10,13 @@ The ``mind update <agent-name>`` command:
 
 import json
 from pathlib import Path
-from typing import Final
 
 import click
 from loguru import logger
+from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.minds.config.data_types import MNG_BINARY
 from imbue.minds.errors import MindError
 from imbue.minds.errors import MngCommandError
@@ -27,21 +28,37 @@ from imbue.minds.forwarding_server.vendor_mng import find_mng_repo_root
 from imbue.minds.forwarding_server.vendor_mng import update_vendor_repos
 from imbue.mng.primitives import AgentId
 
-_MNG_COMMAND_TIMEOUT_SECONDS: Final[float] = 120.0
+
+class MindAgentRecord(FrozenModel):
+    """Essential fields from a mind agent's ``mng list`` JSON record.
+
+    Validated on construction so callers get a clear error if required
+    fields are missing from the mng output.
+    """
+
+    agent_id: AgentId = Field(description="The agent's unique identifier")
+    work_dir: Path = Field(description="Absolute path to the agent's working directory")
 
 
-def find_mind_agent(agent_name: str) -> dict[str, object]:
+def find_mind_agent(agent_name: str) -> MindAgentRecord:
     """Find a mind agent by name using ``mng list``.
 
-    Searches for agents with the label ``mind=<agent_name>``.
-    Returns the full agent record dict from the JSON output.
+    Searches for agents whose name matches ``agent_name`` (the agent name
+    is set to the mind name during creation, so each mind has a unique name).
+    Returns a validated MindAgentRecord with the agent's ID and work directory.
 
-    Raises MindError if the agent cannot be found.
+    Raises MindError if the agent cannot be found or the record is malformed.
     """
     cg = ConcurrencyGroup(name="mng-list")
     with cg:
         result = cg.run_process_to_completion(
-            command=[MNG_BINARY, "list", "--label", "mind={}".format(agent_name), "--format=json"],
+            command=[
+                MNG_BINARY,
+                "list",
+                "--include",
+                'name == "{}"'.format(agent_name),
+                "--format=json",
+            ],
             is_checked_after=False,
         )
     if result.returncode != 0:
@@ -55,7 +72,17 @@ def find_mind_agent(agent_name: str) -> dict[str, object]:
     if not agents:
         raise MindError("No mind found with name '{}'".format(agent_name))
 
-    return agents[0]
+    raw = agents[0]
+    raw_id = raw.get("id")
+    raw_work_dir = raw.get("work_dir")
+    if raw_id is None or raw_work_dir is None:
+        raise MindError(
+            "Agent record for '{}' is missing required fields (id={}, work_dir={})".format(
+                agent_name, raw_id, raw_work_dir
+            )
+        )
+
+    return MindAgentRecord(agent_id=AgentId(str(raw_id)), work_dir=Path(str(raw_work_dir)))
 
 
 def _parse_agents_from_output(stdout: str) -> list[dict[str, object]]:
@@ -71,46 +98,27 @@ def _parse_agents_from_output(stdout: str) -> list[dict[str, object]]:
                 data = json.loads(stripped)
                 return list(data.get("agents", []))
             except json.JSONDecodeError:
+                logger.trace("Failed to parse JSON from mng list output line: {}", stripped[:200])
                 continue
     return []
 
 
-def run_mng_stop(agent_id: AgentId) -> None:
-    """Stop a mind agent via ``mng stop``.
+def _run_mng_command(verb: str, agent_id: AgentId) -> None:
+    """Run an ``mng <verb> <agent-id>`` command.
 
     Raises MngCommandError if the command fails.
     """
-    logger.info("Stopping agent {}...", agent_id)
-    cg = ConcurrencyGroup(name="mng-stop")
+    logger.info("Running mng {} {}...", verb, agent_id)
+    cg = ConcurrencyGroup(name="mng-{}".format(verb))
     with cg:
         result = cg.run_process_to_completion(
-            command=[MNG_BINARY, "stop", str(agent_id)],
+            command=[MNG_BINARY, verb, str(agent_id)],
             is_checked_after=False,
         )
     if result.returncode != 0:
         raise MngCommandError(
-            "mng stop failed (exit code {}):\n{}".format(
-                result.returncode,
-                result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
-            )
-        )
-
-
-def run_mng_start(agent_id: AgentId) -> None:
-    """Start a mind agent via ``mng start``.
-
-    Raises MngCommandError if the command fails.
-    """
-    logger.info("Starting agent {}...", agent_id)
-    cg = ConcurrencyGroup(name="mng-start")
-    with cg:
-        result = cg.run_process_to_completion(
-            command=[MNG_BINARY, "start", str(agent_id)],
-            is_checked_after=False,
-        )
-    if result.returncode != 0:
-        raise MngCommandError(
-            "mng start failed (exit code {}):\n{}".format(
+            "mng {} failed (exit code {}):\n{}".format(
+                verb,
                 result.returncode,
                 result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
             )
@@ -126,26 +134,24 @@ def update(agent_name: str) -> None:
     subtrees, and starts the mind back up.
     """
     logger.info("Looking up mind '{}'...", agent_name)
-    agent_record = find_mind_agent(agent_name)
-    agent_id = AgentId(str(agent_record["id"]))
-    work_dir = Path(str(agent_record["work_dir"]))
+    record = find_mind_agent(agent_name)
 
-    logger.info("Found mind '{}' (agent_id={}, work_dir={})", agent_name, agent_id, work_dir)
+    logger.info("Found mind '{}' (agent_id={}, work_dir={})", agent_name, record.agent_id, record.work_dir)
 
-    run_mng_stop(agent_id)
+    _run_mng_command("stop", record.agent_id)
 
     logger.info("Merging latest code from parent repository...")
-    parent_info = read_parent_info(work_dir)
-    new_hash = fetch_and_merge_parent(work_dir, parent_info)
-    logger.info("Merged parent changes (new hash: {})", new_hash[:12])
+    parent_info = read_parent_info(record.work_dir)
+    new_hash = fetch_and_merge_parent(record.work_dir, parent_info)
+    logger.info("Merged parent changes (new hash: {})", str(new_hash)[:12])
 
     logger.info("Updating vendored subtrees...")
-    settings = load_creation_settings(work_dir)
+    settings = load_creation_settings(record.work_dir)
     mng_repo_root = find_mng_repo_root()
     vendor_configs = settings.vendor if settings.vendor else default_vendor_configs(mng_repo_root)
-    update_vendor_repos(work_dir, vendor_configs)
+    update_vendor_repos(record.work_dir, vendor_configs)
     logger.info("Vendored subtrees updated ({} configured)", len(vendor_configs))
 
-    run_mng_start(agent_id)
+    _run_mng_command("start", record.agent_id)
 
     logger.info("Mind '{}' updated successfully.", agent_name)

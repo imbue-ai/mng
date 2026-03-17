@@ -25,6 +25,9 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.minds.forwarding_server.vendor_mng import ensure_git_identity
 from imbue.minds.forwarding_server.vendor_mng import run_git
+from imbue.minds.primitives import GitBranch
+from imbue.minds.primitives import GitCommitHash
+from imbue.minds.primitives import GitUrl
 
 PARENT_FILE_NAME: Final[str] = ".parent"
 
@@ -38,30 +41,34 @@ class ParentInfo(FrozenModel):
     cloned to create the mind.
     """
 
-    url: str = Field(description="Git URL of the parent repository")
-    branch: str = Field(description="Branch name in the parent repository")
-    hash: str = Field(description="Commit hash at the time of creation or last update")
+    url: GitUrl = Field(description="Git URL of the parent repository")
+    branch: GitBranch = Field(description="Branch name in the parent repository")
+    hash: GitCommitHash = Field(description="Commit hash at the time of creation or last update")
 
 
-def get_current_branch(repo_dir: Path) -> str:
+def get_current_branch(repo_dir: Path) -> GitBranch:
     """Return the current branch name of a git repository.
 
     Returns ``HEAD`` if the repository is in detached HEAD state.
     """
-    return run_git(
-        ["rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=repo_dir,
-        error_message="Failed to get current branch of {}".format(repo_dir),
-    ).strip()
+    return GitBranch(
+        run_git(
+            ["rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=repo_dir,
+            error_message="Failed to get current branch of {}".format(repo_dir),
+        ).strip()
+    )
 
 
-def get_current_commit_hash(repo_dir: Path) -> str:
+def get_current_commit_hash(repo_dir: Path) -> GitCommitHash:
     """Return the full commit hash of HEAD in a git repository."""
-    return run_git(
-        ["rev-parse", "HEAD"],
-        cwd=repo_dir,
-        error_message="Failed to get current commit hash of {}".format(repo_dir),
-    ).strip()
+    return GitCommitHash(
+        run_git(
+            ["rev-parse", "HEAD"],
+            cwd=repo_dir,
+            error_message="Failed to get current commit hash of {}".format(repo_dir),
+        ).strip()
+    )
 
 
 def checkout_mind_branch(
@@ -103,19 +110,19 @@ def write_parent_info(
     )
 
     run_git(
-        ["config", "--file", parent_file, "parent.url", parent_info.url],
+        ["config", "--file", parent_file, "parent.url", str(parent_info.url)],
         cwd=repo_dir,
         on_output=on_output,
         error_message="Failed to write parent.url to {}".format(parent_file),
     )
     run_git(
-        ["config", "--file", parent_file, "parent.branch", parent_info.branch],
+        ["config", "--file", parent_file, "parent.branch", str(parent_info.branch)],
         cwd=repo_dir,
         on_output=on_output,
         error_message="Failed to write parent.branch to {}".format(parent_file),
     )
     run_git(
-        ["config", "--file", parent_file, "parent.hash", parent_info.hash],
+        ["config", "--file", parent_file, "parent.hash", str(parent_info.hash)],
         cwd=repo_dir,
         on_output=on_output,
         error_message="Failed to write parent.hash to {}".format(parent_file),
@@ -145,7 +152,7 @@ def read_parent_info(repo_dir: Path) -> ParentInfo:
         error_message="Failed to read parent.hash from {}".format(parent_file),
     ).strip()
 
-    return ParentInfo(url=url, branch=branch, hash=hash_value)
+    return ParentInfo(url=GitUrl(url), branch=GitBranch(branch), hash=GitCommitHash(hash_value))
 
 
 def commit_parent_file(
@@ -206,7 +213,7 @@ def setup_mind_branch_and_parent(
 
     checkout_mind_branch(repo_dir, mind_name, on_output)
 
-    parent_info = ParentInfo(url=git_url, branch=parent_branch, hash=parent_hash)
+    parent_info = ParentInfo(url=GitUrl(git_url), branch=parent_branch, hash=parent_hash)
     write_parent_info(repo_dir, parent_info, on_output)
     commit_parent_file(repo_dir, on_output)
 
@@ -215,7 +222,7 @@ def fetch_and_merge_parent(
     repo_dir: Path,
     parent_info: ParentInfo,
     on_output: Callable[[str, bool], None] | None = None,
-) -> str:
+) -> GitCommitHash:
     """Fetch the latest code from the parent repository and merge it.
 
     Fetches the parent branch and merges FETCH_HEAD into the current branch.
@@ -230,17 +237,19 @@ def fetch_and_merge_parent(
 
     logger.debug("Fetching from {} branch {}", parent_info.url, parent_info.branch)
     run_git(
-        ["fetch", parent_info.url, parent_info.branch],
+        ["fetch", str(parent_info.url), str(parent_info.branch)],
         cwd=repo_dir,
         on_output=on_output,
         error_message="Failed to fetch from {} branch {}".format(parent_info.url, parent_info.branch),
     )
 
-    new_hash = run_git(
-        ["rev-parse", "FETCH_HEAD"],
-        cwd=repo_dir,
-        error_message="Failed to resolve FETCH_HEAD",
-    ).strip()
+    new_hash = GitCommitHash(
+        run_git(
+            ["rev-parse", "FETCH_HEAD"],
+            cwd=repo_dir,
+            error_message="Failed to resolve FETCH_HEAD",
+        ).strip()
+    )
 
     logger.debug("Merging FETCH_HEAD ({})", new_hash)
     run_git(
