@@ -456,7 +456,6 @@ def test_ws_poll_loop_exits_immediately_when_stopped() -> None:
         io.BytesIO(),
         threading.Lock(),
         stop,
-        [False],
         [0],
         ["c"],
         set(),

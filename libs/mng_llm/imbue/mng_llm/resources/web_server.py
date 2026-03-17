@@ -1075,18 +1075,21 @@ def _ws_poll_loop(
     wfile: Any,
     ws_lock: threading.Lock,
     stop_event: threading.Event,
-    is_streaming: list[bool],
     last_polled_rowid: list[int],
     current_cid: list[str],
     sent_ids: set[str],
 ) -> None:
-    """Background thread: poll the DB for new messages and push via WebSocket."""
+    """Background thread: poll the DB for new messages and push via WebSocket.
+
+    Polls continuously even during active streaming. The ``sent_ids`` set
+    prevents duplicate delivery of messages that were already streamed to
+    the client, while ensuring injected messages (from ``llm inject``) are
+    never missed regardless of when they arrive.
+    """
     while not stop_event.is_set():
         stop_event.wait(_WS_POLL_INTERVAL_SECONDS)
         if stop_event.is_set():
             break
-        if is_streaming[0]:
-            continue
         cid = current_cid[0]
         if not cid or cid == "NEW":
             continue
@@ -1136,7 +1139,6 @@ def _handle_websocket(handler: BaseHTTPRequestHandler, conversation_id: str) -> 
     ws_lock = threading.Lock()
 
     stop_event = threading.Event()
-    is_streaming = [False]
     last_polled_rowid = [_get_max_response_rowid()]
     current_cid = [conversation_id]
     sent_ids: set[str] = set()
@@ -1149,7 +1151,7 @@ def _handle_websocket(handler: BaseHTTPRequestHandler, conversation_id: str) -> 
 
     poller_thread = threading.Thread(
         target=_ws_poll_loop,
-        args=(wfile, ws_lock, stop_event, is_streaming, last_polled_rowid, current_cid, sent_ids),
+        args=(wfile, ws_lock, stop_event, last_polled_rowid, current_cid, sent_ids),
         daemon=True,
     )
     poller_thread.start()
@@ -1190,7 +1192,6 @@ def _handle_websocket(handler: BaseHTTPRequestHandler, conversation_id: str) -> 
                 ws_lock,
                 stop_event,
                 current_cid,
-                is_streaming,
                 last_polled_rowid,
                 sent_ids,
             )
@@ -1241,7 +1242,6 @@ def _ws_handle_send(
     ws_lock: threading.Lock,
     stop_event: threading.Event,
     current_cid: list[str],
-    is_streaming: list[bool],
     last_polled_rowid: list[int],
     sent_ids: set[str],
 ) -> None:
@@ -1261,13 +1261,8 @@ def _ws_handle_send(
     rowid_before = _get_max_response_rowid() if is_new else 0
     callback = _WsOutputCallback(wfile, ws_lock, [])
 
-    is_streaming[0] = True
-    try:
-        result = _run_llm_prompt(cid, message, callback, "ws-chat-send")
-    finally:
-        _ws_mark_response_as_sent(cid, sent_ids)
-        last_polled_rowid[0] = _get_max_response_rowid()
-        is_streaming[0] = False
+    result = _run_llm_prompt(cid, message, callback, "ws-chat-send")
+    _ws_mark_response_as_sent(cid, sent_ids)
 
     if result.error:
         _ws_send_json(wfile, ws_lock, {"type": "error", "error": result.error})
