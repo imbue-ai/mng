@@ -55,7 +55,7 @@ class ExporterSettings(FrozenModel):
     )
     refresh: bool = Field(
         default=False,
-        description="Force re-fetch of all cached data (channels, users, self identity, reactions)",
+        description="Force re-fetch of all cached data (channels, users, self identity)",
     )
     members_only: bool = Field(
         default=True,

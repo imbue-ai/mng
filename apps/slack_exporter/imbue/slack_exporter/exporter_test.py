@@ -213,7 +213,6 @@ def test_run_export_fetches_replies_for_threaded_messages(default_settings: Expo
                     ],
                 ),
             ],
-            "reactions.list": [make_slack_response("items", [])],
         }
     )
 
@@ -257,7 +256,6 @@ def test_run_export_fetches_paginated_replies(default_settings: ExporterSettings
                     [{"ts": "1700000000.000003", "thread_ts": "1700000000.000001", "text": "reply 2"}],
                 ),
             ],
-            "reactions.list": [make_slack_response("items", [])],
         }
     )
 
@@ -632,3 +630,61 @@ def test_run_export_detects_relevant_threads(default_settings: ExporterSettings)
     record = json.loads(lines[0])
     assert record["thread_ts"] == "1700000000.000001"
     assert "participated" in record["relevance_reasons"]
+
+
+def test_run_export_reaction_lookback_rechecks_relevant_threads(temp_output_dir: Path) -> None:
+    """When reaction_lookback > 0, relevant threads with unchanged latest_reply are re-fetched."""
+    settings = ExporterSettings(
+        channels=(ChannelConfig(name=SlackChannelName("general")),),
+        default_oldest=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        output_dir=temp_output_dir,
+        reaction_lookback=5,
+        cache_ttl_seconds=0,
+    )
+
+    # Run 1: fetch a thread where the user replied (makes it relevant)
+    threaded_message = {
+        "ts": "1700000000.000001",
+        "text": "parent",
+        "reply_count": 1,
+        "latest_reply": "1700000000.000002",
+    }
+    caller1, counts1 = _tracking_api_caller(
+        message_data=[threaded_message],
+        reply_data=[
+            {"ts": "1700000000.000001", "thread_ts": "1700000000.000001", "text": "parent", "user": "U999"},
+            {"ts": "1700000000.000002", "thread_ts": "1700000000.000001", "text": "reply", "user": "U001"},
+        ],
+    )
+    run_export(settings, api_caller=caller1)
+    assert counts1.get("conversations.replies", 0) == 1
+
+    # Run 2: same latest_reply (thread would normally be skipped), but lookback should re-fetch it
+    # Add a reaction to the reply on the second run
+    reply_with_reaction = [
+        {"ts": "1700000000.000001", "thread_ts": "1700000000.000001", "text": "parent", "user": "U999"},
+        {
+            "ts": "1700000000.000002",
+            "thread_ts": "1700000000.000001",
+            "text": "reply",
+            "user": "U001",
+            "reactions": [{"name": "heart", "users": ["U999"], "count": 1}],
+        },
+    ]
+    caller2, counts2 = _tracking_api_caller(
+        message_data=[threaded_message],
+        reply_data=reply_with_reaction,
+    )
+    run_export(settings, api_caller=caller2)
+
+    # The thread was skipped by latest_reply check but re-fetched by reaction lookback
+    assert counts2.get("conversations.replies", 0) == 1
+
+    # The reaction should be saved
+    reaction_path = temp_output_dir / "reactions" / "created" / "events.jsonl"
+    assert reaction_path.exists()
+    reaction_lines = reaction_path.read_text().strip().splitlines()
+    reaction_records = [json.loads(line) for line in reaction_lines]
+    reply_reactions = [r for r in reaction_records if r.get("thread_ts") is not None]
+    assert len(reply_reactions) == 1
+    assert reply_reactions[0]["raw"]["reactions"][0]["name"] == "heart"

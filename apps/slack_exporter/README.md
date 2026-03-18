@@ -34,7 +34,7 @@ slack-exporter --all
 # Control how many relevant threads to re-check for reaction changes (default: 10)
 slack-exporter --reaction-lookback 20
 
-# Force re-fetch of cached data (channels, users, identity, reactions)
+# Force re-fetch of cached data (channels, users, identity)
 slack-exporter --refresh
 
 # Configure cache TTL via environment variable (default: 600 seconds / 10 minutes)
