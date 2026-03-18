@@ -48,9 +48,7 @@ def test_list_json_with_no_agents(e2e: Session) -> None:
 @pytest.mark.release
 @pytest.mark.tmux
 def test_create_and_list_agent(e2e: Session, agent_name: str) -> None:
-    expect(
-        e2e.run(f"mng create {agent_name} --no-connect --await-ready --command 'sleep 99999' --no-ensure-clean")
-    ).to_succeed()
+    expect(e2e.run(f"mng create {agent_name} --no-connect --command 'sleep 99999' --no-ensure-clean")).to_succeed()
 
     list_result = e2e.run("mng list")
     expect(list_result).to_succeed()
@@ -61,9 +59,7 @@ def test_create_and_list_agent(e2e: Session, agent_name: str) -> None:
 @pytest.mark.tmux
 def test_create_with_json_output(e2e: Session, agent_name: str) -> None:
     expect(
-        e2e.run(
-            f"mng create {agent_name} --no-connect --await-ready --command 'sleep 99999' --no-ensure-clean --format json"
-        )
+        e2e.run(f"mng create {agent_name} --no-connect --command 'sleep 99999' --no-ensure-clean --format json")
     ).to_succeed()
 
     list_result = e2e.run("mng list --format json")
@@ -76,9 +72,7 @@ def test_create_with_json_output(e2e: Session, agent_name: str) -> None:
 @pytest.mark.tmux
 def test_create_headless(e2e: Session, agent_name: str) -> None:
     expect(
-        e2e.run(
-            f"mng create {agent_name} --no-connect --await-ready --command 'sleep 99999' --no-ensure-clean --headless"
-        )
+        e2e.run(f"mng create {agent_name} --no-connect --command 'sleep 99999' --no-ensure-clean --headless")
     ).to_succeed()
 
     list_result = e2e.run("mng list")
@@ -89,9 +83,7 @@ def test_create_headless(e2e: Session, agent_name: str) -> None:
 @pytest.mark.release
 @pytest.mark.tmux
 def test_create_and_destroy_agent(e2e: Session, agent_name: str) -> None:
-    expect(
-        e2e.run(f"mng create {agent_name} --no-connect --await-ready --command 'sleep 99999' --no-ensure-clean")
-    ).to_succeed()
+    expect(e2e.run(f"mng create {agent_name} --no-connect --command 'sleep 99999' --no-ensure-clean")).to_succeed()
 
     destroy_result = e2e.run(f"mng destroy {agent_name} --force")
     expect(destroy_result).to_succeed()
@@ -104,9 +96,7 @@ def test_create_and_destroy_agent(e2e: Session, agent_name: str) -> None:
 @pytest.mark.release
 @pytest.mark.tmux
 def test_create_and_rename_agent(e2e: Session, agent_name: str) -> None:
-    expect(
-        e2e.run(f"mng create {agent_name} --no-connect --await-ready --command 'sleep 99999' --no-ensure-clean")
-    ).to_succeed()
+    expect(e2e.run(f"mng create {agent_name} --no-connect --command 'sleep 99999' --no-ensure-clean")).to_succeed()
 
     new_name = f"e2e-renamed-{agent_name.split('-')[-1]}"
     rename_result = e2e.run(f"mng rename {agent_name} {new_name}")
@@ -122,9 +112,7 @@ def test_create_and_rename_agent(e2e: Session, agent_name: str) -> None:
 @pytest.mark.tmux
 def test_create_with_label_shows_in_list(e2e: Session, agent_name: str) -> None:
     expect(
-        e2e.run(
-            f"mng create {agent_name} --no-connect --await-ready --command 'sleep 99999' --no-ensure-clean --label team=backend"
-        )
+        e2e.run(f"mng create {agent_name} --no-connect --command 'sleep 99999' --no-ensure-clean --label team=backend")
     ).to_succeed()
 
     list_result = e2e.run("mng list --format json")
