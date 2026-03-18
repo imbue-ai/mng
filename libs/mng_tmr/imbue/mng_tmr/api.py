@@ -265,7 +265,9 @@ def _create_tmr_agent(
         try:
             result.agent.send_message(message)
         except (SendMessageError, HostError, TimeoutError) as exc:
-            logger.warning("Send message failed for '{}' (message likely delivered): {}", agent_name, exc)
+            logger.warning(
+                "Failed to confirm message delivery to '{}' (message likely delivered): {}", agent_name, exc
+            )
 
     return result
 
@@ -511,10 +513,10 @@ def read_agent_result(
             summary=data.get("summary", ""),
         )
     except HostError as exc:
-        logger.warning("Lost connection to agent {}: {}", agent_detail.name, exc)
+        logger.warning("Lost connection to agent {} while fetching result file: {}", agent_detail.name, exc)
         return TestResult(
             outcome=TestOutcome.REMOTE_AGENT_ERROR,
-            summary=f"Lost connection to agent host: {exc}",
+            summary=f"Connection lost while fetching result file from agent host: {exc}",
         )
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         logger.warning("Failed to read result from agent {}: {}", agent_detail.name, exc)
@@ -560,7 +562,10 @@ def pull_agent_branch(
         )
         logger.info("Pulled branch '{}' from agent '{}'", branch_name, agent_detail.name)
         return branch_name
-    except (MngError, HostError, ProcessError) as exc:
+    except HostError as exc:
+        logger.warning("Connection lost while pulling branch from agent '{}': {}", agent_detail.name, exc)
+        return None
+    except (MngError, ProcessError) as exc:
         logger.warning("Failed to pull branch from agent '{}': {}", agent_detail.name, exc)
         return None
 
