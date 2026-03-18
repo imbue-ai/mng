@@ -73,9 +73,15 @@ Examples:
         help="Export all channels, not just those where you are a member",
     )
     parser.add_argument(
+        "--reaction-lookback",
+        type=int,
+        default=10,
+        help="Number of recent relevant threads to re-check for reaction changes (default: 10)",
+    )
+    parser.add_argument(
         "--refresh",
         action="store_true",
-        help="Force re-fetch of all cached data (channels, users, self identity, reactions)",
+        help="Force re-fetch of all cached data (channels, users, self identity)",
     )
     parser.add_argument(
         "-v",
@@ -100,6 +106,7 @@ Examples:
         default_oldest=default_oldest,
         output_dir=args.output_dir,
         members_only=not args.all_channels,
+        reaction_lookback=args.reaction_lookback,
         refresh=args.refresh,
         cache_ttl_seconds=cache_ttl_seconds,
     )

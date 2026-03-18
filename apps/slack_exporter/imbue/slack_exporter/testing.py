@@ -6,7 +6,8 @@ from imbue.imbue_common.event_envelope import EventType
 from imbue.imbue_common.event_envelope import IsoTimestamp
 from imbue.slack_exporter.data_types import ChannelEvent
 from imbue.slack_exporter.data_types import MessageEvent
-from imbue.slack_exporter.data_types import ReactionItemEvent
+from imbue.slack_exporter.data_types import ReactionEvent
+from imbue.slack_exporter.data_types import RelevantThreadEvent
 from imbue.slack_exporter.data_types import ReplyEvent
 from imbue.slack_exporter.data_types import SelfIdentityEvent
 from imbue.slack_exporter.data_types import SlackApiCaller
@@ -120,26 +121,46 @@ def make_unread_marker_event(
     )
 
 
-def make_reaction_item_event(
-    user_id: str = "U123",
-    channel: str = "C123",
+def make_reaction_event(
+    channel_id: str = "C123",
+    channel_name: str = "general",
     message_ts: str = "1700000000.000001",
-    reaction_name: str = "thumbsup",
-) -> ReactionItemEvent:
-    return ReactionItemEvent(
+    thread_ts: str | None = None,
+    reactions: list[dict[str, Any]] | None = None,
+) -> ReactionEvent:
+    return ReactionEvent(
         timestamp=FIXED_TIMESTAMP,
-        type=EventType("reaction_item_fetched"),
+        type=EventType("reaction_extracted"),
         event_id=FIXED_EVENT_ID,
         source=EventSource("reactions"),
-        user_id=SlackUserId(user_id),
+        channel_id=SlackChannelId(channel_id),
+        channel_name=SlackChannelName(channel_name),
+        message_ts=SlackMessageTimestamp(message_ts),
+        thread_ts=SlackMessageTimestamp(thread_ts) if thread_ts else None,
+        raw={"reactions": reactions or [{"name": "thumbsup", "users": ["U123"], "count": 1}]},
+    )
+
+
+def make_relevant_thread_event(
+    channel_id: str = "C123",
+    channel_name: str = "general",
+    thread_ts: str = "1700000000.000001",
+    relevance_reasons: tuple[str, ...] = ("participated",),
+) -> RelevantThreadEvent:
+    return RelevantThreadEvent(
+        timestamp=FIXED_TIMESTAMP,
+        type=EventType("relevant_thread_detected"),
+        event_id=FIXED_EVENT_ID,
+        source=EventSource("relevant_threads"),
+        channel_id=SlackChannelId(channel_id),
+        channel_name=SlackChannelName(channel_name),
+        thread_ts=SlackMessageTimestamp(thread_ts),
+        relevance_reasons=relevance_reasons,
         raw={
-            "type": "message",
-            "channel": channel,
-            "message": {
-                "ts": message_ts,
-                "text": "hello",
-                "reactions": [{"name": reaction_name, "users": [user_id], "count": 1}],
-            },
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+            "relevance_reasons": list(relevance_reasons),
+            "reply_count": 0,
         },
     )
 

@@ -10,7 +10,8 @@ from imbue.imbue_common.event_envelope import EventEnvelope
 from imbue.slack_exporter.data_types import ChannelEvent
 from imbue.slack_exporter.data_types import ChannelExportState
 from imbue.slack_exporter.data_types import MessageEvent
-from imbue.slack_exporter.data_types import ReactionItemEvent
+from imbue.slack_exporter.data_types import ReactionEvent
+from imbue.slack_exporter.data_types import RelevantThreadEvent
 from imbue.slack_exporter.data_types import ReplyEvent
 from imbue.slack_exporter.data_types import SelfIdentityEvent
 from imbue.slack_exporter.data_types import UnreadMarkerEvent
@@ -28,6 +29,7 @@ class DataType(StrEnum):
     CHANNELS = "channels"
     MESSAGES = "messages"
     REACTIONS = "reactions"
+    RELEVANT_THREADS = "relevant_threads"
     REPLIES = "replies"
     SELF_IDENTITY = "self_identity"
     UNREAD_MARKERS = "unread_markers"
@@ -187,37 +189,34 @@ def save_unread_marker_events(output_dir: Path, stream: StreamType, events: Sequ
     _append_events(_events_path(output_dir, DataType.UNREAD_MARKERS, stream), events)
 
 
-def derive_reaction_item_key(raw: dict[str, Any]) -> str:
-    """Derive a unique key from a reactions.list item's raw data."""
-    item_type = raw.get("type", "")
-    if item_type == "message":
-        channel = raw.get("channel", "")
-        ts = raw.get("message", {}).get("ts", "")
-        return f"message:{channel}:{ts}"
-    elif item_type == "file":
-        file_id = raw.get("file", {}).get("id", "")
-        return f"file:{file_id}"
-    elif item_type == "file_comment":
-        comment_id = raw.get("comment", {}).get("id", "")
-        return f"file_comment:{comment_id}"
-    else:
-        return f"other:{json.dumps(raw, sort_keys=True)}"
-
-
-def load_existing_reactions(output_dir: Path) -> dict[str, ReactionItemEvent]:
-    """Load existing reaction item events, keeping the latest per derived key."""
-    reaction_by_key: dict[str, ReactionItemEvent] = {}
+def load_existing_reactions(output_dir: Path) -> dict[str, ReactionEvent]:
+    """Load existing reaction events, keeping the latest per channel_id:message_ts key."""
+    reaction_by_key: dict[str, ReactionEvent] = {}
     for stream in StreamType:
         for record in _load_jsonl_records(_events_path(output_dir, DataType.REACTIONS, stream)):
-            event = ReactionItemEvent.model_validate(record)
-            key = derive_reaction_item_key(event.raw)
-            reaction_by_key[key] = event
-    logger.info("Loaded %d reaction item events from store", len(reaction_by_key))
+            event = ReactionEvent.model_validate(record)
+            reaction_by_key[f"{event.channel_id}:{event.message_ts}"] = event
+    logger.info("Loaded %d reaction events from store", len(reaction_by_key))
     return reaction_by_key
 
 
-def save_reaction_events(output_dir: Path, stream: StreamType, events: Sequence[ReactionItemEvent]) -> None:
+def save_reaction_events(output_dir: Path, stream: StreamType, events: Sequence[ReactionEvent]) -> None:
     _append_events(_events_path(output_dir, DataType.REACTIONS, stream), events)
+
+
+def load_existing_relevant_threads(output_dir: Path) -> dict[str, RelevantThreadEvent]:
+    """Load existing relevant thread events, keeping the latest per channel_id:thread_ts key."""
+    by_key: dict[str, RelevantThreadEvent] = {}
+    for stream in StreamType:
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.RELEVANT_THREADS, stream)):
+            event = RelevantThreadEvent.model_validate(record)
+            by_key[f"{event.channel_id}:{event.thread_ts}"] = event
+    logger.info("Loaded %d relevant thread events from store", len(by_key))
+    return by_key
+
+
+def save_relevant_thread_events(output_dir: Path, stream: StreamType, events: Sequence[RelevantThreadEvent]) -> None:
+    _append_events(_events_path(output_dir, DataType.RELEVANT_THREADS, stream), events)
 
 
 def _channel_export_metadata_path(output_dir: Path) -> Path:

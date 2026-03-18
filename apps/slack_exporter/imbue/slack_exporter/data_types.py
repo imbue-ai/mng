@@ -61,9 +61,13 @@ class ExporterSettings(FrozenModel):
         default=True,
         description="Only export channels where the authenticated user is a member",
     )
+    reaction_lookback: int = Field(
+        default=10,
+        description="Number of recent relevant threads to re-check for reaction changes",
+    )
     cache_ttl_seconds: int = Field(
         default=600,
-        description="How long to cache channel/user/identity/reaction data before re-fetching (seconds)",
+        description="How long to cache channel/user/identity data before re-fetching (seconds)",
     )
 
 
@@ -118,11 +122,29 @@ class UnreadMarkerEvent(EventEnvelope):
     raw: dict[str, Any] = Field(description="Raw unread marker data")
 
 
-class ReactionItemEvent(EventEnvelope):
-    """An event envelope wrapping an item the authenticated user has reacted to."""
+class ReactionEvent(EventEnvelope):
+    """An event envelope wrapping the reaction state of a Slack message or reply."""
 
-    user_id: SlackUserId = Field(description="Slack user ID of the authenticated user")
-    raw: dict[str, Any] = Field(description="Raw Slack API reactions.list item payload")
+    channel_id: SlackChannelId = Field(description="Slack channel ID")
+    channel_name: SlackChannelName = Field(description="Channel name at time of extraction")
+    message_ts: SlackMessageTimestamp = Field(description="Timestamp of the message with reactions")
+    thread_ts: SlackMessageTimestamp | None = Field(
+        default=None,
+        description="Parent thread ts if this is a reply, None for top-level messages",
+    )
+    raw: dict[str, Any] = Field(description="Contains the reactions list from the message")
+
+
+class RelevantThreadEvent(EventEnvelope):
+    """An event envelope recording that a thread is relevant to the authenticated user."""
+
+    channel_id: SlackChannelId = Field(description="Slack channel ID")
+    channel_name: SlackChannelName = Field(description="Channel name at time of detection")
+    thread_ts: SlackMessageTimestamp = Field(description="Thread root message ts")
+    relevance_reasons: tuple[str, ...] = Field(
+        description="Why this thread is relevant: 'mentioned', 'participated'",
+    )
+    raw: dict[str, Any] = Field(description="Relevance summary data")
 
 
 class ChannelExportState(FrozenModel):

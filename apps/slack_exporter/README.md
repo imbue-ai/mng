@@ -31,6 +31,9 @@ slack-exporter --output-dir my_slack_data
 # Include channels you're not a member of (default: only member channels)
 slack-exporter --all
 
+# Control how many relevant threads to re-check for reaction changes (default: 10)
+slack-exporter --reaction-lookback 20
+
 # Force re-fetch of cached data (channels, users, identity, reactions)
 slack-exporter --refresh
 
@@ -50,7 +53,10 @@ slack-exporter -v
 5. Fetches the user list from Slack (via `users.list`) and saves only new users -- cached for `SLACK_EXPORTER_CACHE_TTL_SECONDS`
 6. For each configured channel, fetches new messages (via `conversations.history`) starting from the most recent message already exported (or the configured oldest date on first run). If the configured oldest date is earlier than the oldest message already exported, also backfills older messages down to that date
 7. For messages with threads (reply_count > 0), uses the `latest_reply` field to skip threads with no new replies, then fetches replies (via `conversations.replies`) only for threads that have changed
-8. Fetches all items the authenticated user has reacted to (via `reactions.list`) and saves new or changed items -- cached for `SLACK_EXPORTER_CACHE_TTL_SECONDS`
+8. Extracts reactions from message and reply payloads (inline `reactions` field) and saves when new or changed
+9. Detects threads relevant to the authenticated user (threads where the user replied or was mentioned) and records them as `relevant_threads` events
+10. Re-checks the most recent relevant threads for reaction changes (controlled by `--reaction-lookback`, default 10), even when the thread has no new replies
+11. Re-checks the most recent 100 messages per channel for reaction changes (single API call per channel)
 
 Use `--refresh` to bypass the cache and force re-fetching of all data.
 
@@ -64,10 +70,12 @@ slack_export/
   channels/updated/events.jsonl        -- all channel state changes (includes creates)
   messages/created/events.jsonl        -- new messages
   messages/updated/events.jsonl        -- all message state changes (includes creates)
-  reactions/created/events.jsonl       -- new reaction items (first seen)
-  reactions/updated/events.jsonl       -- all reaction item state changes (includes creates)
-  replies/created/events.jsonl         -- new thread replies
-  replies/updated/events.jsonl         -- all reply state changes (includes creates)
+  reactions/created/events.jsonl         -- new per-message reaction state (first seen)
+  reactions/updated/events.jsonl         -- all reaction state changes (includes creates)
+  relevant_threads/created/events.jsonl  -- threads user participated in (first seen)
+  relevant_threads/updated/events.jsonl  -- all relevant thread changes (includes creates)
+  replies/created/events.jsonl           -- new thread replies
+  replies/updated/events.jsonl           -- all reply state changes (includes creates)
   self_identity/created/events.jsonl   -- authenticated user identity (first seen)
   self_identity/updated/events.jsonl   -- all identity state changes (includes creates)
   unread_markers/created/events.jsonl  -- new unread markers (first seen)

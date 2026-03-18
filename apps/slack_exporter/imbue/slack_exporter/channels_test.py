@@ -4,7 +4,6 @@ from imbue.slack_exporter.channels import extract_unread_markers
 from imbue.slack_exporter.channels import fetch_channel_list
 from imbue.slack_exporter.channels import fetch_self_identity
 from imbue.slack_exporter.channels import fetch_user_list
-from imbue.slack_exporter.channels import fetch_user_reactions
 from imbue.slack_exporter.channels import resolve_channel_id
 from imbue.slack_exporter.errors import ChannelNotFoundError
 from imbue.slack_exporter.primitives import SlackChannelId
@@ -212,44 +211,3 @@ def test_extract_unread_markers_skips_channels_without_last_read() -> None:
 
     assert len(markers) == 1
     assert markers[0].channel_id == SlackChannelId("C123")
-
-
-def test_fetch_user_reactions_returns_events() -> None:
-    reaction_item = {
-        "type": "message",
-        "channel": "C123",
-        "message": {
-            "ts": "1700000000.000001",
-            "text": "hello",
-            "reactions": [{"name": "thumbsup", "users": ["U001"], "count": 1}],
-        },
-    }
-    api_caller = make_fake_api_caller({"reactions.list": [make_slack_response("items", [reaction_item])]})
-
-    events = fetch_user_reactions(api_caller, SlackUserId("U001"))
-
-    assert len(events) == 1
-    assert events[0].user_id == SlackUserId("U001")
-    assert events[0].source == "reactions"
-    assert events[0].raw["type"] == "message"
-
-
-def test_fetch_user_reactions_handles_pagination() -> None:
-    item1 = {"type": "message", "channel": "C1", "message": {"ts": "1.0", "text": "a"}}
-    item2 = {"type": "message", "channel": "C2", "message": {"ts": "2.0", "text": "b"}}
-    api_caller = make_fake_api_caller(
-        {
-            "reactions.list": [
-                {
-                    "ok": True,
-                    "items": [item1],
-                    "response_metadata": {"next_cursor": "page2"},
-                },
-                make_slack_response("items", [item2]),
-            ],
-        }
-    )
-
-    events = fetch_user_reactions(api_caller, SlackUserId("U001"))
-
-    assert len(events) == 2

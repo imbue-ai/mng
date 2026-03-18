@@ -4,7 +4,6 @@ from typing import Any
 from imbue.imbue_common.event_envelope import EventSource
 from imbue.imbue_common.event_envelope import EventType
 from imbue.slack_exporter.data_types import ChannelEvent
-from imbue.slack_exporter.data_types import ReactionItemEvent
 from imbue.slack_exporter.data_types import SelfIdentityEvent
 from imbue.slack_exporter.data_types import SlackApiCaller
 from imbue.slack_exporter.data_types import UnreadMarkerEvent
@@ -22,7 +21,6 @@ from imbue.slack_exporter.primitives import SlackUserName
 logger = logging.getLogger(__name__)
 
 _CHANNEL_SOURCE = EventSource("channels")
-_REACTION_SOURCE = EventSource("reactions")
 _SELF_IDENTITY_SOURCE = EventSource("self_identity")
 _UNREAD_MARKER_SOURCE = EventSource("unread_markers")
 _USER_SOURCE = EventSource("users")
@@ -132,28 +130,6 @@ def extract_unread_markers(channel_events: list[ChannelEvent]) -> list[UnreadMar
         )
     logger.info("Extracted %d unread markers from channel data", len(markers))
     return markers
-
-
-def fetch_user_reactions(api_caller: SlackApiCaller, user_id: SlackUserId) -> list[ReactionItemEvent]:
-    """Fetch all items the given user has reacted to via reactions.list."""
-    raw_items = fetch_paginated(
-        api_caller=api_caller,
-        method="reactions.list",
-        base_params={"user": user_id, "limit": "1000"},
-        response_key="items",
-    )
-    logger.info("Fetched %d reaction items from Slack", len(raw_items))
-    return [
-        ReactionItemEvent(
-            timestamp=make_iso_timestamp(),
-            type=EventType("reaction_item_fetched"),
-            event_id=make_event_id(),
-            source=_REACTION_SOURCE,
-            user_id=user_id,
-            raw=raw,
-        )
-        for raw in raw_items
-    ]
 
 
 def _make_user_event(user_raw: dict[str, Any]) -> UserEvent:

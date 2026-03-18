@@ -79,9 +79,13 @@ def _standard_api_caller(
     channel_data: list[dict[str, Any]] | None = None,
     user_data: list[dict[str, Any]] | None = None,
     message_data: list[dict[str, Any]] | None = None,
-    reaction_data: list[dict[str, Any]] | None = None,
 ) -> Any:
-    """Build a fake API caller with standard channel/user/message responses."""
+    """Build a fake API caller with standard channel/user/message responses.
+
+    Provides two conversations.history responses: one for the forward fetch and
+    one for the reaction scan (both return the same message_data).
+    """
+    msg_response = make_slack_response("messages", message_data or [])
     return make_fake_api_caller(
         {
             "auth.test": [_DEFAULT_AUTH_RESPONSE],
@@ -89,8 +93,7 @@ def _standard_api_caller(
                 make_slack_response("channels", channel_data or [{"id": "C123", "name": "general", "is_member": True}])
             ],
             "users.list": [make_slack_response("members", user_data or [])],
-            "conversations.history": [make_slack_response("messages", message_data or [])],
-            "reactions.list": [make_slack_response("items", reaction_data or [])],
+            "conversations.history": [msg_response, msg_response],
         }
     )
 
@@ -145,8 +148,10 @@ def test_run_export_changed_channels_go_to_updated_stream(default_settings: Expo
                     ),
                 ],
                 "users.list": [make_slack_response("members", [])],
-                "conversations.history": [make_slack_response("messages", [])],
-                "reactions.list": [make_slack_response("items", [])],
+                "conversations.history": [
+                    make_slack_response("messages", []),
+                    make_slack_response("messages", []),
+                ],
             }
         ),
     )
@@ -171,14 +176,14 @@ def test_run_export_incremental_resumes_from_latest(default_settings: ExporterSe
         elif method == "conversations.history":
             captured_params.append(query_params)
             return make_slack_response("messages", [{"ts": "1700000000.000009", "text": "new"}])
-        elif method == "reactions.list":
-            return make_slack_response("items", [])
         else:
             return {"ok": True}
 
     run_export(default_settings, api_caller=tracking_api_caller)
 
-    assert len(captured_params) == 1
+    # Two conversations.history calls: forward fetch + reaction scan
+    assert len(captured_params) == 2
+    # First call is the forward fetch (resumes from latest message)
     assert captured_params[0] is not None
     assert captured_params[0].get("oldest") == "1700000000.000001"
     assert captured_params[0].get("inclusive") == "false"
@@ -194,7 +199,10 @@ def test_run_export_fetches_replies_for_threaded_messages(default_settings: Expo
                 make_slack_response("channels", [{"id": "C123", "name": "general", "is_member": True}])
             ],
             "users.list": [make_slack_response("members", [])],
-            "conversations.history": [make_slack_response("messages", [threaded_message])],
+            "conversations.history": [
+                make_slack_response("messages", [threaded_message]),
+                make_slack_response("messages", [threaded_message]),
+            ],
             "conversations.replies": [
                 make_slack_response(
                     "messages",
@@ -230,7 +238,10 @@ def test_run_export_fetches_paginated_replies(default_settings: ExporterSettings
                 make_slack_response("channels", [{"id": "C123", "name": "general", "is_member": True}])
             ],
             "users.list": [make_slack_response("members", [])],
-            "conversations.history": [make_slack_response("messages", [threaded_message])],
+            "conversations.history": [
+                make_slack_response("messages", [threaded_message]),
+                make_slack_response("messages", [threaded_message]),
+            ],
             "conversations.replies": [
                 {
                     "ok": True,
@@ -319,29 +330,6 @@ def test_run_export_unread_markers_updated_when_changed(default_settings: Export
     assert len(updated_lines) == 2
 
 
-def test_run_export_writes_reaction_items(default_settings: ExporterSettings) -> None:
-    reaction_item = {
-        "type": "message",
-        "channel": "C123",
-        "message": {
-            "ts": "1700000000.000001",
-            "text": "hello",
-            "reactions": [{"name": "thumbsup", "users": ["U001"], "count": 1}],
-        },
-    }
-    api_caller = _standard_api_caller(reaction_data=[reaction_item])
-    run_export(default_settings, api_caller=api_caller)
-
-    output_dir = default_settings.output_dir
-    reaction_path = output_dir / "reactions" / "created" / "events.jsonl"
-    assert reaction_path.exists()
-    lines = reaction_path.read_text().strip().splitlines()
-    assert len(lines) == 1
-    record = json.loads(lines[0])
-    assert record["user_id"] == "U001"
-    assert record["source"] == "reactions"
-
-
 def test_run_export_skips_replies_for_non_threaded_messages(default_settings: ExporterSettings) -> None:
     reply_call_count = 0
 
@@ -358,8 +346,6 @@ def test_run_export_skips_replies_for_non_threaded_messages(default_settings: Ex
         elif method == "conversations.replies":
             reply_call_count += 1
             return make_slack_response("messages", [])
-        elif method == "reactions.list":
-            return make_slack_response("items", [])
         else:
             return {"ok": True}
 
@@ -374,6 +360,7 @@ def _make_cached_settings(temp_output_dir: Path, cache_ttl_seconds: int = 3600) 
         channels=(ChannelConfig(name=SlackChannelName("general")),),
         default_oldest=datetime(2024, 1, 1, tzinfo=timezone.utc),
         output_dir=temp_output_dir,
+        reaction_lookback=0,
         cache_ttl_seconds=cache_ttl_seconds,
     )
 
@@ -383,7 +370,6 @@ def _tracking_api_caller(
     user_data: list[dict[str, Any]] | None = None,
     message_data: list[dict[str, Any]] | None = None,
     reply_data: list[dict[str, Any]] | None = None,
-    reaction_data: list[dict[str, Any]] | None = None,
 ) -> tuple[Any, dict[str, int]]:
     """Build a fake API caller that also tracks call counts per method.
 
@@ -406,8 +392,6 @@ def _tracking_api_caller(
             return make_slack_response("messages", message_data or [])
         elif method == "conversations.replies":
             return make_slack_response("messages", reply_data or [])
-        elif method == "reactions.list":
-            return make_slack_response("items", reaction_data or [])
         else:
             return {"ok": True}
 
@@ -424,17 +408,14 @@ def test_run_export_caches_channels_and_users_within_ttl(temp_output_dir: Path) 
     assert call_counts["conversations.list"] == 1
     assert call_counts["users.list"] == 1
     assert call_counts["auth.test"] == 1
-    assert call_counts["reactions.list"] == 1
-
-    # Second run: should use cached data for channels, users, self identity, reactions
+    # Second run: should use cached data for channels, users, self identity
     call_counts.clear()
     run_export(settings, api_caller=caller)
     assert "conversations.list" not in call_counts
     assert "users.list" not in call_counts
     assert "auth.test" not in call_counts
-    assert "reactions.list" not in call_counts
-    # Messages are always fetched (not cached)
-    assert call_counts.get("conversations.history", 0) == 1
+    # Messages are always fetched (forward fetch + reaction scan = 2 calls)
+    assert call_counts.get("conversations.history", 0) == 2
 
 
 def test_run_export_refresh_forces_refetch(temp_output_dir: Path) -> None:
@@ -457,7 +438,6 @@ def test_run_export_refresh_forces_refetch(temp_output_dir: Path) -> None:
     assert call_counts["conversations.list"] == 1
     assert call_counts["users.list"] == 1
     assert call_counts["auth.test"] == 1
-    assert call_counts["reactions.list"] == 1
 
 
 def test_run_export_skips_replies_when_latest_reply_unchanged(default_settings: ExporterSettings) -> None:
@@ -570,8 +550,8 @@ def test_run_export_backfills_older_messages_when_since_is_earlier(temp_output_d
 
     run_export(backfill_settings, api_caller=tracking_caller)
 
-    # Should have made two conversations.history calls: forward + backfill
-    assert len(history_params) == 2
+    # Should have made three conversations.history calls: forward + backfill + reaction scan
+    assert len(history_params) == 3
 
     # Forward call: resumes from latest known message
     forward_params = history_params[0]
@@ -607,7 +587,48 @@ def test_run_export_no_backfill_when_since_is_same_or_later(temp_output_dir: Pat
     )
     run_export(settings, api_caller=caller1)
 
-    # Second run with the same --since: should only do forward fetch (no backfill into the gap)
+    # Second run with the same --since: forward fetch + reaction scan, no backfill
     caller2, counts2 = _tracking_api_caller()
     run_export(settings, api_caller=caller2)
-    assert counts2.get("conversations.history", 0) == 1
+    assert counts2.get("conversations.history", 0) == 2
+
+
+def test_run_export_extracts_reactions_from_messages(default_settings: ExporterSettings) -> None:
+    """Reactions embedded in message payloads are extracted and saved."""
+    msg_with_reactions = {
+        "ts": "1700000000.000001",
+        "text": "hello",
+        "reactions": [{"name": "thumbsup", "users": ["U001"], "count": 1}],
+    }
+    api_caller = _standard_api_caller(message_data=[msg_with_reactions])
+    run_export(default_settings, api_caller=api_caller)
+
+    reaction_path = default_settings.output_dir / "reactions" / "created" / "events.jsonl"
+    assert reaction_path.exists()
+    lines = reaction_path.read_text().strip().splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["message_ts"] == "1700000000.000001"
+    assert record["source"] == "reactions"
+    assert record["raw"]["reactions"][0]["name"] == "thumbsup"
+
+
+def test_run_export_detects_relevant_threads(default_settings: ExporterSettings) -> None:
+    """Threads where the authenticated user replied are detected as relevant."""
+    threaded_message = {"ts": "1700000000.000001", "text": "parent", "reply_count": 1}
+    caller, _ = _tracking_api_caller(
+        message_data=[threaded_message],
+        reply_data=[
+            {"ts": "1700000000.000001", "thread_ts": "1700000000.000001", "text": "parent", "user": "U999"},
+            {"ts": "1700000000.000002", "thread_ts": "1700000000.000001", "text": "my reply", "user": "U001"},
+        ],
+    )
+    run_export(default_settings, api_caller=caller)
+
+    rt_path = default_settings.output_dir / "relevant_threads" / "created" / "events.jsonl"
+    assert rt_path.exists()
+    lines = rt_path.read_text().strip().splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["thread_ts"] == "1700000000.000001"
+    assert "participated" in record["relevance_reasons"]
