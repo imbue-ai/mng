@@ -68,12 +68,14 @@ class ProcessSetupError(ProcessError):
         stderr: str,
         is_output_already_logged: bool = False,
     ) -> None:
+        # Always show output for setup errors -- the process never started so
+        # nothing could have been "already logged" to the output stream.
         super().__init__(
             command,
             stdout,
             stderr,
             None,
-            is_output_already_logged=is_output_already_logged,
+            is_output_already_logged=False,
             message="Command failed to start",
         )
 
