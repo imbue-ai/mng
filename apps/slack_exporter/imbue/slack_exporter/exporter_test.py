@@ -549,24 +549,16 @@ def test_run_export_backfills_older_messages_when_since_is_earlier(temp_output_d
         cache_ttl_seconds=0,
     )
     history_params: list[dict[str, str] | None] = []
+    base_caller, _ = _tracking_api_caller()
 
     def tracking_caller(method: str, query_params: dict[str, str] | None = None) -> dict[str, Any]:
-        if method == "auth.test":
-            return _DEFAULT_AUTH_RESPONSE
-        elif method == "conversations.list":
-            return make_slack_response("channels", [{"id": "C123", "name": "general"}])
-        elif method == "users.list":
-            return make_slack_response("members", [])
-        elif method == "conversations.history":
+        if method == "conversations.history":
             history_params.append(query_params)
             # Return a backfill message for calls with a "latest" param, empty for forward
             if query_params and "latest" in query_params:
                 return make_slack_response("messages", [{"ts": "1704200000.000001", "text": "jan msg"}])
             return make_slack_response("messages", [])
-        elif method == "reactions.list":
-            return make_slack_response("items", [])
-        else:
-            return {"ok": True}
+        return base_caller(method, query_params)
 
     run_export(backfill_settings, api_caller=tracking_caller)
 

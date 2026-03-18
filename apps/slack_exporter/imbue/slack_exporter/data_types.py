@@ -130,7 +130,3 @@ class ChannelExportState(FrozenModel):
         default=None,
         description="The most recent message timestamp we have for this channel",
     )
-    oldest_message_timestamp: SlackMessageTimestamp | None = Field(
-        default=None,
-        description="The earliest message timestamp we have for this channel",
-    )
