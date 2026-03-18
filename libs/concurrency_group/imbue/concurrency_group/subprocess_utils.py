@@ -220,7 +220,8 @@ def run_local_command_modern_version(
                 command=tuple(command),
                 stdout="",
                 stderr=str(e),
-                is_output_already_logged=trace_output,
+                # Popen failed, so no output was ever streamed regardless of trace_output.
+                is_output_already_logged=False,
             ) from e
 
         on_initialization_complete(None)
