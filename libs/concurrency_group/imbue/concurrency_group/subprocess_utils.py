@@ -219,7 +219,7 @@ def run_local_command_modern_version(
             raise ProcessSetupError(
                 command=tuple(command),
                 stdout="",
-                stderr="",
+                stderr=str(e),
                 is_output_already_logged=trace_output,
             ) from e
 
