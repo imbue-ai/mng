@@ -133,7 +133,7 @@ def fetch_user_reactions(api_caller: SlackApiCaller, user_id: SlackUserId) -> li
     raw_items = fetch_paginated(
         api_caller=api_caller,
         method="reactions.list",
-        base_params={"user": user_id, "limit": "200"},
+        base_params={"user": user_id, "limit": "1000"},
         response_key="items",
     )
     logger.info("Fetched %d reaction items from Slack", len(raw_items))
