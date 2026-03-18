@@ -39,6 +39,7 @@ from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import ErrorBehavior
+from imbue.mng.primitives import HostName
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotName
@@ -234,7 +235,7 @@ def launch_test_agent(
 
     source_location = HostLocation(host=source_host, path=source_dir)
     build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
-    target_host = NewHostOptions(provider=provider_name, build=build)
+    target_host = NewHostOptions(provider=provider_name, name=HostName(str(agent_name)), build=build)
 
     logger.info("Launching agent '{}' for test: {}", agent_name, test_node_id)
     create_result: CreateAgentResult = api_create(
@@ -285,7 +286,7 @@ def _create_snapshot_host(
     )
 
     source_location = HostLocation(host=source_host, path=source_dir)
-    target_host = NewHostOptions(provider=provider_name)
+    target_host = NewHostOptions(provider=provider_name, name=HostName(str(agent_name)))
 
     logger.info("Launching snapshotter agent '{}' for provisioning...", agent_name)
     create_result: CreateAgentResult = api_create(
@@ -827,7 +828,7 @@ If merging fails, use outcome FIX_IMPL_FAILED.
 
     source_location = HostLocation(host=source_host, path=source_dir)
     build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
-    target_host = NewHostOptions(provider=provider_name, build=build)
+    target_host = NewHostOptions(provider=provider_name, name=HostName(str(agent_name)), build=build)
 
     logger.info("Launching integrator agent '{}' to merge {} branches", agent_name, len(fix_branches))
     create_result: CreateAgentResult = api_create(
