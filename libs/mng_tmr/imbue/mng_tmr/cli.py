@@ -326,6 +326,8 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
     )
 
     # Step 7: Gather final results (read result.json, pull branches for fixes)
+    # Only pass base_commit for remote providers -- local worktree branches already exist
+    is_remote_provider = ProviderInstanceName(opts.provider).lower() != LOCAL_PROVIDER_NAME
     results = gather_results(
         agents=agent_infos,
         final_details=final_details,
@@ -333,7 +335,7 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         hosts=agent_hosts,
         source_dir=source_dir,
         cg=mng_ctx.concurrency_group,
-        base_commit=base_commit,
+        base_commit=base_commit if is_remote_provider else None,
     )
 
     # Step 8: Write report with final results
