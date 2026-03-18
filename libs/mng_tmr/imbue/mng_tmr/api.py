@@ -25,6 +25,7 @@ from imbue.mng.api.pull import pull_git
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import MngError
+from imbue.mng.errors import SendMessageError
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import AgentDetails
@@ -248,10 +249,17 @@ def launch_test_agent(
     pytest_flags: tuple[str, ...],
     prompt_suffix: str = "",
 ) -> tuple[TestAgentInfo, OnlineHostInterface]:
-    """Launch a single agent to run and optionally fix one test."""
+    """Launch a single agent to run and optionally fix one test.
+
+    The agent is created without an initial message, then the prompt is
+    sent separately. If the send signal detection times out (common on
+    remote hosts), the error is logged but not raised -- the polling loop
+    will eventually notice if the agent never starts working.
+    """
     agent_name_suffix = _sanitize_test_name_for_agent(test_node_id)
     short_id = _short_random_id()
     agent_name = AgentName(f"tmr-{agent_name_suffix}-{short_id}")
+    prompt = _build_agent_prompt(test_node_id, pytest_flags, prompt_suffix)
 
     logger.info("Launching agent '{}' for test: {}", agent_name, test_node_id)
     create_result = _create_tmr_agent(
@@ -259,8 +267,12 @@ def launch_test_agent(
         branch_name=f"mng-tmr/{agent_name_suffix}-{short_id}",
         config=config,
         mng_ctx=mng_ctx,
-        initial_message=_build_agent_prompt(test_node_id, pytest_flags, prompt_suffix),
     )
+
+    try:
+        create_result.agent.send_message(prompt)
+    except SendMessageError as exc:
+        logger.warning("Send signal detection failed for '{}' (message likely delivered): {}", agent_name, exc)
 
     return (
         TestAgentInfo(
@@ -787,8 +799,12 @@ If merging fails, use outcome FIX_IMPL_FAILED.
         branch_name=f"mng-tmr/integrated-{short_id}",
         config=config,
         mng_ctx=mng_ctx,
-        initial_message=prompt,
     )
+
+    try:
+        create_result.agent.send_message(prompt)
+    except SendMessageError as exc:
+        logger.warning("Send signal detection failed for '{}' (message likely delivered): {}", agent_name, exc)
 
     return (
         TestAgentInfo(
