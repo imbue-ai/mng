@@ -326,7 +326,7 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         html_path = Path(opts.output_html)
     else:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        html_path = Path(f"tmr-report-{timestamp}.html")
+        html_path = Path("tmr_reports") / f"tmr-report-{timestamp}.html"
 
     # Step 5: Write initial report (all PENDING)
     initial_results = build_current_results(agent_infos, {}, set(), agent_hosts)
