@@ -20,14 +20,18 @@ from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.interfaces.host import AgentEnvironmentOptions
+from imbue.mng.interfaces.host import AgentLabelOptions
+from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.primitives import SnapshotName
 from imbue.mng_tmr.api import build_current_results
 from imbue.mng_tmr.api import collect_tests
 from imbue.mng_tmr.api import gather_results
@@ -37,6 +41,7 @@ from imbue.mng_tmr.api import launch_integrator_agent
 from imbue.mng_tmr.api import poll_until_all_done
 from imbue.mng_tmr.api import pull_agent_branch
 from imbue.mng_tmr.api import wait_for_integrator
+from imbue.mng_tmr.data_types import TestMapReduceResult
 from imbue.mng_tmr.data_types import TestOutcome
 
 _DEFAULT_TIMEOUT_SECONDS = 3600.0
@@ -114,6 +119,77 @@ def _emit_report_path(path: Path, output_opts: OutputOptions) -> None:
             write_human_line("Report: {}", path)
         case _ as unreachable:
             assert_never(unreachable)
+
+
+def _run_integrator_phase(
+    results: list[TestMapReduceResult],
+    source_dir: Path,
+    source_host: OnlineHostInterface,
+    mng_ctx: MngContext,
+    opts: TmrCliOptions,
+    agent_type: AgentTypeName,
+    provider_name: ProviderInstanceName,
+    env_options: AgentEnvironmentOptions,
+    label_options: AgentLabelOptions,
+    snapshot_name: SnapshotName | None,
+) -> str | None:
+    """Launch an integrator agent to merge fix branches, if any exist."""
+    fix_branches = [
+        r.branch_name
+        for r in results
+        if r.outcome in (TestOutcome.FIX_TEST_SUCCEEDED, TestOutcome.FIX_IMPL_SUCCEEDED) and r.branch_name is not None
+    ]
+    if not fix_branches:
+        return None
+
+    integrator, integrator_host = launch_integrator_agent(
+        fix_branches=fix_branches,
+        source_dir=source_dir,
+        source_host=source_host,
+        mng_ctx=mng_ctx,
+        agent_type=agent_type,
+        provider_name=provider_name,
+        env_options=env_options,
+        label_options=label_options,
+        snapshot=snapshot_name,
+    )
+
+    integrator_deadline = time.monotonic() + opts.integrator_timeout
+    integrator_branch = wait_for_integrator(
+        integrator=integrator,
+        mng_ctx=mng_ctx,
+        poll_interval_seconds=opts.poll_interval,
+        host=integrator_host,
+        deadline=integrator_deadline,
+    )
+
+    if integrator_branch is not None:
+        list_result = list_agents(
+            mng_ctx=mng_ctx,
+            is_streaming=False,
+            error_behavior=ErrorBehavior.CONTINUE,
+        )
+        for agent_detail in list_result.agents:
+            if str(agent_detail.id) == str(integrator.agent_id):
+                pull_agent_branch(agent_detail, integrator_host, source_dir, mng_ctx.concurrency_group)
+                break
+
+    return integrator_branch
+
+
+def _emit_summary(results: list[TestMapReduceResult], output_opts: OutputOptions) -> None:
+    """Print per-test outcome summary in human mode."""
+    if output_opts.output_format != OutputFormat.HUMAN:
+        return
+    for r in results:
+        branch_info = f" -> {r.branch_name}" if r.branch_name else ""
+        write_human_line(
+            "  {} [{}] {}{}",
+            r.outcome.value,
+            r.agent_name,
+            r.summary,
+            branch_info,
+        )
 
 
 @click.command("tmr", cls=_TmrCommand, context_settings={"ignore_unknown_options": True})
@@ -271,73 +347,22 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
     # Step 8: Write report with final results
     generate_html_report(results, html_path)
 
-    # Step 9: If there are FIX_*_SUCCEEDED branches, launch integrator agent
-    fix_branches = [
-        r.branch_name
-        for r in results
-        if r.outcome in (TestOutcome.FIX_TEST_SUCCEEDED, TestOutcome.FIX_IMPL_SUCCEEDED) and r.branch_name is not None
-    ]
-
-    integrator_branch: str | None = None
-    if fix_branches:
-        integrator, integrator_host = launch_integrator_agent(
-            fix_branches=fix_branches,
-            source_dir=source_dir,
-            source_host=source_host,
-            mng_ctx=mng_ctx,
-            agent_type=agent_type,
-            provider_name=provider_name,
-            env_options=env_options,
-            label_options=label_options,
-            snapshot=snapshot_name,
-        )
-
-        # Step 10: Wait for integrator
-        integrator_deadline = time.monotonic() + opts.integrator_timeout
-        integrator_branch = wait_for_integrator(
-            integrator=integrator,
-            mng_ctx=mng_ctx,
-            poll_interval_seconds=opts.poll_interval,
-            host=integrator_host,
-            deadline=integrator_deadline,
-        )
-
-        # Step 11: If integrator succeeded, pull its branch and write final report
-        if integrator_branch is not None:
-            integrator_detail = None
-            list_result = list_agents(
-                mng_ctx=mng_ctx,
-                is_streaming=False,
-                error_behavior=ErrorBehavior.CONTINUE,
-            )
-            for agent_detail in list_result.agents:
-                if str(agent_detail.id) == str(integrator.agent_id):
-                    integrator_detail = agent_detail
-                    break
-
-            if integrator_detail is not None:
-                pull_agent_branch(
-                    integrator_detail,
-                    integrator_host,
-                    source_dir,
-                    mng_ctx.concurrency_group,
-                )
-
-    # Step 12: Write final report
+    # Step 9: Integrate fix branches and write final report
+    integrator_branch = _run_integrator_phase(
+        results,
+        source_dir,
+        source_host,
+        mng_ctx,
+        opts,
+        agent_type,
+        provider_name,
+        env_options,
+        label_options,
+        snapshot_name,
+    )
     generate_html_report(results, html_path, integrator_branch=integrator_branch)
     _emit_report_path(html_path, output_opts)
-
-    # Print a summary in human mode
-    if output_opts.output_format == OutputFormat.HUMAN:
-        for r in results:
-            branch_info = f" -> {r.branch_name}" if r.branch_name else ""
-            write_human_line(
-                "  {} [{}] {}{}",
-                r.outcome.value,
-                r.agent_name,
-                r.summary,
-                branch_info,
-            )
+    _emit_summary(results, output_opts)
 
 
 CommandHelpMetadata(

@@ -39,6 +39,7 @@ from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import ErrorBehavior
+from imbue.mng.primitives import HostName
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotName
@@ -200,6 +201,48 @@ def _copy_mode_for_provider(provider_name: ProviderInstanceName) -> WorkDirCopyM
     return WorkDirCopyMode.WORKTREE if is_local else WorkDirCopyMode.CLONE
 
 
+def _create_tmr_agent(
+    agent_name: AgentName,
+    branch_name: str,
+    source_dir: Path,
+    source_host: OnlineHostInterface,
+    mng_ctx: MngContext,
+    agent_type: AgentTypeName,
+    provider_name: ProviderInstanceName,
+    env_options: AgentEnvironmentOptions,
+    label_options: AgentLabelOptions,
+    initial_message: str | None = None,
+    snapshot: SnapshotName | None = None,
+) -> CreateAgentResult:
+    """Create an agent on the configured provider.
+
+    Shared helper for test agents, the integrator agent, and the snapshotter.
+    """
+    copy_mode = _copy_mode_for_provider(provider_name)
+    agent_options = CreateAgentOptions(
+        agent_type=agent_type,
+        name=agent_name,
+        initial_message=initial_message,
+        git=AgentGitOptions(
+            copy_mode=copy_mode,
+            new_branch_name=branch_name,
+        ),
+        environment=env_options,
+        label_options=label_options,
+    )
+
+    source_location = HostLocation(host=source_host, path=source_dir)
+    build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
+    target_host = NewHostOptions(provider=provider_name, name=HostName(str(agent_name)), build=build)
+
+    return api_create(
+        source_location=source_location,
+        target_host=target_host,
+        agent_options=agent_options,
+        mng_ctx=mng_ctx,
+    )
+
+
 def launch_test_agent(
     test_node_id: str,
     source_dir: Path,
@@ -217,31 +260,20 @@ def launch_test_agent(
     agent_name_suffix = _sanitize_test_name_for_agent(test_node_id)
     short_id = _short_random_id()
     agent_name = AgentName(f"tmr-{agent_name_suffix}-{short_id}")
-    prompt = _build_agent_prompt(test_node_id, pytest_flags, prompt_suffix)
-
-    copy_mode = _copy_mode_for_provider(provider_name)
-    agent_options = CreateAgentOptions(
-        agent_type=agent_type,
-        name=agent_name,
-        initial_message=prompt,
-        git=AgentGitOptions(
-            copy_mode=copy_mode,
-            new_branch_name=f"mng-tmr/{agent_name_suffix}-{short_id}",
-        ),
-        environment=env_options,
-        label_options=label_options,
-    )
-
-    source_location = HostLocation(host=source_host, path=source_dir)
-    build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
-    target_host = NewHostOptions(provider=provider_name, build=build)
 
     logger.info("Launching agent '{}' for test: {}", agent_name, test_node_id)
-    create_result: CreateAgentResult = api_create(
-        source_location=source_location,
-        target_host=target_host,
-        agent_options=agent_options,
+    create_result = _create_tmr_agent(
+        agent_name=agent_name,
+        branch_name=f"mng-tmr/{agent_name_suffix}-{short_id}",
+        source_dir=source_dir,
+        source_host=source_host,
         mng_ctx=mng_ctx,
+        agent_type=agent_type,
+        provider_name=provider_name,
+        env_options=env_options,
+        label_options=label_options,
+        initial_message=_build_agent_prompt(test_node_id, pytest_flags, prompt_suffix),
+        snapshot=snapshot,
     )
 
     return (
@@ -272,42 +304,30 @@ def _create_snapshot_host(
     short_id = _short_random_id()
     agent_name = AgentName(f"tmr-snapshotter-{short_id}")
 
-    copy_mode = _copy_mode_for_provider(provider_name)
-    agent_options = CreateAgentOptions(
-        agent_type=agent_type,
-        name=agent_name,
-        git=AgentGitOptions(
-            copy_mode=copy_mode,
-            new_branch_name=f"mng-tmr/snapshotter-{short_id}",
-        ),
-        environment=env_options,
-        label_options=label_options,
-    )
-
-    source_location = HostLocation(host=source_host, path=source_dir)
-    target_host = NewHostOptions(provider=provider_name)
-
     logger.info("Launching snapshotter agent '{}' for provisioning...", agent_name)
-    create_result: CreateAgentResult = api_create(
-        source_location=source_location,
-        target_host=target_host,
-        agent_options=agent_options,
+    create_result = _create_tmr_agent(
+        agent_name=agent_name,
+        branch_name=f"mng-tmr/snapshotter-{short_id}",
+        source_dir=source_dir,
+        source_host=source_host,
         mng_ctx=mng_ctx,
+        agent_type=agent_type,
+        provider_name=provider_name,
+        env_options=env_options,
+        label_options=label_options,
     )
 
     snapshotter_host = create_result.host
     snapshotter_agent_id = create_result.agent.id
 
-    # Snapshot the fully provisioned host
-    provider = get_provider_instance(provider_name, mng_ctx)
-    snapshot_id = provider.create_snapshot(snapshotter_host)
-    snapshot_name = SnapshotName(str(snapshot_id))
-    logger.info("Created snapshot '{}' from snapshotter host", snapshot_name)
-
-    # Stop the snapshotter agent -- it has served its purpose
-    _stop_agent_on_host(snapshotter_host, snapshotter_agent_id, agent_name)
-
-    return snapshot_name
+    try:
+        provider = get_provider_instance(provider_name, mng_ctx)
+        snapshot_id = provider.create_snapshot(snapshotter_host)
+        snapshot_name = SnapshotName(str(snapshot_id))
+        logger.info("Created snapshot '{}' from snapshotter host", snapshot_name)
+        return snapshot_name
+    finally:
+        _stop_agent_on_host(snapshotter_host, snapshotter_agent_id, agent_name)
 
 
 def launch_all_test_agents(
@@ -799,7 +819,6 @@ def launch_integrator_agent(
     """Launch an integrator agent that merges all fix branches into one."""
     short_id = _short_random_id()
     agent_name = AgentName(f"tmr-integrator-{short_id}")
-    branch_name = f"mng-tmr/integrated-{short_id}"
 
     branch_list = "\n".join(f"  - {b}" for b in fix_branches)
     prompt = f"""Merge the following branches into one integrated branch:
@@ -812,29 +831,19 @@ Write the result to $MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json with:
 If merging fails, use outcome FIX_IMPL_FAILED.
 """
 
-    copy_mode = _copy_mode_for_provider(provider_name)
-    agent_options = CreateAgentOptions(
-        agent_type=agent_type,
-        name=agent_name,
-        initial_message=prompt,
-        git=AgentGitOptions(
-            copy_mode=copy_mode,
-            new_branch_name=branch_name,
-        ),
-        environment=env_options,
-        label_options=label_options,
-    )
-
-    source_location = HostLocation(host=source_host, path=source_dir)
-    build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
-    target_host = NewHostOptions(provider=provider_name, build=build)
-
     logger.info("Launching integrator agent '{}' to merge {} branches", agent_name, len(fix_branches))
-    create_result: CreateAgentResult = api_create(
-        source_location=source_location,
-        target_host=target_host,
-        agent_options=agent_options,
+    create_result = _create_tmr_agent(
+        agent_name=agent_name,
+        branch_name=f"mng-tmr/integrated-{short_id}",
+        source_dir=source_dir,
+        source_host=source_host,
         mng_ctx=mng_ctx,
+        agent_type=agent_type,
+        provider_name=provider_name,
+        env_options=env_options,
+        label_options=label_options,
+        initial_message=prompt,
+        snapshot=snapshot,
     )
 
     return (
