@@ -245,6 +245,9 @@ scripts/notify_user.local.sh
 # Test output files (slow tests, coverage summaries)
 .test_output/
 
+# TMR HTML reports
+tmr_reports/
+
 # Active session marker file (used to detect interrupted sessions)
 .claude/active
 
