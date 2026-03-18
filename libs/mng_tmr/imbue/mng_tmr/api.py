@@ -15,6 +15,7 @@ from loguru import logger
 from markdown_it import MarkdownIt
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.api.create import create as api_create
@@ -263,8 +264,8 @@ def _create_tmr_agent(
     if message is not None:
         try:
             result.agent.send_message(message)
-        except SendMessageError as exc:
-            logger.warning("Send signal detection failed for '{}' (message likely delivered): {}", agent_name, exc)
+        except (SendMessageError, HostError, TimeoutError) as exc:
+            logger.warning("Send message failed for '{}' (message likely delivered): {}", agent_name, exc)
 
     return result
 
@@ -559,16 +560,26 @@ def pull_agent_branch(
         )
         logger.info("Pulled branch '{}' from agent '{}'", branch_name, agent_detail.name)
         return branch_name
-    except (MngError, HostError) as exc:
+    except (MngError, HostError, ProcessError) as exc:
         logger.warning("Failed to pull branch from agent '{}': {}", agent_detail.name, exc)
         return None
 
 
 def _create_local_branch(destination: Path, branch_name: str, base_commit: str, cg: ConcurrencyGroup) -> None:
-    """Create a local git branch from a base commit and switch to it."""
-    cg.run_process_to_completion(["git", "branch", branch_name, base_commit], cwd=destination)
+    """Create a local git branch from a base commit and switch to it.
+
+    If the branch already exists (e.g. from a previous run), it is reused.
+    """
+    result = cg.run_process_to_completion(
+        ["git", "branch", branch_name, base_commit],
+        cwd=destination,
+        is_checked_after=False,
+    )
+    if result.returncode == 0:
+        logger.info("Created local branch '{}' from commit {}", branch_name, base_commit[:8])
+    else:
+        logger.info("Branch '{}' already exists, reusing it", branch_name)
     cg.run_process_to_completion(["git", "checkout", branch_name], cwd=destination)
-    logger.info("Created local branch '{}' from commit {}", branch_name, base_commit[:8])
 
 
 def _get_agent_from_host(
