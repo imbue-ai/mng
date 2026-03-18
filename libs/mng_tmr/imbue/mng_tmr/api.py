@@ -345,6 +345,8 @@ def launch_all_test_agents(
     pytest_flags: tuple[str, ...],
     prompt_suffix: str = "",
     use_snapshot: bool = False,
+    max_parallel: int = 4,
+    launch_delay_seconds: float = 2.0,
 ) -> tuple[list[TestAgentInfo], dict[str, OnlineHostInterface], SnapshotName | None]:
     """Launch agents for all collected tests.
 
@@ -373,23 +375,26 @@ def launch_all_test_agents(
                 config.provider_name,
             )
 
-    # Launch all test agents, using the snapshot if one was created
+    # Launch all test agents with staggered submissions to avoid rate limits
     with ConcurrencyGroupExecutor(
         parent_cg=mng_ctx.concurrency_group,
         name="tmr_launch",
-        max_workers=8,
+        max_workers=max_parallel,
     ) as executor:
-        futures = [
-            executor.submit(
-                launch_test_agent,
-                test_node_id,
-                launch_config,
-                mng_ctx,
-                pytest_flags,
-                prompt_suffix,
+        futures = []
+        for i, test_node_id in enumerate(test_node_ids):
+            if i > 0 and launch_delay_seconds > 0:
+                time.sleep(launch_delay_seconds)
+            futures.append(
+                executor.submit(
+                    launch_test_agent,
+                    test_node_id,
+                    launch_config,
+                    mng_ctx,
+                    pytest_flags,
+                    prompt_suffix,
+                )
             )
-            for test_node_id in test_node_ids
-        ]
         for future in futures:
             info, host = future.result()
             agents.append(info)

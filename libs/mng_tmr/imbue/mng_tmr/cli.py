@@ -61,6 +61,8 @@ class TmrCliOptions(CommonCliOptions):
     prompt_suffix: str | None
     use_snapshot: bool
     snapshot: str | None
+    max_parallel: int
+    launch_delay: float
     poll_interval: float
     timeout: float
     integrator_timeout: float
@@ -237,6 +239,20 @@ def _emit_summary(results: list[TestMapReduceResult], output_opts: OutputOptions
     help="Use an existing snapshot/image ID for all agents (skips building; implies --use-snapshot behavior)",
 )
 @click.option(
+    "--max-parallel",
+    default=4,
+    show_default=True,
+    type=int,
+    help="Maximum number of agents to launch concurrently",
+)
+@click.option(
+    "--launch-delay",
+    default=2.0,
+    show_default=True,
+    type=float,
+    help="Seconds to wait between launching each agent (avoids provider rate limits)",
+)
+@click.option(
     "--poll-interval",
     default=10.0,
     show_default=True,
@@ -318,6 +334,8 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         pytest_flags=testing_flags,
         prompt_suffix=opts.prompt_suffix or "",
         use_snapshot=opts.use_snapshot and provided_snapshot is None,
+        max_parallel=opts.max_parallel,
+        launch_delay_seconds=opts.launch_delay,
     )
     _emit_agents_launched(len(agent_infos), output_opts)
 
