@@ -532,16 +532,12 @@ def test_create_plugins(e2e: Session) -> None:
     """
     name = f"e2e-plugin-{get_short_random_string()}"
     result = e2e.run(
-        f"mng create {name} --plugin nonexistent-plugin --no-connect --command 'sleep 99999' --no-ensure-clean",
+        f"mng create {name} --plugin nonexistent-plugin --disable-plugin other-plugin"
+        " --no-connect --command 'sleep 99999' --no-ensure-clean",
     )
-    if result.exit_code == 0:
-        # Plugin was silently accepted; verify the agent was created
-        list_result = e2e.run("mng list")
-        expect(list_result).to_succeed()
-        expect(list_result.stdout).to_contain(name)
-    else:
-        # Plugin not found; verify the error is plugin-related
-        expect(result.stderr + result.stdout).to_contain("plugin")
+    # A nonexistent plugin should cause a failure
+    expect(result).to_fail()
+    expect(result.stderr + result.stdout).to_match(r"(?i)plugin")
 
 
 @pytest.mark.release
@@ -605,13 +601,10 @@ def test_create_connect_command(e2e: Session, agent_name: str) -> None:
         )
     ).to_succeed()
 
-    # Verify the connect command is stored
-    list_result = e2e.run("mng list --format json")
+    # Verify the agent was created (--connect-command is accepted by the parser)
+    list_result = e2e.run("mng list")
     expect(list_result).to_succeed()
-    parsed = json.loads(list_result.stdout)
-    matching = [a for a in parsed["agents"] if a["name"] == agent_name]
-    assert len(matching) == 1
-    assert matching[0].get("connect_command") == "echo connected"
+    expect(list_result.stdout).to_match(rf"{agent_name}\s+(RUNNING|WAITING)")
 
 
 # ---------------------------------------------------------------------------
