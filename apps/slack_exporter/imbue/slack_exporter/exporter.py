@@ -148,7 +148,7 @@ def run_export(settings: ExporterSettings, api_caller: SlackApiCaller) -> None:
         fresh_channels = list(existing_channel_by_id.values())
         logger.info("Using cached channel data (%d channels)", len(fresh_channels))
     else:
-        fresh_channels = fetch_channel_list(api_caller)
+        fresh_channels = fetch_channel_list(api_caller, members_only=settings.members_only)
         _diff_and_save(
             fresh_items=fresh_channels,
             existing_by_key=dict(existing_channel_by_id),

@@ -28,6 +28,9 @@ slack-exporter --since 2023-01-01
 # Custom output directory
 slack-exporter --output-dir my_slack_data
 
+# Include channels you're not a member of (default: only member channels)
+slack-exporter --all
+
 # Force re-fetch of cached data (channels, users, identity, reactions)
 slack-exporter --refresh
 

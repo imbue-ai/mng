@@ -28,14 +28,20 @@ _UNREAD_MARKER_SOURCE = EventSource("unread_markers")
 _USER_SOURCE = EventSource("users")
 
 
-def fetch_channel_list(api_caller: SlackApiCaller) -> list[ChannelEvent]:
-    """Fetch all non-archived channels from Slack."""
+def fetch_channel_list(api_caller: SlackApiCaller, members_only: bool = True) -> list[ChannelEvent]:
+    """Fetch non-archived channels from Slack.
+
+    When members_only is True (default), only channels where the authenticated
+    user is a member are returned.
+    """
     raw_channels = fetch_paginated(
         api_caller=api_caller,
         method="conversations.list",
         base_params={"exclude_archived": "true", "limit": "200", "types": "public_channel,private_channel"},
         response_key="channels",
     )
+    if members_only:
+        raw_channels = [ch for ch in raw_channels if ch.get("is_member", False)]
     channels = [_make_channel_event(raw) for raw in raw_channels]
     logger.info("Fetched %d channels from Slack", len(channels))
     return channels

@@ -67,6 +67,12 @@ Examples:
         help="Directory for output data (default: slack_export/)",
     )
     parser.add_argument(
+        "--all",
+        action="store_true",
+        dest="all_channels",
+        help="Export all channels, not just those where you are a member",
+    )
+    parser.add_argument(
         "--refresh",
         action="store_true",
         help="Force re-fetch of all cached data (channels, users, self identity, reactions)",
@@ -93,6 +99,7 @@ Examples:
         channels=channel_configs,
         default_oldest=default_oldest,
         output_dir=args.output_dir,
+        members_only=not args.all_channels,
         refresh=args.refresh,
         cache_ttl_seconds=cache_ttl_seconds,
     )

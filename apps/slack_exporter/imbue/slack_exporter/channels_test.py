@@ -24,8 +24,8 @@ def test_fetch_channel_list_single_page() -> None:
                 make_slack_response(
                     "channels",
                     [
-                        {"id": "C123", "name": "general"},
-                        {"id": "C456", "name": "random"},
+                        {"id": "C123", "name": "general", "is_member": True},
+                        {"id": "C456", "name": "random", "is_member": True},
                     ],
                 ),
             ],
@@ -41,16 +41,59 @@ def test_fetch_channel_list_single_page() -> None:
     assert "event_id" in channels[0].model_dump()
 
 
+def test_fetch_channel_list_filters_non_member_channels_by_default() -> None:
+    api_caller = make_fake_api_caller(
+        {
+            "conversations.list": [
+                make_slack_response(
+                    "channels",
+                    [
+                        {"id": "C123", "name": "general", "is_member": True},
+                        {"id": "C456", "name": "random", "is_member": False},
+                        {"id": "C789", "name": "private", "is_member": True},
+                    ],
+                ),
+            ],
+        }
+    )
+
+    channels = fetch_channel_list(api_caller)
+
+    assert len(channels) == 2
+    assert channels[0].channel_id == SlackChannelId("C123")
+    assert channels[1].channel_id == SlackChannelId("C789")
+
+
+def test_fetch_channel_list_includes_all_channels_when_members_only_false() -> None:
+    api_caller = make_fake_api_caller(
+        {
+            "conversations.list": [
+                make_slack_response(
+                    "channels",
+                    [
+                        {"id": "C123", "name": "general", "is_member": True},
+                        {"id": "C456", "name": "random", "is_member": False},
+                    ],
+                ),
+            ],
+        }
+    )
+
+    channels = fetch_channel_list(api_caller, members_only=False)
+
+    assert len(channels) == 2
+
+
 def test_fetch_channel_list_multiple_pages() -> None:
     api_caller = make_fake_api_caller(
         {
             "conversations.list": [
                 {
                     "ok": True,
-                    "channels": [{"id": "C123", "name": "general"}],
+                    "channels": [{"id": "C123", "name": "general", "is_member": True}],
                     "response_metadata": {"next_cursor": "cursor_page2"},
                 },
-                make_slack_response("channels", [{"id": "C456", "name": "random"}]),
+                make_slack_response("channels", [{"id": "C456", "name": "random", "is_member": True}]),
             ],
         }
     )

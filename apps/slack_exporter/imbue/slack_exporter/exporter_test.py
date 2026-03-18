@@ -86,7 +86,7 @@ def _standard_api_caller(
         {
             "auth.test": [_DEFAULT_AUTH_RESPONSE],
             "conversations.list": [
-                make_slack_response("channels", channel_data or [{"id": "C123", "name": "general"}])
+                make_slack_response("channels", channel_data or [{"id": "C123", "name": "general", "is_member": True}])
             ],
             "users.list": [make_slack_response("members", user_data or [])],
             "conversations.history": [make_slack_response("messages", message_data or [])],
@@ -140,7 +140,9 @@ def test_run_export_changed_channels_go_to_updated_stream(default_settings: Expo
             {
                 "auth.test": [_DEFAULT_AUTH_RESPONSE],
                 "conversations.list": [
-                    make_slack_response("channels", [{"id": "C123", "name": "general", "topic": "new topic"}]),
+                    make_slack_response(
+                        "channels", [{"id": "C123", "name": "general", "is_member": True, "topic": "new topic"}]
+                    ),
                 ],
                 "users.list": [make_slack_response("members", [])],
                 "conversations.history": [make_slack_response("messages", [])],
@@ -163,7 +165,7 @@ def test_run_export_incremental_resumes_from_latest(default_settings: ExporterSe
         if method == "auth.test":
             return _DEFAULT_AUTH_RESPONSE
         elif method == "conversations.list":
-            return make_slack_response("channels", [{"id": "C123", "name": "general"}])
+            return make_slack_response("channels", [{"id": "C123", "name": "general", "is_member": True}])
         elif method == "users.list":
             return make_slack_response("members", [])
         elif method == "conversations.history":
@@ -188,7 +190,9 @@ def test_run_export_fetches_replies_for_threaded_messages(default_settings: Expo
     api_caller = make_fake_api_caller(
         {
             "auth.test": [_DEFAULT_AUTH_RESPONSE],
-            "conversations.list": [make_slack_response("channels", [{"id": "C123", "name": "general"}])],
+            "conversations.list": [
+                make_slack_response("channels", [{"id": "C123", "name": "general", "is_member": True}])
+            ],
             "users.list": [make_slack_response("members", [])],
             "conversations.history": [make_slack_response("messages", [threaded_message])],
             "conversations.replies": [
@@ -222,7 +226,9 @@ def test_run_export_fetches_paginated_replies(default_settings: ExporterSettings
     api_caller = make_fake_api_caller(
         {
             "auth.test": [_DEFAULT_AUTH_RESPONSE],
-            "conversations.list": [make_slack_response("channels", [{"id": "C123", "name": "general"}])],
+            "conversations.list": [
+                make_slack_response("channels", [{"id": "C123", "name": "general", "is_member": True}])
+            ],
             "users.list": [make_slack_response("members", [])],
             "conversations.history": [make_slack_response("messages", [threaded_message])],
             "conversations.replies": [
@@ -280,7 +286,7 @@ def test_run_export_self_identity_unchanged_not_duplicated(default_settings: Exp
 
 def test_run_export_writes_unread_markers(default_settings: ExporterSettings) -> None:
     api_caller = _standard_api_caller(
-        channel_data=[{"id": "C123", "name": "general", "last_read": "1700000000.000001"}],
+        channel_data=[{"id": "C123", "name": "general", "is_member": True, "last_read": "1700000000.000001"}],
     )
     run_export(default_settings, api_caller=api_caller)
 
@@ -296,12 +302,12 @@ def test_run_export_writes_unread_markers(default_settings: ExporterSettings) ->
 
 def test_run_export_unread_markers_updated_when_changed(default_settings: ExporterSettings) -> None:
     api_caller1 = _standard_api_caller(
-        channel_data=[{"id": "C123", "name": "general", "last_read": "1700000000.000001"}],
+        channel_data=[{"id": "C123", "name": "general", "is_member": True, "last_read": "1700000000.000001"}],
     )
     run_export(default_settings, api_caller=api_caller1)
 
     api_caller2 = _standard_api_caller(
-        channel_data=[{"id": "C123", "name": "general", "last_read": "1700000000.000099"}],
+        channel_data=[{"id": "C123", "name": "general", "is_member": True, "last_read": "1700000000.000099"}],
     )
     run_export(default_settings, api_caller=api_caller2)
 
@@ -344,7 +350,7 @@ def test_run_export_skips_replies_for_non_threaded_messages(default_settings: Ex
         if method == "auth.test":
             return _DEFAULT_AUTH_RESPONSE
         elif method == "conversations.list":
-            return make_slack_response("channels", [{"id": "C123", "name": "general"}])
+            return make_slack_response("channels", [{"id": "C123", "name": "general", "is_member": True}])
         elif method == "users.list":
             return make_slack_response("members", [])
         elif method == "conversations.history":
@@ -391,7 +397,9 @@ def _tracking_api_caller(
         if method == "auth.test":
             return _DEFAULT_AUTH_RESPONSE
         elif method == "conversations.list":
-            return make_slack_response("channels", channel_data or [{"id": "C123", "name": "general"}])
+            return make_slack_response(
+                "channels", channel_data or [{"id": "C123", "name": "general", "is_member": True}]
+            )
         elif method == "users.list":
             return make_slack_response("members", user_data or [])
         elif method == "conversations.history":

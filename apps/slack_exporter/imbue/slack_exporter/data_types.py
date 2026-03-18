@@ -57,6 +57,10 @@ class ExporterSettings(FrozenModel):
         default=False,
         description="Force re-fetch of all cached data (channels, users, self identity, reactions)",
     )
+    members_only: bool = Field(
+        default=True,
+        description="Only export channels where the authenticated user is a member",
+    )
     cache_ttl_seconds: int = Field(
         default=600,
         description="How long to cache channel/user/identity/reaction data before re-fetching (seconds)",
