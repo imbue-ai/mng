@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -13,6 +14,7 @@ from imbue.slack_exporter.errors import LatchkeyInvocationError
 from imbue.slack_exporter.errors import SlackApiError
 from imbue.slack_exporter.exporter import run_export
 from imbue.slack_exporter.latchkey import call_slack_api
+from imbue.slack_exporter.latchkey import with_rate_limit_retry
 from imbue.slack_exporter.primitives import SlackChannelName
 
 
@@ -111,8 +113,10 @@ Examples:
         cache_ttl_seconds=cache_ttl_seconds,
     )
 
+    api_caller = with_rate_limit_retry(call_slack_api, time.sleep)
+
     try:
-        run_export(settings, api_caller=call_slack_api)
+        run_export(settings, api_caller=api_caller)
     except ChannelNotFoundError as e:
         logging.error("Channel not found: %s", e.channel_name)
         sys.exit(1)

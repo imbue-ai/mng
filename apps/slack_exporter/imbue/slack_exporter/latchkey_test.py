@@ -8,6 +8,7 @@ from imbue.slack_exporter.errors import SlackApiError
 from imbue.slack_exporter.latchkey import extract_next_cursor
 from imbue.slack_exporter.latchkey import fetch_paginated
 from imbue.slack_exporter.latchkey import parse_latchkey_response
+from imbue.slack_exporter.latchkey import with_rate_limit_retry
 from imbue.slack_exporter.testing import make_fake_api_caller
 from imbue.slack_exporter.testing import make_slack_response
 
@@ -155,3 +156,52 @@ def test_fetch_paginated_no_response_metadata_stops() -> None:
     api_caller = make_fake_api_caller({"test.method": [{"ok": True, "items": [{"id": "1"}]}]})
     items = fetch_paginated(api_caller, "test.method", {}, "items")
     assert items == [{"id": "1"}]
+
+
+def _noop_sleep(_seconds: float) -> None:
+    pass
+
+
+def test_rate_limit_retry_retries_on_ratelimited() -> None:
+    """Rate-limited responses are retried with backoff."""
+    call_count = 0
+
+    def fake_caller(method: str, query_params: dict[str, str] | None = None) -> dict[str, Any]:
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise SlackApiError(method=method, error="ratelimited")
+        return {"ok": True, "data": "success"}
+
+    retrying_caller = with_rate_limit_retry(fake_caller, _noop_sleep)
+    result = retrying_caller("conversations.list", None)
+
+    assert result == {"ok": True, "data": "success"}
+    assert call_count == 3
+
+
+def test_rate_limit_retry_raises_non_ratelimit_errors_immediately() -> None:
+    """Non-rate-limit SlackApiErrors are raised without retrying."""
+    call_count = 0
+
+    def fake_caller(method: str, query_params: dict[str, str] | None = None) -> dict[str, Any]:
+        nonlocal call_count
+        call_count += 1
+        raise SlackApiError(method=method, error="channel_not_found")
+
+    retrying_caller = with_rate_limit_retry(fake_caller, _noop_sleep)
+    with pytest.raises(SlackApiError, match="channel_not_found"):
+        retrying_caller("conversations.history", None)
+
+    assert call_count == 1
+
+
+def test_rate_limit_retry_raises_after_max_retries() -> None:
+    """Rate limit retries are exhausted after max attempts."""
+
+    def fake_caller(method: str, query_params: dict[str, str] | None = None) -> dict[str, Any]:
+        raise SlackApiError(method=method, error="ratelimited")
+
+    retrying_caller = with_rate_limit_retry(fake_caller, _noop_sleep)
+    with pytest.raises(SlackApiError, match="ratelimited"):
+        retrying_caller("conversations.history", None)
