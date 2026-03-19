@@ -68,24 +68,24 @@ Data is stored in a directory with created/updated streams per type:
 
 ```
 slack_export/
-  channels/created/events.jsonl        -- new channels (first seen)
-  channels/updated/events.jsonl        -- all channel state changes (includes creates)
-  messages/created/events.jsonl        -- new messages
-  messages/updated/events.jsonl        -- all message state changes (includes creates)
-  reactions/created/events.jsonl         -- new per-message reaction state (first seen)
-  reactions/updated/events.jsonl         -- all reaction state changes (includes creates)
-  relevant_thread_replies/created/events.jsonl -- replies in relevant threads (first seen)
-  relevant_thread_replies/updated/events.jsonl -- all relevant thread reply changes (includes creates)
-  relevant_threads/created/events.jsonl  -- threads user participated in (first seen)
-  relevant_threads/updated/events.jsonl  -- all relevant thread changes (includes creates)
-  replies/created/events.jsonl           -- new thread replies
-  replies/updated/events.jsonl           -- all reply state changes (includes creates)
-  self_identity/created/events.jsonl   -- authenticated user identity (first seen)
-  self_identity/updated/events.jsonl   -- all identity state changes (includes creates)
-  unread_markers/created/events.jsonl  -- new unread markers (first seen)
-  unread_markers/updated/events.jsonl  -- all unread marker changes (includes creates)
-  users/created/events.jsonl           -- new users (first seen)
-  users/updated/events.jsonl           -- all user state changes (includes creates)
+  channel/created/events.jsonl               -- new channels (first seen)
+  channel/updated/events.jsonl               -- all channel state changes (includes creates)
+  message/created/events.jsonl               -- new messages
+  message/updated/events.jsonl               -- all message state changes (includes creates)
+  reaction/created/events.jsonl              -- new per-message reaction state (first seen)
+  reaction/updated/events.jsonl              -- all reaction state changes (includes creates)
+  relevant_thread/created/events.jsonl       -- threads user participated in (first seen)
+  relevant_thread/updated/events.jsonl       -- all relevant thread changes (includes creates)
+  relevant_thread_reply/created/events.jsonl -- replies in relevant threads (first seen)
+  relevant_thread_reply/updated/events.jsonl -- all relevant thread reply changes (includes creates)
+  reply/created/events.jsonl                 -- new thread replies
+  reply/updated/events.jsonl                 -- all reply state changes (includes creates)
+  self_identity/created/events.jsonl         -- authenticated user identity (first seen)
+  self_identity/updated/events.jsonl         -- all identity state changes (includes creates)
+  unread_marker/created/events.jsonl         -- new unread markers (first seen)
+  unread_marker/updated/events.jsonl         -- all unread marker changes (includes creates)
+  user/created/events.jsonl                  -- new users (first seen)
+  user/updated/events.jsonl                  -- all user state changes (includes creates)
 ```
 
 The `created` stream contains only first-seen items. The `updated` stream contains all state changes (including creates, since a create is logically an update from nothing). Subscribe to `created` for lower cardinality, or `updated` for the full change history.

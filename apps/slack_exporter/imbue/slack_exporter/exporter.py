@@ -411,7 +411,7 @@ def run_export(settings: ExporterSettings, api_caller: SlackApiCaller) -> None:
             event for event in existing_channel_by_id.values() if event.channel_name in export_channel_names
         ]
         logger.info("All %d channels resolved from cache, skipping conversations.list", len(fresh_channels))
-    elif _is_cache_fresh(fetch_metadata, DataType.CHANNELS, now, settings) and existing_channel_by_id:
+    elif _is_cache_fresh(fetch_metadata, DataType.CHANNEL, now, settings) and existing_channel_by_id:
         fresh_channels = list(existing_channel_by_id.values())
         if settings.members_only:
             fresh_channels = [ch for ch in fresh_channels if ch.raw.get("is_member", False)]
@@ -427,13 +427,13 @@ def run_export(settings: ExporterSettings, api_caller: SlackApiCaller) -> None:
             output_dir=settings.output_dir,
             entity_name="channels",
         )
-        save_fetch_timestamp(settings.output_dir, DataType.CHANNELS, now)
+        save_fetch_timestamp(settings.output_dir, DataType.CHANNEL, now)
 
     for event in fresh_channels:
         channel_id_by_name[event.channel_name] = event.channel_id
 
     # Export users
-    if _is_cache_fresh(fetch_metadata, DataType.USERS, now, settings) and existing_user_by_id:
+    if _is_cache_fresh(fetch_metadata, DataType.USER, now, settings) and existing_user_by_id:
         logger.info("Using cached user data (%d users)", len(existing_user_by_id))
     else:
         fresh_users = fetch_user_list(api_caller)
@@ -446,7 +446,7 @@ def run_export(settings: ExporterSettings, api_caller: SlackApiCaller) -> None:
             output_dir=settings.output_dir,
             entity_name="users",
         )
-        save_fetch_timestamp(settings.output_dir, DataType.USERS, now)
+        save_fetch_timestamp(settings.output_dir, DataType.USER, now)
 
     # Determine which channels to export messages from
     if settings.channels is not None:

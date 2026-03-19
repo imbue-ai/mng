@@ -100,7 +100,7 @@ def test_load_existing_users_updated_overrides_created(temp_output_dir: Path) ->
 
 def test_save_channel_events_creates_directory_structure(temp_output_dir: Path) -> None:
     save_channel_events(temp_output_dir, StreamType.CREATED, [make_channel_event()])
-    expected_path = temp_output_dir / "channels" / "created" / "events.jsonl"
+    expected_path = temp_output_dir / "channel" / "created" / "events.jsonl"
     assert expected_path.exists()
     parsed = json.loads(expected_path.read_text().strip())
     assert parsed["channel_id"] == "C123"
@@ -111,13 +111,13 @@ def test_save_channel_events_creates_directory_structure(temp_output_dir: Path) 
 
 def test_save_message_events_creates_directory_structure(temp_output_dir: Path) -> None:
     save_message_events(temp_output_dir, StreamType.CREATED, [make_message_event()])
-    expected_path = temp_output_dir / "messages" / "created" / "events.jsonl"
+    expected_path = temp_output_dir / "message" / "created" / "events.jsonl"
     assert expected_path.exists()
 
 
 def test_save_user_events_creates_directory_structure(temp_output_dir: Path) -> None:
     save_user_events(temp_output_dir, StreamType.CREATED, [make_user_event()])
-    expected_path = temp_output_dir / "users" / "created" / "events.jsonl"
+    expected_path = temp_output_dir / "user" / "created" / "events.jsonl"
     assert expected_path.exists()
 
 
@@ -125,13 +125,13 @@ def test_save_appends_to_existing(temp_output_dir: Path) -> None:
     save_message_events(temp_output_dir, StreamType.CREATED, [make_message_event(ts="1700000000.000001")])
     save_message_events(temp_output_dir, StreamType.CREATED, [make_message_event(ts="1700000000.000002")])
 
-    lines = (temp_output_dir / "messages" / "created" / "events.jsonl").read_text().strip().splitlines()
+    lines = (temp_output_dir / "message" / "created" / "events.jsonl").read_text().strip().splitlines()
     assert len(lines) == 2
 
 
 def test_save_does_nothing_for_empty_list(temp_output_dir: Path) -> None:
     save_message_events(temp_output_dir, StreamType.CREATED, [])
-    assert not (temp_output_dir / "messages" / "created" / "events.jsonl").exists()
+    assert not (temp_output_dir / "message" / "created" / "events.jsonl").exists()
 
 
 def test_load_existing_self_identity_returns_empty_when_missing(temp_output_dir: Path) -> None:
@@ -195,7 +195,7 @@ def test_unread_markers_updated_overrides_created(temp_output_dir: Path) -> None
 
 def test_save_unread_marker_events_creates_directory_structure(temp_output_dir: Path) -> None:
     save_unread_marker_events(temp_output_dir, StreamType.CREATED, [make_unread_marker_event()])
-    expected_path = temp_output_dir / "unread_markers" / "created" / "events.jsonl"
+    expected_path = temp_output_dir / "unread_marker" / "created" / "events.jsonl"
     assert expected_path.exists()
     parsed = json.loads(expected_path.read_text().strip())
     assert parsed["source"] == "slack"
@@ -217,7 +217,7 @@ def test_save_and_load_reactions(temp_output_dir: Path) -> None:
 
 def test_save_reaction_events_creates_directory_structure(temp_output_dir: Path) -> None:
     save_reaction_events(temp_output_dir, StreamType.CREATED, [make_reaction_event()])
-    expected_path = temp_output_dir / "reactions" / "created" / "events.jsonl"
+    expected_path = temp_output_dir / "reaction" / "created" / "events.jsonl"
     assert expected_path.exists()
     parsed = json.loads(expected_path.read_text().strip())
     assert parsed["source"] == "slack"
@@ -269,23 +269,23 @@ def test_load_fetch_metadata_returns_empty_when_missing(temp_output_dir: Path) -
 
 def test_save_and_load_fetch_metadata(temp_output_dir: Path) -> None:
     ts = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-    save_fetch_timestamp(temp_output_dir, "channels", ts)
+    save_fetch_timestamp(temp_output_dir, "channel", ts)
 
     result = load_fetch_metadata(temp_output_dir)
-    assert "channels" in result
-    assert result["channels"] == ts
+    assert "channel" in result
+    assert result["channel"] == ts
 
 
 def test_save_fetch_timestamp_preserves_existing_entries(temp_output_dir: Path) -> None:
     ts1 = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
     ts2 = datetime(2025, 1, 15, 12, 5, 0, tzinfo=timezone.utc)
-    save_fetch_timestamp(temp_output_dir, "channels", ts1)
-    save_fetch_timestamp(temp_output_dir, "users", ts2)
+    save_fetch_timestamp(temp_output_dir, "channel", ts1)
+    save_fetch_timestamp(temp_output_dir, "user", ts2)
 
     result = load_fetch_metadata(temp_output_dir)
     assert len(result) == 2
-    assert result["channels"] == ts1
-    assert result["users"] == ts2
+    assert result["channel"] == ts1
+    assert result["user"] == ts2
 
 
 def test_load_fetch_metadata_handles_malformed_json(temp_output_dir: Path) -> None:

@@ -109,14 +109,14 @@ def test_run_export_writes_to_created_streams(default_settings: ExporterSettings
     run_export(default_settings, api_caller=api_caller)
 
     output_dir = default_settings.output_dir
-    assert (output_dir / "channels" / "created" / "events.jsonl").exists()
-    assert (output_dir / "messages" / "created" / "events.jsonl").exists()
-    assert (output_dir / "users" / "created" / "events.jsonl").exists()
-    assert (output_dir / "channels" / "updated" / "events.jsonl").exists()
-    assert (output_dir / "messages" / "updated" / "events.jsonl").exists()
-    assert (output_dir / "users" / "updated" / "events.jsonl").exists()
+    assert (output_dir / "channel" / "created" / "events.jsonl").exists()
+    assert (output_dir / "message" / "created" / "events.jsonl").exists()
+    assert (output_dir / "user" / "created" / "events.jsonl").exists()
+    assert (output_dir / "channel" / "updated" / "events.jsonl").exists()
+    assert (output_dir / "message" / "updated" / "events.jsonl").exists()
+    assert (output_dir / "user" / "updated" / "events.jsonl").exists()
 
-    msg_lines = (output_dir / "messages" / "created" / "events.jsonl").read_text().strip().splitlines()
+    msg_lines = (output_dir / "message" / "created" / "events.jsonl").read_text().strip().splitlines()
     assert len(msg_lines) == 1
     msg = json.loads(msg_lines[0])
     assert msg["channel_id"] == "C123"
@@ -128,10 +128,10 @@ def test_run_export_unchanged_channels_not_written(default_settings: ExporterSet
     run_export(default_settings, api_caller=_standard_api_caller())
 
     output_dir = default_settings.output_dir
-    created_lines = (output_dir / "channels" / "created" / "events.jsonl").read_text().strip().splitlines()
+    created_lines = (output_dir / "channel" / "created" / "events.jsonl").read_text().strip().splitlines()
     assert len(created_lines) == 1
 
-    updated_lines = (output_dir / "channels" / "updated" / "events.jsonl").read_text().strip().splitlines()
+    updated_lines = (output_dir / "channel" / "updated" / "events.jsonl").read_text().strip().splitlines()
     assert len(updated_lines) == 1
 
 
@@ -167,7 +167,7 @@ def test_run_export_changed_channels_go_to_updated_stream(default_settings: Expo
     )
 
     output_dir = default_settings.output_dir
-    updated_lines = (output_dir / "channels" / "updated" / "events.jsonl").read_text().strip().splitlines()
+    updated_lines = (output_dir / "channel" / "updated" / "events.jsonl").read_text().strip().splitlines()
     assert len(updated_lines) == 2
 
 
@@ -229,7 +229,7 @@ def test_run_export_fetches_replies_for_threaded_messages(default_settings: Expo
 
     run_export(default_settings, api_caller=api_caller)
 
-    reply_path = default_settings.output_dir / "replies" / "created" / "events.jsonl"
+    reply_path = default_settings.output_dir / "reply" / "created" / "events.jsonl"
     assert reply_path.exists()
     reply_lines = reply_path.read_text().strip().splitlines()
     assert len(reply_lines) == 2
@@ -274,7 +274,7 @@ def test_run_export_fetches_paginated_replies(default_settings: ExporterSettings
 
     run_export(default_settings, api_caller=api_caller)
 
-    reply_path = default_settings.output_dir / "replies" / "created" / "events.jsonl"
+    reply_path = default_settings.output_dir / "reply" / "created" / "events.jsonl"
     assert reply_path.exists()
     reply_lines = reply_path.read_text().strip().splitlines()
     # 2 replies (parent message is excluded from replies)
@@ -313,7 +313,7 @@ def test_run_export_writes_unread_markers(default_settings: ExporterSettings) ->
     run_export(default_settings, api_caller=api_caller)
 
     output_dir = default_settings.output_dir
-    marker_path = output_dir / "unread_markers" / "created" / "events.jsonl"
+    marker_path = output_dir / "unread_marker" / "created" / "events.jsonl"
     assert marker_path.exists()
     lines = marker_path.read_text().strip().splitlines()
     assert len(lines) == 1
@@ -334,10 +334,10 @@ def test_run_export_unread_markers_updated_when_changed(default_settings: Export
     run_export(default_settings, api_caller=api_caller2)
 
     output_dir = default_settings.output_dir
-    created_lines = (output_dir / "unread_markers" / "created" / "events.jsonl").read_text().strip().splitlines()
+    created_lines = (output_dir / "unread_marker" / "created" / "events.jsonl").read_text().strip().splitlines()
     assert len(created_lines) == 1
 
-    updated_lines = (output_dir / "unread_markers" / "updated" / "events.jsonl").read_text().strip().splitlines()
+    updated_lines = (output_dir / "unread_marker" / "updated" / "events.jsonl").read_text().strip().splitlines()
     assert len(updated_lines) == 2
 
 
@@ -524,7 +524,7 @@ def test_run_export_fetches_replies_when_latest_reply_changed(default_settings: 
     run_export(default_settings, api_caller=caller2)
     assert counts2.get("conversations.replies", 0) == 1
 
-    reply_path = default_settings.output_dir / "replies" / "created" / "events.jsonl"
+    reply_path = default_settings.output_dir / "reply" / "created" / "events.jsonl"
     reply_lines = reply_path.read_text().strip().splitlines()
     reply_timestamps = sorted(json.loads(line)["reply_ts"] for line in reply_lines)
     assert "1700000000.000003" in reply_timestamps
@@ -545,7 +545,7 @@ def test_run_export_backfills_older_messages_when_since_is_earlier(temp_output_d
     run_export(initial_settings, api_caller=caller1)
 
     # Verify first run saved one message
-    msg_path = temp_output_dir / "messages" / "created" / "events.jsonl"
+    msg_path = temp_output_dir / "message" / "created" / "events.jsonl"
     assert len(msg_path.read_text().strip().splitlines()) == 1
 
     # Second run: earlier --since date; track the conversations.history calls
@@ -622,7 +622,7 @@ def test_run_export_extracts_reactions_from_fetched_messages(default_settings: E
     api_caller = _standard_api_caller(message_data=[msg_with_reactions])
     run_export(default_settings, api_caller=api_caller)
 
-    reaction_path = default_settings.output_dir / "reactions" / "created" / "events.jsonl"
+    reaction_path = default_settings.output_dir / "reaction" / "created" / "events.jsonl"
     assert reaction_path.exists()
     lines = reaction_path.read_text().strip().splitlines()
     assert len(lines) == 1
@@ -643,7 +643,7 @@ def test_run_export_detects_relevant_threads(default_settings: ExporterSettings)
     )
     run_export(default_settings, api_caller=caller)
 
-    rt_path = default_settings.output_dir / "relevant_threads" / "created" / "events.jsonl"
+    rt_path = default_settings.output_dir / "relevant_thread" / "created" / "events.jsonl"
     assert rt_path.exists()
     lines = rt_path.read_text().strip().splitlines()
     assert len(lines) == 1
@@ -667,7 +667,7 @@ def test_run_export_saves_relevant_thread_replies_for_newly_relevant_thread(
     )
     run_export(default_settings, api_caller=caller)
 
-    rt_replies_path = default_settings.output_dir / "relevant_thread_replies" / "created" / "events.jsonl"
+    rt_replies_path = default_settings.output_dir / "relevant_thread_reply" / "created" / "events.jsonl"
     assert rt_replies_path.exists()
     lines = rt_replies_path.read_text().strip().splitlines()
     # Both replies (excluding parent) should be in relevant_thread_replies
@@ -702,7 +702,7 @@ def test_run_export_saves_new_replies_in_already_relevant_thread(temp_output_dir
     )
     run_export(settings, api_caller=caller1)
 
-    rt_replies_path = temp_output_dir / "relevant_thread_replies" / "created" / "events.jsonl"
+    rt_replies_path = temp_output_dir / "relevant_thread_reply" / "created" / "events.jsonl"
     initial_count = len(rt_replies_path.read_text().strip().splitlines())
     assert initial_count == 1
 
@@ -765,7 +765,7 @@ def test_run_export_deferred_reaction_pass_checks_relevant_threads(temp_output_d
     assert counts.get("conversations.replies", 0) == 2
 
     # The reaction should be saved by the deferred pass
-    reaction_path = temp_output_dir / "reactions" / "created" / "events.jsonl"
+    reaction_path = temp_output_dir / "reaction" / "created" / "events.jsonl"
     assert reaction_path.exists()
     reaction_lines = reaction_path.read_text().strip().splitlines()
     reaction_records = [json.loads(line) for line in reaction_lines]
@@ -823,7 +823,7 @@ def test_run_export_deferred_reaction_pass_uses_threads_from_previous_runs(temp_
     assert counts2.get("conversations.replies", 0) == 1
 
     # The new reaction should be saved
-    reaction_path = temp_output_dir / "reactions" / "created" / "events.jsonl"
+    reaction_path = temp_output_dir / "reaction" / "created" / "events.jsonl"
     assert reaction_path.exists()
     reaction_lines = reaction_path.read_text().strip().splitlines()
     reaction_records = [json.loads(line) for line in reaction_lines]

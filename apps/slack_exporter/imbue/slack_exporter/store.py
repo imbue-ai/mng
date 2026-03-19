@@ -26,15 +26,15 @@ logger = logging.getLogger(__name__)
 class DataType(StrEnum):
     """The category of Slack data being stored. Values are lowercase directory names."""
 
-    CHANNELS = "channels"
-    MESSAGES = "messages"
-    REACTIONS = "reactions"
-    RELEVANT_THREAD_REPLIES = "relevant_thread_replies"
-    RELEVANT_THREADS = "relevant_threads"
-    REPLIES = "replies"
+    CHANNEL = "channel"
+    MESSAGE = "message"
+    REACTION = "reaction"
+    RELEVANT_THREAD_REPLY = "relevant_thread_reply"
+    RELEVANT_THREAD = "relevant_thread"
+    REPLY = "reply"
     SELF_IDENTITY = "self_identity"
-    UNREAD_MARKERS = "unread_markers"
-    USERS = "users"
+    UNREAD_MARKER = "unread_marker"
+    USER = "user"
 
 
 class StreamType(StrEnum):
@@ -83,7 +83,7 @@ def load_existing_channels(
 
     # Load created first, then updated (updated overrides)
     for stream in StreamType:
-        for record in _load_jsonl_records(_events_path(output_dir, DataType.CHANNELS, stream)):
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.CHANNEL, stream)):
             event = ChannelEvent.model_validate(record)
             channel_by_id[event.channel_id] = event
 
@@ -99,7 +99,7 @@ def load_existing_message_state(
     known_message_keys: set[tuple[SlackChannelId, SlackMessageTimestamp]] = set()
 
     for stream in StreamType:
-        for record in _load_jsonl_records(_events_path(output_dir, DataType.MESSAGES, stream)):
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.MESSAGE, stream)):
             event = MessageEvent.model_validate(record)
             known_message_keys.add((event.channel_id, event.message_ts))
 
@@ -124,7 +124,7 @@ def load_existing_users(output_dir: Path) -> dict[SlackUserId, UserEvent]:
     """Load existing user events, keeping the latest per user_id (updated overrides created)."""
     user_by_id: dict[SlackUserId, UserEvent] = {}
     for stream in StreamType:
-        for record in _load_jsonl_records(_events_path(output_dir, DataType.USERS, stream)):
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.USER, stream)):
             event = UserEvent.model_validate(record)
             user_by_id[event.user_id] = event
     logger.info("Loaded %d users from store", len(user_by_id))
@@ -132,19 +132,19 @@ def load_existing_users(output_dir: Path) -> dict[SlackUserId, UserEvent]:
 
 
 def save_channel_events(output_dir: Path, stream: StreamType, events: Sequence[ChannelEvent]) -> None:
-    _append_events(_events_path(output_dir, DataType.CHANNELS, stream), events)
+    _append_events(_events_path(output_dir, DataType.CHANNEL, stream), events)
 
 
 def save_message_events(output_dir: Path, stream: StreamType, events: Sequence[MessageEvent]) -> None:
-    _append_events(_events_path(output_dir, DataType.MESSAGES, stream), events)
+    _append_events(_events_path(output_dir, DataType.MESSAGE, stream), events)
 
 
 def save_reply_events(output_dir: Path, stream: StreamType, events: Sequence[ReplyEvent]) -> None:
-    _append_events(_events_path(output_dir, DataType.REPLIES, stream), events)
+    _append_events(_events_path(output_dir, DataType.REPLY, stream), events)
 
 
 def save_user_events(output_dir: Path, stream: StreamType, events: Sequence[UserEvent]) -> None:
-    _append_events(_events_path(output_dir, DataType.USERS, stream), events)
+    _append_events(_events_path(output_dir, DataType.USER, stream), events)
 
 
 def load_existing_reply_keys(
@@ -153,7 +153,7 @@ def load_existing_reply_keys(
     """Load the set of known reply keys (channel_id, thread_ts, reply_ts) from both streams."""
     known_keys: set[tuple[SlackChannelId, SlackMessageTimestamp, SlackMessageTimestamp]] = set()
     for stream in StreamType:
-        for record in _load_jsonl_records(_events_path(output_dir, DataType.REPLIES, stream)):
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.REPLY, stream)):
             event = ReplyEvent.model_validate(record)
             known_keys.add((event.channel_id, event.thread_ts, event.reply_ts))
     logger.info("Loaded %d known replies from store", len(known_keys))
@@ -166,7 +166,7 @@ def load_existing_relevant_thread_reply_keys(
     """Load known relevant thread reply keys (channel_id, thread_ts, reply_ts) from both streams."""
     known_keys: set[tuple[SlackChannelId, SlackMessageTimestamp, SlackMessageTimestamp]] = set()
     for stream in StreamType:
-        for record in _load_jsonl_records(_events_path(output_dir, DataType.RELEVANT_THREAD_REPLIES, stream)):
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.RELEVANT_THREAD_REPLY, stream)):
             event = ReplyEvent.model_validate(record)
             known_keys.add((event.channel_id, event.thread_ts, event.reply_ts))
     logger.info("Loaded %d known relevant thread replies from store", len(known_keys))
@@ -174,7 +174,7 @@ def load_existing_relevant_thread_reply_keys(
 
 
 def save_relevant_thread_reply_events(output_dir: Path, stream: StreamType, events: Sequence[ReplyEvent]) -> None:
-    _append_events(_events_path(output_dir, DataType.RELEVANT_THREAD_REPLIES, stream), events)
+    _append_events(_events_path(output_dir, DataType.RELEVANT_THREAD_REPLY, stream), events)
 
 
 def load_existing_self_identity(output_dir: Path) -> dict[str, SelfIdentityEvent]:
@@ -196,7 +196,7 @@ def load_existing_unread_markers(output_dir: Path) -> dict[str, UnreadMarkerEven
     """Load existing unread marker events, keeping the latest per channel_id."""
     marker_by_channel: dict[str, UnreadMarkerEvent] = {}
     for stream in StreamType:
-        for record in _load_jsonl_records(_events_path(output_dir, DataType.UNREAD_MARKERS, stream)):
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.UNREAD_MARKER, stream)):
             event = UnreadMarkerEvent.model_validate(record)
             marker_by_channel[event.channel_id] = event
     logger.info("Loaded %d unread marker events from store", len(marker_by_channel))
@@ -204,14 +204,14 @@ def load_existing_unread_markers(output_dir: Path) -> dict[str, UnreadMarkerEven
 
 
 def save_unread_marker_events(output_dir: Path, stream: StreamType, events: Sequence[UnreadMarkerEvent]) -> None:
-    _append_events(_events_path(output_dir, DataType.UNREAD_MARKERS, stream), events)
+    _append_events(_events_path(output_dir, DataType.UNREAD_MARKER, stream), events)
 
 
 def load_existing_reactions(output_dir: Path) -> dict[str, ReactionEvent]:
     """Load existing reaction events, keeping the latest per channel_id:message_ts key."""
     reaction_by_key: dict[str, ReactionEvent] = {}
     for stream in StreamType:
-        for record in _load_jsonl_records(_events_path(output_dir, DataType.REACTIONS, stream)):
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.REACTION, stream)):
             event = ReactionEvent.model_validate(record)
             reaction_by_key[f"{event.channel_id}:{event.message_ts}"] = event
     logger.info("Loaded %d reaction events from store", len(reaction_by_key))
@@ -219,14 +219,14 @@ def load_existing_reactions(output_dir: Path) -> dict[str, ReactionEvent]:
 
 
 def save_reaction_events(output_dir: Path, stream: StreamType, events: Sequence[ReactionEvent]) -> None:
-    _append_events(_events_path(output_dir, DataType.REACTIONS, stream), events)
+    _append_events(_events_path(output_dir, DataType.REACTION, stream), events)
 
 
 def load_existing_relevant_threads(output_dir: Path) -> dict[str, RelevantThreadEvent]:
     """Load existing relevant thread events, keeping the latest per channel_id:thread_ts key."""
     by_key: dict[str, RelevantThreadEvent] = {}
     for stream in StreamType:
-        for record in _load_jsonl_records(_events_path(output_dir, DataType.RELEVANT_THREADS, stream)):
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.RELEVANT_THREAD, stream)):
             event = RelevantThreadEvent.model_validate(record)
             by_key[f"{event.channel_id}:{event.thread_ts}"] = event
     logger.info("Loaded %d relevant thread events from store", len(by_key))
@@ -234,7 +234,7 @@ def load_existing_relevant_threads(output_dir: Path) -> dict[str, RelevantThread
 
 
 def save_relevant_thread_events(output_dir: Path, stream: StreamType, events: Sequence[RelevantThreadEvent]) -> None:
-    _append_events(_events_path(output_dir, DataType.RELEVANT_THREADS, stream), events)
+    _append_events(_events_path(output_dir, DataType.RELEVANT_THREAD, stream), events)
 
 
 def _channel_export_metadata_path(output_dir: Path) -> Path:
