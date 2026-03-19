@@ -356,9 +356,15 @@ def run_export(settings: ExporterSettings, api_caller: SlackApiCaller) -> None:
     # Resolve --recently-active-channels into explicit channel configs
     if settings.recently_active_channels is not None:
         active_channels = _resolve_recently_active_channels(state_by_channel_id, settings.recently_active_channels)
-        settings = settings.model_copy_update(
-            to_update(settings.field_ref().channels, active_channels),
-        )
+        if active_channels:
+            settings = settings.model_copy_update(
+                to_update(settings.field_ref().channels, active_channels),
+            )
+        else:
+            logger.warning("No historical message data found for --recently-active-channels, exporting all channels")
+            settings = settings.model_copy_update(
+                to_update(settings.field_ref().channels, None),
+            )
 
     fetch_metadata = load_fetch_metadata(settings.output_dir)
     now = datetime.now(timezone.utc)
