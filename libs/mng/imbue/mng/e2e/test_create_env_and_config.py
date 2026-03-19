@@ -140,8 +140,8 @@ def test_config_set_headless(e2e: Session) -> None:
     )
     expect(result).to_succeed()
 
-    # Verify the value was persisted
-    get_result = e2e.run("mng config get headless", comment="Verify headless config was set")
+    # Verify the value was persisted (read from project scope where it was written)
+    get_result = e2e.run("mng config get headless --scope project", comment="Verify headless config was set")
     expect(get_result).to_succeed()
     expect(get_result.stdout).to_contain("true")
 
