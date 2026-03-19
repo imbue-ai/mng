@@ -15,33 +15,44 @@ from loguru import logger
 from markdown_it import MarkdownIt
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ConcurrencyGroupError
+from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
+from imbue.imbue_common.model_update import to_update
 from imbue.mng.api.create import create as api_create
 from imbue.mng.api.data_types import CreateAgentResult
 from imbue.mng.api.list import list_agents
+from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.api.pull import pull_git
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
+from imbue.mng.errors import HostError
 from imbue.mng.errors import MngError
+from imbue.mng.errors import SendMessageError
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import AgentDetails
+from imbue.mng.interfaces.host import AgentDataOptions
 from imbue.mng.interfaces.host import AgentGitOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import NewHostBuildOptions
 from imbue.mng.interfaces.host import NewHostOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import ErrorBehavior
+from imbue.mng.primitives import HostName
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
+from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.primitives import SnapshotName
 from imbue.mng.primitives import UncommittedChangesMode
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng_tmr.data_types import TestAgentInfo
 from imbue.mng_tmr.data_types import TestMapReduceResult
 from imbue.mng_tmr.data_types import TestOutcome
 from imbue.mng_tmr.data_types import TestResult
+from imbue.mng_tmr.data_types import TmrLaunchConfig
 
 PLUGIN_NAME = "test-map-reduce"
 
@@ -63,6 +74,7 @@ _OUTCOME_COLORS: dict[TestOutcome, str] = {
     TestOutcome.TIMED_OUT: "rgb(121, 85, 72)",
     TestOutcome.RUN_SUCCEEDED: "rgb(76, 175, 80)",
     TestOutcome.AGENT_ERROR: "rgb(158, 158, 158)",
+    TestOutcome.REMOTE_AGENT_ERROR: "rgb(189, 147, 249)",
 }
 
 _OUTCOME_GROUP_ORDER: list[TestOutcome] = [
@@ -74,6 +86,7 @@ _OUTCOME_GROUP_ORDER: list[TestOutcome] = [
     TestOutcome.FIX_UNCERTAIN,
     TestOutcome.TIMED_OUT,
     TestOutcome.AGENT_ERROR,
+    TestOutcome.REMOTE_AGENT_ERROR,
     TestOutcome.RUN_SUCCEEDED,
 ]
 
@@ -88,6 +101,12 @@ class CollectTestsError(MngError, RuntimeError):
     """Raised when pytest test collection fails."""
 
     ...
+
+
+def get_base_commit(source_dir: Path, cg: ConcurrencyGroup) -> str:
+    """Get the current HEAD commit hash, used as the base for all agent branches."""
+    result = cg.run_process_to_completion(["git", "rev-parse", "HEAD"], cwd=source_dir)
+    return result.stdout.strip()
 
 
 def _short_random_id() -> str:
@@ -120,14 +139,18 @@ def collect_tests(
     return test_ids
 
 
-def _build_agent_prompt(test_node_id: str, pytest_flags: tuple[str, ...]) -> str:
+def _build_agent_prompt(
+    test_node_id: str,
+    pytest_flags: tuple[str, ...],
+    prompt_suffix: str = "",
+) -> str:
     """Build the prompt/initial message for a test-running agent."""
     flags_str = " ".join(pytest_flags)
     run_cmd = f"pytest {test_node_id}"
     if flags_str:
         run_cmd += f" {flags_str}"
 
-    return f"""Run the test with: {run_cmd}
+    prompt = f"""Run the test with: {run_cmd}
 
 If the test succeeds, there is nothing more to do (outcome = RUN_SUCCEEDED).
 
@@ -152,6 +175,9 @@ with content like:
 Valid outcome values: RUN_SUCCEEDED, FIX_TEST_SUCCEEDED, FIX_TEST_FAILED,
 FIX_IMPL_SUCCEEDED, FIX_IMPL_FAILED, FIX_UNCERTAIN.
 """
+    if prompt_suffix:
+        prompt += f"\n{prompt_suffix}\n"
+    return prompt
 
 
 def _sanitize_test_name_for_agent(test_node_id: str) -> str:
@@ -176,86 +202,213 @@ def _sanitize_test_name_for_agent(test_node_id: str) -> str:
     return sanitized.strip("-").lower()[:40]
 
 
-def launch_test_agent(
-    test_node_id: str,
-    source_dir: Path,
-    local_host: OnlineHostInterface,
-    mng_ctx: MngContext,
-    agent_type: AgentTypeName,
-    pytest_flags: tuple[str, ...],
-) -> TestAgentInfo:
-    """Launch a single agent to run and optionally fix one test."""
-    agent_name_suffix = _sanitize_test_name_for_agent(test_node_id)
-    short_id = _short_random_id()
-    agent_name = AgentName(f"tmr-{agent_name_suffix}-{short_id}")
-    prompt = _build_agent_prompt(test_node_id, pytest_flags)
+def _copy_mode_for_provider(provider_name: ProviderInstanceName) -> WorkDirCopyMode:
+    """Determine the git copy mode based on the provider.
 
-    agent_options = CreateAgentOptions(
-        agent_type=agent_type,
+    WORKTREE only works when source and target are on the same host, so it is
+    only usable with the local provider. Remote providers (docker, modal, etc.)
+    use CLONE to transfer git history efficiently.
+    """
+    is_local = provider_name.lower() == LOCAL_PROVIDER_NAME
+    return WorkDirCopyMode.WORKTREE if is_local else WorkDirCopyMode.CLONE
+
+
+def _build_agent_options(
+    agent_name: AgentName,
+    branch_name: str,
+    config: TmrLaunchConfig,
+) -> CreateAgentOptions:
+    """Build CreateAgentOptions for a tmr agent."""
+    copy_mode = _copy_mode_for_provider(config.provider_name)
+    is_remote = config.provider_name.lower() != LOCAL_PROVIDER_NAME
+    return CreateAgentOptions(
+        agent_type=config.agent_type,
         name=agent_name,
-        initial_message=prompt,
         git=AgentGitOptions(
-            copy_mode=WorkDirCopyMode.WORKTREE,
-            new_branch_name=f"mng-tmr/{agent_name_suffix}-{short_id}",
+            copy_mode=copy_mode,
+            new_branch_name=branch_name,
         ),
+        data_options=AgentDataOptions(is_rsync_enabled=False),
+        environment=config.env_options,
+        label_options=config.label_options,
+        ready_timeout_seconds=60.0 if is_remote else 10.0,
     )
 
-    source_location = HostLocation(host=local_host, path=source_dir)
-    target_host = NewHostOptions(provider=LOCAL_PROVIDER_NAME)
 
-    logger.info("Launching agent '{}' for test: {}", agent_name, test_node_id)
-    create_result: CreateAgentResult = api_create(
+def _create_tmr_agent(
+    agent_name: AgentName,
+    branch_name: str,
+    config: TmrLaunchConfig,
+    mng_ctx: MngContext,
+    message: str | None = None,
+) -> CreateAgentResult:
+    """Create an agent on the configured provider and optionally send a message.
+
+    If message is provided, it is sent after agent creation. SendMessageError
+    is caught and logged (the signal detection can fail on remote hosts even
+    when the message is actually delivered).
+    """
+    agent_options = _build_agent_options(agent_name, branch_name, config)
+
+    source_location = HostLocation(host=config.source_host, path=config.source_dir)
+    snapshot = config.snapshot
+    build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
+    target_host = NewHostOptions(provider=config.provider_name, name=HostName(str(agent_name)), build=build)
+
+    result = api_create(
         source_location=source_location,
         target_host=target_host,
         agent_options=agent_options,
         mng_ctx=mng_ctx,
     )
 
-    return TestAgentInfo(
-        test_node_id=test_node_id,
-        agent_id=create_result.agent.id,
-        agent_name=create_result.agent.name,
+    if message is not None:
+        try:
+            result.agent.send_message(message)
+        except (SendMessageError, HostError, TimeoutError) as exc:
+            logger.warning(
+                "Failed to confirm message delivery to '{}' (message likely delivered): {}", agent_name, exc
+            )
+
+    return result
+
+
+def launch_test_agent(
+    test_node_id: str,
+    config: TmrLaunchConfig,
+    mng_ctx: MngContext,
+    pytest_flags: tuple[str, ...],
+    prompt_suffix: str = "",
+) -> tuple[TestAgentInfo, OnlineHostInterface]:
+    """Launch a single agent to run and optionally fix one test."""
+    agent_name_suffix = _sanitize_test_name_for_agent(test_node_id)
+    short_id = _short_random_id()
+    agent_name = AgentName(f"tmr-{agent_name_suffix}-{short_id}")
+
+    logger.info("Launching agent '{}' for test: {}", agent_name, test_node_id)
+    create_result = _create_tmr_agent(
+        agent_name=agent_name,
+        branch_name=f"mng-tmr/{agent_name_suffix}-{short_id}",
+        config=config,
+        mng_ctx=mng_ctx,
+        message=_build_agent_prompt(test_node_id, pytest_flags, prompt_suffix),
     )
+
+    return (
+        TestAgentInfo(
+            test_node_id=test_node_id,
+            agent_id=create_result.agent.id,
+            agent_name=create_result.agent.name,
+        ),
+        create_result.host,
+    )
+
+
+def _create_snapshot_host(
+    config: TmrLaunchConfig,
+    mng_ctx: MngContext,
+) -> SnapshotName:
+    """Launch a dedicated snapshotter agent, snapshot its host, then stop it.
+
+    Creates a headless agent (no initial message) purely to trigger host
+    provisioning, snapshots the resulting host, and immediately stops the
+    agent. All real test agents are then launched from the snapshot.
+    """
+    short_id = _short_random_id()
+    agent_name = AgentName(f"tmr-snapshotter-{short_id}")
+
+    logger.info("Launching snapshotter agent '{}' for provisioning...", agent_name)
+    create_result = _create_tmr_agent(
+        agent_name=agent_name,
+        branch_name=f"mng-tmr/snapshotter-{short_id}",
+        config=config,
+        mng_ctx=mng_ctx,
+    )
+
+    snapshotter_host = create_result.host
+    snapshotter_agent_id = create_result.agent.id
+
+    try:
+        provider = get_provider_instance(config.provider_name, mng_ctx)
+        snapshot_id = provider.create_snapshot(snapshotter_host)
+        snapshot_name = SnapshotName(str(snapshot_id))
+        logger.info("Created snapshot '{}' from snapshotter host", snapshot_name)
+        return snapshot_name
+    finally:
+        _stop_agent_on_host(snapshotter_host, snapshotter_agent_id, agent_name)
 
 
 def launch_all_test_agents(
     test_node_ids: list[str],
-    source_dir: Path,
-    local_host: OnlineHostInterface,
+    config: TmrLaunchConfig,
     mng_ctx: MngContext,
-    agent_type: AgentTypeName,
     pytest_flags: tuple[str, ...],
-) -> list[TestAgentInfo]:
-    """Launch agents for all collected tests, returning tracking info for each."""
+    prompt_suffix: str = "",
+    use_snapshot: bool = False,
+    max_parallel: int = 4,
+    launch_delay_seconds: float = 2.0,
+) -> tuple[list[TestAgentInfo], dict[str, OnlineHostInterface], SnapshotName | None]:
+    """Launch agents for all collected tests.
+
+    Returns (agent_infos, agent_hosts, snapshot_name) where agent_hosts maps
+    agent_id strings to the host each agent was created on, and snapshot_name
+    is the snapshot used (if use_snapshot was True and the provider supports it).
+
+    When use_snapshot is True, a dedicated snapshotter agent is launched first
+    (without an initial message) purely to trigger provisioning. Its host is
+    snapshotted and the snapshotter is stopped. All test agents are then
+    launched from the snapshot for faster startup.
+    """
     agents: list[TestAgentInfo] = []
+    agent_hosts: dict[str, OnlineHostInterface] = {}
+
+    # Optionally create a snapshot before launching any test agents
+    launch_config = config
+    if use_snapshot:
+        provider = get_provider_instance(config.provider_name, mng_ctx)
+        if provider.supports_snapshots:
+            snapshot_name = _create_snapshot_host(config, mng_ctx)
+            launch_config = config.model_copy_update(to_update(config.field_ref().snapshot, snapshot_name))
+        else:
+            logger.warning(
+                "Provider '{}' does not support snapshots, launching all agents without snapshot",
+                config.provider_name,
+            )
+
+    # Launch all test agents with staggered submissions to avoid rate limits
     with ConcurrencyGroupExecutor(
         parent_cg=mng_ctx.concurrency_group,
         name="tmr_launch",
-        max_workers=8,
+        max_workers=max_parallel,
     ) as executor:
-        futures = [
-            executor.submit(
-                launch_test_agent,
-                test_node_id,
-                source_dir,
-                local_host,
-                mng_ctx,
-                agent_type,
-                pytest_flags,
+        futures = []
+        for i, test_node_id in enumerate(test_node_ids):
+            if i > 0 and launch_delay_seconds > 0:
+                time.sleep(launch_delay_seconds)
+            futures.append(
+                executor.submit(
+                    launch_test_agent,
+                    test_node_id,
+                    launch_config,
+                    mng_ctx,
+                    pytest_flags,
+                    prompt_suffix,
+                )
             )
-            for test_node_id in test_node_ids
-        ]
         for future in futures:
-            agents.append(future.result())
+            info, host = future.result()
+            agents.append(info)
+            agent_hosts[str(info.agent_id)] = host
+
     logger.info("Launched {} agent(s)", len(agents))
-    return agents
+    return agents, agent_hosts, launch_config.snapshot
 
 
 def poll_until_all_done(
     agents: list[TestAgentInfo],
     mng_ctx: MngContext,
     poll_interval_seconds: float,
-    host: OnlineHostInterface,
+    hosts: dict[str, OnlineHostInterface],
     deadline: float,
     report_path: Path | None = None,
 ) -> tuple[dict[str, AgentDetails], set[str]]:
@@ -264,6 +417,10 @@ def poll_until_all_done(
     Returns (final_details, timed_out_ids) where final_details maps agent_id
     strings to AgentDetails, and timed_out_ids is the set of agent_id strings
     that were still running when the deadline was reached.
+
+    The hosts dict maps agent_id strings to their respective hosts. This is
+    needed because agents may be running on different hosts (e.g. separate
+    Docker containers or Modal instances).
 
     Agents that disappear from listings are treated as errors after a grace period.
     Agents entering WAITING state are stopped after being recorded.
@@ -282,18 +439,24 @@ def poll_until_all_done(
             logger.warning("Timeout reached with {} agent(s) still pending, stopping them", len(pending_ids))
             for agent_id_str in pending_ids:
                 info = agent_id_to_info[agent_id_str]
-                _stop_agent_on_host(host, AgentId(agent_id_str), info.agent_name)
+                _stop_agent_on_host(hosts[agent_id_str], AgentId(agent_id_str), info.agent_name)
             if report_path is not None:
-                current_results = build_current_results(agents, final_details, set(pending_ids), host)
+                current_results = build_current_results(agents, final_details, set(pending_ids), hosts)
                 generate_html_report(current_results, report_path)
             return final_details, set(pending_ids)
 
-        logger.info("Polling {} pending agent(s)...", len(pending_ids))
-        list_result = list_agents(
-            mng_ctx=mng_ctx,
-            is_streaming=False,
-            error_behavior=ErrorBehavior.CONTINUE,
-        )
+        pending_names = [agent_id_to_info[aid].agent_name for aid in pending_ids]
+        logger.info("Polling {} pending agent(s): {}", len(pending_ids), ", ".join(str(n) for n in pending_names))
+        try:
+            list_result = list_agents(
+                mng_ctx=mng_ctx,
+                is_streaming=False,
+                error_behavior=ErrorBehavior.CONTINUE,
+            )
+        except (MngError, HostError, ConcurrencyGroupError, OSError, Exception) as exc:
+            logger.warning("Polling failed (will retry next cycle): {}", exc)
+            time.sleep(poll_interval_seconds)
+            continue
 
         seen_ids: set[str] = set()
         changed = False
@@ -316,7 +479,7 @@ def poll_until_all_done(
             changed = True
 
             if agent_detail.state == AgentLifecycleState.WAITING:
-                _stop_agent_on_host(host, agent_detail.id, agent_detail.name)
+                _stop_agent_on_host(hosts[agent_id_str], agent_detail.id, agent_detail.name)
 
         for agent_id_str in list(pending_ids):
             if agent_id_str not in seen_ids:
@@ -328,7 +491,7 @@ def poll_until_all_done(
                     changed = True
 
         if changed and report_path is not None:
-            current_results = build_current_results(agents, final_details, set(), host)
+            current_results = build_current_results(agents, final_details, set(), hosts)
             generate_html_report(current_results, report_path)
 
         if pending_ids:
@@ -342,7 +505,7 @@ def _stop_agent_on_host(host: OnlineHostInterface, agent_id: AgentId, agent_name
     try:
         host.stop_agents([agent_id])
         logger.info("Stopped agent '{}'", agent_name)
-    except MngError as exc:
+    except (MngError, HostError) as exc:
         logger.warning("Failed to stop agent '{}': {}", agent_name, exc)
 
 
@@ -361,6 +524,12 @@ def read_agent_result(
             outcome=TestOutcome(data["outcome"]),
             summary=data.get("summary", ""),
         )
+    except HostError as exc:
+        logger.warning("Lost connection to agent {} while fetching result file: {}", agent_detail.name, exc)
+        return TestResult(
+            outcome=TestOutcome.REMOTE_AGENT_ERROR,
+            summary=f"Connection lost while fetching result file from agent host: {exc}",
+        )
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         logger.warning("Failed to read result from agent {}: {}", agent_detail.name, exc)
         return TestResult(
@@ -374,8 +543,13 @@ def pull_agent_branch(
     host: OnlineHostInterface,
     destination: Path,
     cg: ConcurrencyGroup,
+    base_commit: str | None = None,
 ) -> str | None:
     """Pull the agent's git branch into the local repo.
+
+    If base_commit is provided, a new local branch is created from that commit
+    before pulling. This is needed for remote agents where the branch doesn't
+    exist locally yet.
 
     Returns the branch name if successful, None otherwise.
     """
@@ -385,6 +559,9 @@ def pull_agent_branch(
         return None
 
     try:
+        if base_commit is not None:
+            _create_local_branch(destination, branch_name, base_commit, cg)
+
         pull_git(
             agent=_get_agent_from_host(host, agent_detail.id),
             host=host,
@@ -397,16 +574,40 @@ def pull_agent_branch(
         )
         logger.info("Pulled branch '{}' from agent '{}'", branch_name, agent_detail.name)
         return branch_name
-    except MngError as exc:
+    except HostError as exc:
+        logger.warning("Connection lost while pulling branch from agent '{}': {}", agent_detail.name, exc)
+        return None
+    except (MngError, ProcessError) as exc:
         logger.warning("Failed to pull branch from agent '{}': {}", agent_detail.name, exc)
         return None
+
+
+def _create_local_branch(destination: Path, branch_name: str, base_commit: str, cg: ConcurrencyGroup) -> None:
+    """Create a local git branch from a base commit and switch to it.
+
+    If the branch already exists (e.g. from a previous run), it is reused.
+    """
+    result = cg.run_process_to_completion(
+        ["git", "branch", branch_name, base_commit],
+        cwd=destination,
+        is_checked_after=False,
+    )
+    if result.returncode == 0:
+        logger.info("Created local branch '{}' from commit {}", branch_name, base_commit[:8])
+    else:
+        logger.info("Branch '{}' already exists, reusing it", branch_name)
+    cg.run_process_to_completion(["git", "checkout", branch_name], cwd=destination)
 
 
 def _get_agent_from_host(
     host: OnlineHostInterface,
     agent_id: AgentId,
 ) -> AgentInterface:
-    """Look up an agent on a host by ID."""
+    """Look up an agent on a host by ID.
+
+    Raises AgentNotFoundOnHostError if not found, or HostError if the host
+    is unreachable (callers should catch both).
+    """
     for agent in host.get_agents():
         if agent.id == agent_id:
             return agent
@@ -417,7 +618,7 @@ def _collect_agent_results(
     agents: list[TestAgentInfo],
     final_details: dict[str, AgentDetails],
     timed_out_ids: set[str],
-    host: OnlineHostInterface,
+    hosts: dict[str, OnlineHostInterface],
     missing_detail_outcome: TestOutcome,
     missing_detail_summary: str,
 ) -> list[TestMapReduceResult]:
@@ -425,6 +626,7 @@ def _collect_agent_results(
 
     Each agent is classified as timed-out, missing (with the caller-specified
     outcome), or finished (result read from the agent's state directory).
+    The hosts dict maps agent_id strings to their respective hosts.
     """
     results: list[TestMapReduceResult] = []
 
@@ -455,7 +657,7 @@ def _collect_agent_results(
             )
             continue
 
-        test_result = read_agent_result(detail, host)
+        test_result = read_agent_result(detail, hosts[agent_id_str])
         results.append(
             TestMapReduceResult(
                 test_node_id=agent_info.test_node_id,
@@ -473,16 +675,22 @@ def gather_results(
     agents: list[TestAgentInfo],
     final_details: dict[str, AgentDetails],
     timed_out_ids: set[str],
-    host: OnlineHostInterface,
+    hosts: dict[str, OnlineHostInterface],
     source_dir: Path,
     cg: ConcurrencyGroup,
+    base_commit: str | None = None,
 ) -> list[TestMapReduceResult]:
-    """Gather results from all finished agents, pulling branches where appropriate."""
+    """Gather results from all finished agents, pulling branches where appropriate.
+
+    If base_commit is provided, a local branch is created from that commit before
+    pulling each agent's changes. This is needed for remote agents whose branches
+    don't exist locally.
+    """
     results = _collect_agent_results(
         agents=agents,
         final_details=final_details,
         timed_out_ids=timed_out_ids,
-        host=host,
+        hosts=hosts,
         missing_detail_outcome=TestOutcome.AGENT_ERROR,
         missing_detail_summary="Agent details not found after polling",
     )
@@ -493,7 +701,7 @@ def gather_results(
             agent_id_str = next(str(info.agent_id) for info in agents if info.test_node_id == result.test_node_id)
             detail = final_details.get(agent_id_str)
             if detail is not None:
-                pull_agent_branch(detail, host, source_dir, cg)
+                pull_agent_branch(detail, hosts[agent_id_str], source_dir, cg, base_commit=base_commit)
 
     return results
 
@@ -502,14 +710,14 @@ def build_current_results(
     agents: list[TestAgentInfo],
     final_details: dict[str, AgentDetails],
     timed_out_ids: set[str],
-    host: OnlineHostInterface,
+    hosts: dict[str, OnlineHostInterface],
 ) -> list[TestMapReduceResult]:
     """Build current results without pulling branches, for intermediate reports."""
     return _collect_agent_results(
         agents=agents,
         final_details=final_details,
         timed_out_ids=timed_out_ids,
-        host=host,
+        hosts=hosts,
         missing_detail_outcome=TestOutcome.PENDING,
         missing_detail_summary="Agent is still running...",
     )
@@ -642,15 +850,12 @@ def _html_report_css() -> str:
 
 def launch_integrator_agent(
     fix_branches: list[str],
-    source_dir: Path,
-    local_host: OnlineHostInterface,
+    config: TmrLaunchConfig,
     mng_ctx: MngContext,
-    agent_type: AgentTypeName,
-) -> TestAgentInfo:
+) -> tuple[TestAgentInfo, OnlineHostInterface]:
     """Launch an integrator agent that merges all fix branches into one."""
     short_id = _short_random_id()
     agent_name = AgentName(f"tmr-integrator-{short_id}")
-    branch_name = f"mng-tmr/integrated-{short_id}"
 
     branch_list = "\n".join(f"  - {b}" for b in fix_branches)
     prompt = f"""Merge the following branches into one integrated branch:
@@ -663,31 +868,22 @@ Write the result to $MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json with:
 If merging fails, use outcome FIX_IMPL_FAILED.
 """
 
-    agent_options = CreateAgentOptions(
-        agent_type=agent_type,
-        name=agent_name,
-        initial_message=prompt,
-        git=AgentGitOptions(
-            copy_mode=WorkDirCopyMode.WORKTREE,
-            new_branch_name=branch_name,
-        ),
-    )
-
-    source_location = HostLocation(host=local_host, path=source_dir)
-    target_host = NewHostOptions(provider=LOCAL_PROVIDER_NAME)
-
     logger.info("Launching integrator agent '{}' to merge {} branches", agent_name, len(fix_branches))
-    create_result: CreateAgentResult = api_create(
-        source_location=source_location,
-        target_host=target_host,
-        agent_options=agent_options,
+    create_result = _create_tmr_agent(
+        agent_name=agent_name,
+        branch_name=f"mng-tmr/integrated-{short_id}",
+        config=config,
         mng_ctx=mng_ctx,
+        message=prompt,
     )
 
-    return TestAgentInfo(
-        test_node_id="integrator",
-        agent_id=create_result.agent.id,
-        agent_name=create_result.agent.name,
+    return (
+        TestAgentInfo(
+            test_node_id="integrator",
+            agent_id=create_result.agent.id,
+            agent_name=create_result.agent.name,
+        ),
+        create_result.host,
     )
 
 
@@ -706,11 +902,16 @@ def wait_for_integrator(
     agent_id_str = str(integrator.agent_id)
 
     while time.monotonic() < deadline:
-        list_result = list_agents(
-            mng_ctx=mng_ctx,
-            is_streaming=False,
-            error_behavior=ErrorBehavior.CONTINUE,
-        )
+        try:
+            list_result = list_agents(
+                mng_ctx=mng_ctx,
+                is_streaming=False,
+                error_behavior=ErrorBehavior.CONTINUE,
+            )
+        except (MngError, HostError, ConcurrencyGroupError, OSError, Exception) as exc:
+            logger.warning("Integrator polling failed (will retry next cycle): {}", exc)
+            time.sleep(poll_interval_seconds)
+            continue
 
         for agent_detail in list_result.agents:
             if str(agent_detail.id) != agent_id_str:

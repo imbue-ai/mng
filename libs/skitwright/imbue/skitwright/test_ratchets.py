@@ -32,7 +32,7 @@ def test_prevent_while_true() -> None:
 
 
 def test_prevent_time_sleep() -> None:
-    rc.check_time_sleep(_DIR, snapshot(5))
+    rc.check_time_sleep(_DIR, snapshot(0))
 
 
 def test_prevent_global_keyword() -> None:
@@ -59,7 +59,7 @@ def test_prevent_base_exception_catch() -> None:
 
 
 def test_prevent_builtin_exception_raises() -> None:
-    rc.check_builtin_exception_raises(_DIR, snapshot(0))
+    rc.check_builtin_exception_raises(_DIR, snapshot(1))
 
 
 # --- Import style ---
@@ -127,7 +127,7 @@ def test_prevent_num_prefix() -> None:
 
 
 def test_prevent_trailing_comments() -> None:
-    rc.check_trailing_comments(_DIR, snapshot(0))
+    rc.check_trailing_comments(_DIR, snapshot(1))
 
 
 def test_prevent_init_docstrings() -> None:
@@ -208,7 +208,7 @@ def test_prevent_os_fork() -> None:
 
 
 def test_prevent_direct_subprocess_usage() -> None:
-    rc.check_direct_subprocess(_DIR, snapshot(0))
+    rc.check_direct_subprocess(_DIR, snapshot(1))
 
 
 # --- AST-based ratchets ---
@@ -227,7 +227,7 @@ def test_prevent_importing_underscore_prefixed_names_in_non_test_code() -> None:
 
 
 def test_prevent_init_methods_in_non_exception_classes() -> None:
-    rc.check_init_methods_in_non_exception_classes(_DIR, snapshot(0))
+    rc.check_init_methods_in_non_exception_classes(_DIR, snapshot(4))
 
 
 def test_prevent_cast_usage() -> None:

@@ -14,26 +14,35 @@ from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
+from imbue.mng.cli.env_utils import resolve_env_vars
+from imbue.mng.cli.env_utils import resolve_labels
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
+from imbue.mng.interfaces.host import AgentEnvironmentOptions
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.primitives import SnapshotName
 from imbue.mng_tmr.api import build_current_results
 from imbue.mng_tmr.api import collect_tests
 from imbue.mng_tmr.api import gather_results
 from imbue.mng_tmr.api import generate_html_report
+from imbue.mng_tmr.api import get_base_commit
 from imbue.mng_tmr.api import launch_all_test_agents
 from imbue.mng_tmr.api import launch_integrator_agent
 from imbue.mng_tmr.api import poll_until_all_done
 from imbue.mng_tmr.api import pull_agent_branch
 from imbue.mng_tmr.api import wait_for_integrator
+from imbue.mng_tmr.data_types import TestMapReduceResult
 from imbue.mng_tmr.data_types import TestOutcome
+from imbue.mng_tmr.data_types import TmrLaunchConfig
 
 _DEFAULT_TIMEOUT_SECONDS = 3600.0
 _DEFAULT_INTEGRATOR_TIMEOUT_SECONDS = 3600.0
@@ -43,7 +52,17 @@ class TmrCliOptions(CommonCliOptions):
     """Options passed from the CLI to the tmr command."""
 
     pytest_args: tuple[str, ...]
+    testing_flags: tuple[str, ...]
     agent_type: str
+    provider: str
+    integrator_provider: str
+    env: tuple[str, ...]
+    label: tuple[str, ...]
+    prompt_suffix: str | None
+    use_snapshot: bool
+    snapshot: str | None
+    max_parallel: int
+    launch_delay: float
     poll_interval: float
     timeout: float
     integrator_timeout: float
@@ -51,18 +70,26 @@ class TmrCliOptions(CommonCliOptions):
     source: str | None
 
 
-def _split_pytest_args(raw_args: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Split raw pytest args into (positional, flags) at the first '--'.
+class _TmrCommand(click.Command):
+    """Custom Command that handles -- separator for testing flags.
 
-    Everything before '--' is treated as positional args (test paths/patterns).
-    Everything after '--' is treated as flags shared between pytest discovery
-    and individual test invocations. If there is no '--', all args are positional.
+    Everything before -- is treated as positional args (test paths/patterns).
+    Everything after -- is captured as testing_flags and shared between
+    pytest discovery and individual test runs.
+
+    This is the same trick used by _CreateCommand in the mng create CLI.
     """
-    args_list = list(raw_args)
-    if "--" in args_list:
-        sep_idx = args_list.index("--")
-        return tuple(args_list[:sep_idx]), tuple(args_list[sep_idx + 1 :])
-    return tuple(args_list), ()
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        if "--" in args:
+            idx = args.index("--")
+            after_dash = tuple(args[idx + 1 :])
+            args = args[:idx]
+        else:
+            after_dash = ()
+        result = super().parse_args(ctx, args)
+        ctx.params["testing_flags"] = after_dash
+        return result
 
 
 def _emit_test_count(count: int, output_opts: OutputOptions) -> None:
@@ -98,13 +125,132 @@ def _emit_report_path(path: Path, output_opts: OutputOptions) -> None:
             assert_never(unreachable)
 
 
-@click.command("tmr", context_settings={"ignore_unknown_options": True})
+def _run_integrator_phase(
+    results: list[TestMapReduceResult],
+    config: TmrLaunchConfig,
+    mng_ctx: MngContext,
+    opts: TmrCliOptions,
+    base_commit: str | None = None,
+) -> str | None:
+    """Launch an integrator agent to merge fix branches, if any exist."""
+    fix_branches = [
+        r.branch_name
+        for r in results
+        if r.outcome in (TestOutcome.FIX_TEST_SUCCEEDED, TestOutcome.FIX_IMPL_SUCCEEDED) and r.branch_name is not None
+    ]
+    if not fix_branches:
+        return None
+
+    integrator, integrator_host = launch_integrator_agent(
+        fix_branches=fix_branches,
+        config=config,
+        mng_ctx=mng_ctx,
+    )
+
+    integrator_deadline = time.monotonic() + opts.integrator_timeout
+    integrator_branch = wait_for_integrator(
+        integrator=integrator,
+        mng_ctx=mng_ctx,
+        poll_interval_seconds=opts.poll_interval,
+        host=integrator_host,
+        deadline=integrator_deadline,
+    )
+
+    if integrator_branch is not None:
+        is_remote = config.provider_name.lower() != LOCAL_PROVIDER_NAME
+        list_result = list_agents(
+            mng_ctx=mng_ctx,
+            is_streaming=False,
+            error_behavior=ErrorBehavior.CONTINUE,
+        )
+        for agent_detail in list_result.agents:
+            if str(agent_detail.id) == str(integrator.agent_id):
+                pull_agent_branch(
+                    agent_detail,
+                    integrator_host,
+                    config.source_dir,
+                    mng_ctx.concurrency_group,
+                    base_commit=base_commit if is_remote else None,
+                )
+                break
+
+    return integrator_branch
+
+
+def _emit_summary(results: list[TestMapReduceResult], output_opts: OutputOptions) -> None:
+    """Print per-test outcome summary in human mode."""
+    if output_opts.output_format != OutputFormat.HUMAN:
+        return
+    for r in results:
+        branch_info = f" -> {r.branch_name}" if r.branch_name else ""
+        write_human_line(
+            "  {} [{}] {}{}",
+            r.outcome.value,
+            r.agent_name,
+            r.summary,
+            branch_info,
+        )
+
+
+@click.command("tmr", cls=_TmrCommand, context_settings={"ignore_unknown_options": True})
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 @click.option(
     "--agent-type",
     default="claude",
     show_default=True,
     help="Type of agent to launch for each test",
+)
+@click.option(
+    "--provider",
+    default="local",
+    show_default=True,
+    help="Provider for agent hosts (e.g. local, docker, modal)",
+)
+@click.option(
+    "--integrator-provider",
+    default="local",
+    show_default=True,
+    help="Provider for the integrator agent (defaults to local since there is only one)",
+)
+@click.option(
+    "--env",
+    multiple=True,
+    help="Environment variable KEY=VALUE to pass to agents [repeatable]",
+)
+@click.option(
+    "--label",
+    multiple=True,
+    help="Agent label KEY=VALUE to attach to all launched agents [repeatable]",
+)
+@click.option(
+    "--prompt-suffix",
+    default=None,
+    help="Additional text to append to the agent prompt",
+)
+@click.option(
+    "--use-snapshot",
+    is_flag=True,
+    default=False,
+    help="Build one agent first, snapshot its host, then launch remaining agents from the snapshot (faster for remote providers)",
+)
+@click.option(
+    "--snapshot",
+    default=None,
+    help="Use an existing snapshot/image ID for all agents (skips building; implies --use-snapshot behavior)",
+)
+@click.option(
+    "--max-parallel",
+    default=4,
+    show_default=True,
+    type=int,
+    help="Maximum number of agents to launch concurrently",
+)
+@click.option(
+    "--launch-delay",
+    default=2.0,
+    show_default=True,
+    type=float,
+    help="Seconds to wait between launching each agent (avoids provider rate limits)",
 )
 @click.option(
     "--poll-interval",
@@ -131,7 +277,7 @@ def _emit_report_path(path: Path, output_opts: OutputOptions) -> None:
     "--output-html",
     default=None,
     type=click.Path(),
-    help="Path for the HTML report [default: tmr-report-<timestamp>.html]",
+    help="Path for the HTML report [default: tmr_reports/tmr-report-<timestamp>.html]",
 )
 @click.option(
     "--source",
@@ -149,139 +295,107 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
     )
 
     source_dir = Path(opts.source) if opts.source is not None else Path.cwd()
-    agent_type = AgentTypeName(opts.agent_type)
+    testing_flags = opts.testing_flags
 
-    # Split args: positional paths before --, pytest flags after --
-    pos_args, pytest_flags = _split_pytest_args(opts.pytest_args)
+    # Step 1: Remember the base commit so we can create local branches for remote agents
+    base_commit = get_base_commit(source_dir, mng_ctx.concurrency_group)
 
-    # Step 1: Collect tests (both positional args and flags go to discovery)
+    # Step 2: Collect tests (positional paths + testing flags go to discovery)
     test_node_ids = collect_tests(
-        pytest_args=pos_args + pytest_flags,
+        pytest_args=opts.pytest_args + testing_flags,
         source_dir=source_dir,
         cg=mng_ctx.concurrency_group,
     )
     _emit_test_count(len(test_node_ids), output_opts)
 
-    # Step 2: Get the local host (same pattern as `mng create`)
-    provider = get_provider_instance(LOCAL_PROVIDER_NAME, mng_ctx)
-    host = provider.get_host(HostName("localhost"))
-    local_host, _ = ensure_host_started(host, is_start_desired=True, provider=provider)
+    # Step 3: Get the local host for source_location (tests are collected locally)
+    local_provider = get_provider_instance(LOCAL_PROVIDER_NAME, mng_ctx)
+    local_host_ref = local_provider.get_host(HostName("localhost"))
+    source_host, _ = ensure_host_started(local_host_ref, is_start_desired=True, provider=local_provider)
 
-    # Step 3: Launch agents (flags are passed to individual pytest invocations)
-    agent_infos = launch_all_test_agents(
-        test_node_ids=test_node_ids,
+    # Step 4: Build launch config and launch agents
+    env_options = AgentEnvironmentOptions(env_vars=resolve_env_vars((), opts.env))
+    label_options = resolve_labels(opts.label)
+    provided_snapshot = SnapshotName(opts.snapshot) if opts.snapshot is not None else None
+    config = TmrLaunchConfig(
         source_dir=source_dir,
-        local_host=local_host,
+        source_host=source_host,
+        agent_type=AgentTypeName(opts.agent_type),
+        provider_name=ProviderInstanceName(opts.provider),
+        env_options=env_options,
+        label_options=label_options,
+        snapshot=provided_snapshot,
+    )
+    # When --snapshot is provided, all agents use it directly (no need for --use-snapshot)
+    agent_infos, agent_hosts, _snapshot_name = launch_all_test_agents(
+        test_node_ids=test_node_ids,
+        config=config,
         mng_ctx=mng_ctx,
-        agent_type=agent_type,
-        pytest_flags=pytest_flags,
+        pytest_flags=testing_flags,
+        prompt_suffix=opts.prompt_suffix or "",
+        use_snapshot=opts.use_snapshot and provided_snapshot is None,
+        max_parallel=opts.max_parallel,
+        launch_delay_seconds=opts.launch_delay,
     )
     _emit_agents_launched(len(agent_infos), output_opts)
 
-    # Step 4: Compute html_path before polling
+    # Step 5: Compute html_path before polling
     if opts.output_html is not None:
         html_path = Path(opts.output_html)
     else:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        html_path = Path(f"tmr-report-{timestamp}.html")
+        html_path = Path("tmr_reports") / f"tmr-report-{timestamp}.html"
 
-    # Step 5: Write initial report (all PENDING)
-    initial_results = build_current_results(agent_infos, {}, set(), local_host)
+    # Step 6: Write initial report (all PENDING)
+    initial_results = build_current_results(agent_infos, {}, set(), agent_hosts)
     generate_html_report(initial_results, html_path)
 
-    # Step 6: Poll until all agents are done (or timeout), updating report continuously
+    # Step 7: Poll until all agents are done (or timeout), updating report continuously
     deadline = time.monotonic() + opts.timeout
     final_details, timed_out_ids = poll_until_all_done(
         agents=agent_infos,
         mng_ctx=mng_ctx,
         poll_interval_seconds=opts.poll_interval,
-        host=local_host,
+        hosts=agent_hosts,
         deadline=deadline,
         report_path=html_path,
     )
 
-    # Step 7: Gather final results (read result.json, pull branches for fixes)
+    # Step 8: Gather final results (read result.json, pull branches for fixes)
+    # Only pass base_commit for remote providers -- local worktree branches already exist
+    is_remote_provider = ProviderInstanceName(opts.provider).lower() != LOCAL_PROVIDER_NAME
     results = gather_results(
         agents=agent_infos,
         final_details=final_details,
         timed_out_ids=timed_out_ids,
-        host=local_host,
+        hosts=agent_hosts,
         source_dir=source_dir,
         cg=mng_ctx.concurrency_group,
+        base_commit=base_commit if is_remote_provider else None,
     )
 
-    # Step 8: Write report with final results
+    # Step 9: Write report with final results
     generate_html_report(results, html_path)
 
-    # Step 9: If there are FIX_*_SUCCEEDED branches, launch integrator agent
-    fix_branches = [
-        r.branch_name
-        for r in results
-        if r.outcome in (TestOutcome.FIX_TEST_SUCCEEDED, TestOutcome.FIX_IMPL_SUCCEEDED) and r.branch_name is not None
-    ]
-
-    integrator_branch: str | None = None
-    if fix_branches:
-        integrator = launch_integrator_agent(
-            fix_branches=fix_branches,
-            source_dir=source_dir,
-            local_host=local_host,
-            mng_ctx=mng_ctx,
-            agent_type=agent_type,
-        )
-
-        # Step 10: Wait for integrator
-        integrator_deadline = time.monotonic() + opts.integrator_timeout
-        integrator_branch = wait_for_integrator(
-            integrator=integrator,
-            mng_ctx=mng_ctx,
-            poll_interval_seconds=opts.poll_interval,
-            host=local_host,
-            deadline=integrator_deadline,
-        )
-
-        # Step 11: If integrator succeeded, pull its branch and write final report
-        if integrator_branch is not None:
-            integrator_detail = None
-            list_result = list_agents(
-                mng_ctx=mng_ctx,
-                is_streaming=False,
-                error_behavior=ErrorBehavior.CONTINUE,
-            )
-            for agent_detail in list_result.agents:
-                if str(agent_detail.id) == str(integrator.agent_id):
-                    integrator_detail = agent_detail
-                    break
-
-            if integrator_detail is not None:
-                pull_agent_branch(
-                    integrator_detail,
-                    local_host,
-                    source_dir,
-                    mng_ctx.concurrency_group,
-                )
-
-    # Step 12: Write final report
+    # Step 10: Build integrator config (defaults to local provider) and integrate
+    integrator_config = TmrLaunchConfig(
+        source_dir=source_dir,
+        source_host=source_host,
+        agent_type=AgentTypeName(opts.agent_type),
+        provider_name=ProviderInstanceName(opts.integrator_provider),
+        env_options=env_options,
+        label_options=label_options,
+    )
+    integrator_branch = _run_integrator_phase(results, integrator_config, mng_ctx, opts, base_commit=base_commit)
     generate_html_report(results, html_path, integrator_branch=integrator_branch)
     _emit_report_path(html_path, output_opts)
-
-    # Print a summary in human mode
-    if output_opts.output_format == OutputFormat.HUMAN:
-        for r in results:
-            branch_info = f" -> {r.branch_name}" if r.branch_name else ""
-            write_human_line(
-                "  {} [{}] {}{}",
-                r.outcome.value,
-                r.agent_name,
-                r.summary,
-                branch_info,
-            )
+    _emit_summary(results, output_opts)
 
 
 CommandHelpMetadata(
     key="tmr",
     one_line_description="Run and fix tests in parallel using agents (test map-reduce)",
-    synopsis="mng tmr [TEST_PATHS...] [-- PYTEST_FLAGS...] [--timeout <SECS>] [--integrator-timeout <SECS>] [--agent-type <TYPE>]",
+    synopsis="mng tmr [TEST_PATHS...] [-- TESTING_FLAGS...] [--provider <PROVIDER>] [--use-snapshot] [--env KEY=VALUE] [--label KEY=VALUE] [--timeout <SECS>] [--agent-type <TYPE>]",
     description="""This command implements a map-reduce pattern for tests:
 
 1. Collects tests using pytest --collect-only, passing through all arguments.
@@ -297,12 +411,18 @@ CommandHelpMetadata(
    summaries, including the integrated branch name if applicable.
 
 Arguments before -- are test paths/patterns (positional). Arguments after -- are
-pytest flags shared between discovery and individual test runs. For example:
+pytest testing flags shared between discovery and individual test runs. For example:
 
   mng tmr tests/e2e -- -m release
 
 This discovers tests with `pytest --collect-only tests/e2e -m release` and runs
 each test with `pytest tests/e2e/test_foo.py::test_bar -m release`.
+
+Use --provider to run agents on a specific provider (e.g. docker, modal).
+Use --use-snapshot with remote providers to build and provision one host first,
+snapshot it, then launch all remaining agents from the snapshot (much faster).
+Use --env to pass environment variables and --label to tag all agents.
+Use --prompt-suffix to append custom instructions to the agent prompt.
 
 Each agent writes its result to $MNG_AGENT_STATE_DIR/plugin/test-map-reduce/result.json
 with an outcome enum and a markdown summary.""",
@@ -310,6 +430,9 @@ with an outcome enum and a markdown summary.""",
         ("Run all tests in current directory", "mng tmr"),
         ("Run tests in a specific file", "mng tmr tests/test_foo.py"),
         ("Run tests with a marker", "mng tmr tests/e2e -- -m release"),
+        ("Use Docker provider", "mng tmr --provider docker tests/"),
+        ("Modal with snapshot", "mng tmr --provider modal --use-snapshot tests/"),
+        ("Pass env vars and labels", "mng tmr --env API_KEY=xxx --label batch=run1"),
         ("Custom poll interval", "mng tmr --poll-interval 30"),
         ("Specify output location", "mng tmr --output-html report.html"),
     ),
