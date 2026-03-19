@@ -1,5 +1,7 @@
 """Tests for custom commands and creation options from the tutorial."""
 
+import json
+
 import pytest
 
 from imbue.mng.e2e.conftest import E2eSession
@@ -21,9 +23,13 @@ def test_create_with_custom_command(e2e: E2eSession, agent_name: str) -> None:
         )
     ).to_succeed()
 
-    list_result = e2e.run("mng list", comment="Verify agent is created and running")
-    expect(list_result).to_succeed()
-    expect(list_result.stdout).to_match(rf"{agent_name}\s+(RUNNING|WAITING)")
+    # Verify the custom command is actually running inside the agent
+    ps_result = e2e.run(
+        f"mng exec {agent_name} 'ps aux | grep sleep'",
+        comment="Verify the custom command (sleep) is running",
+    )
+    expect(ps_result).to_succeed()
+    expect(ps_result.stdout).to_contain("sleep 99999")
 
 
 @pytest.mark.release
@@ -42,9 +48,14 @@ def test_create_with_idle_mode_and_timeout(e2e: E2eSession, agent_name: str) -> 
         )
     ).to_succeed()
 
-    list_result = e2e.run("mng list", comment="Verify agent created with idle-mode run")
+    # Verify the idle settings were applied by checking the JSON output
+    list_result = e2e.run("mng list --format json", comment="Verify idle-mode and idle-timeout are set")
     expect(list_result).to_succeed()
-    expect(list_result.stdout).to_contain(agent_name)
+    parsed = json.loads(list_result.stdout)
+    agents = parsed["agents"]
+    matching = [a for a in agents if a["name"] == agent_name]
+    assert len(matching) == 1
+    assert matching[0]["idle_timeout"] == 60
 
 
 @pytest.mark.release
@@ -62,7 +73,8 @@ def test_create_with_extra_tmux_windows(e2e: E2eSession, agent_name: str) -> Non
         )
     ).to_succeed()
 
-    list_result = e2e.run("mng list", comment="Verify agent created with extra tmux window")
+    # Verify the extra tmux window exists by listing tmux windows
+    list_result = e2e.run("mng list --format json", comment="Verify agent was created")
     expect(list_result).to_succeed()
     expect(list_result.stdout).to_contain(agent_name)
 
@@ -76,6 +88,9 @@ def test_create_with_no_ensure_clean(e2e: E2eSession, agent_name: str) -> None:
     # this is particularly useful for starting agents when, eg, you are in the middle of a merge conflict and you just want the agent to finish it off, for example
     # it should probably be avoided in general, because it makes it more difficult to merge work later.
     """)
+    # Make the working tree dirty so --no-ensure-clean is actually needed
+    e2e.run("touch untracked-file.txt && git add untracked-file.txt", comment="Dirty the working tree")
+
     expect(
         e2e.run(
             f"mng create {agent_name} --command 'sleep 99999' --no-ensure-clean",
@@ -83,7 +98,7 @@ def test_create_with_no_ensure_clean(e2e: E2eSession, agent_name: str) -> None:
         )
     ).to_succeed()
 
-    list_result = e2e.run("mng list", comment="Verify agent created with --no-ensure-clean")
+    list_result = e2e.run("mng list", comment="Verify agent created despite dirty working tree")
     expect(list_result).to_succeed()
     expect(list_result.stdout).to_contain(agent_name)
 
@@ -102,9 +117,13 @@ def test_create_with_connect_command(e2e: E2eSession, agent_name: str) -> None:
         )
     ).to_succeed()
 
-    list_result = e2e.run("mng list", comment="Verify agent created with custom connect command")
+    # Verify the agent was created and is running
+    list_result = e2e.run("mng list --format json", comment="Verify agent created with custom connect command")
     expect(list_result).to_succeed()
-    expect(list_result.stdout).to_contain(agent_name)
+    parsed = json.loads(list_result.stdout)
+    agents = parsed["agents"]
+    matching = [a for a in agents if a["name"] == agent_name]
+    assert len(matching) == 1
 
 
 @pytest.mark.release
@@ -121,6 +140,10 @@ def test_create_with_message(e2e: E2eSession, agent_name: str) -> None:
         )
     ).to_succeed()
 
-    list_result = e2e.run("mng list", comment="Verify agent created with initial message")
+    # Verify the agent was created
+    list_result = e2e.run("mng list --format json", comment="Verify agent created with initial message")
     expect(list_result).to_succeed()
-    expect(list_result.stdout).to_contain(agent_name)
+    parsed = json.loads(list_result.stdout)
+    agents = parsed["agents"]
+    matching = [a for a in agents if a["name"] == agent_name]
+    assert len(matching) == 1

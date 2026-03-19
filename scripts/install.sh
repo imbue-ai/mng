@@ -207,17 +207,18 @@ else
 fi
 
 # ── Verify bash 4+ is on PATH (post-install) ─────────────────────────────────
-# Re-check after deps were installed. Warn if still too old.
+# Re-check after deps were installed. Collect warnings for printing at the end
+# (see DEFERRED_WARNINGS below).
+
+DEFERRED_WARNINGS=""
 
 if [ "$_NEED_MODERN_BASH" = true ]; then
     _POST_BASH_VER="$(bash -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)"
     if [ "$_POST_BASH_VER" -lt 4 ] 2>/dev/null; then
         if [ "$OS" = "macos" ]; then
-            warn "PATH-resolved bash is still version $_POST_BASH_VER after install."
-            warn "Ensure /opt/homebrew/bin (Apple Silicon) or /usr/local/bin (Intel) is before /bin in your PATH."
+            DEFERRED_WARNINGS="${DEFERRED_WARNINGS}PATH-resolved bash is still version $_POST_BASH_VER after install.\nEnsure /opt/homebrew/bin (Apple Silicon) or /usr/local/bin (Intel) is before /bin in your PATH.\n"
         else
-            warn "PATH-resolved bash is still version $_POST_BASH_VER after install."
-            warn "Ensure the newly installed bash is before the old one in your PATH."
+            DEFERRED_WARNINGS="${DEFERRED_WARNINGS}PATH-resolved bash is still version $_POST_BASH_VER after install.\nEnsure the newly installed bash is before the old one in your PATH.\n"
         fi
     fi
 fi
@@ -239,9 +240,7 @@ info "Installing mng..."
 uv tool install mng
 
 if ! command -v mng &>/dev/null; then
-    warn "mng was installed but is not on PATH."
-    warn "You may need to add ~/.local/bin to your PATH:"
-    printf '  export PATH="$HOME/.local/bin:$PATH"\n'
+    DEFERRED_WARNINGS="${DEFERRED_WARNINGS}mng was installed but is not on PATH.\nYou may need to add ~/.local/bin to your PATH:\n  export PATH=\"\$HOME/.local/bin:\$PATH\"\n"
 fi
 
 # ── Shell completion ───────────────────────────────────────────────────────────
@@ -288,3 +287,13 @@ else
 fi
 
 info "Get started with: mng --help"
+
+# IMPORTANT: Instructions that require user action after installation (e.g.
+# adding something to PATH) must always be printed last, so they remain visible
+# when the script exits.
+if [ -n "$DEFERRED_WARNINGS" ]; then
+    printf "\n"
+    printf "%b" "$DEFERRED_WARNINGS" | while IFS= read -r line; do
+        warn "$line"
+    done
+fi
