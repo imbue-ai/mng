@@ -240,7 +240,7 @@ def _render_transcript(text: str, cast_stems: list[str] | None = None) -> str:
         is_new_block_start = (
             (line.startswith("# ") or line.startswith("$ "))
             and current_block
-            and any(l.startswith("? ") for l in current_block)
+            and any(bl.startswith("? ") for bl in current_block)
         )
         if is_new_block_start:
             blocks.append(current_block)
