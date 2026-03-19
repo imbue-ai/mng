@@ -230,6 +230,7 @@ def test_create_modal_snapshot(e2e: Session) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.docker
 def test_create_docker_start_args(e2e: Session) -> None:
     """
     # some providers (like docker), take "start" args as well as build args:
@@ -239,10 +240,14 @@ def test_create_docker_start_args(e2e: Session) -> None:
     result = e2e.run(
         'mng create my-task --provider docker -s "--gpus all" --no-ensure-clean',
         comment="some providers (like docker), take start args as well as build args",
+        timeout=120.0,
     )
-    expect(result).to_fail()
+    # On machines with Docker running, this may succeed or fail with a Docker error.
+    # On machines without Docker, it fails with a provider/connection error.
+    # Either way, the flags should be accepted (no "unknown option" error).
     combined = result.stdout + result.stderr
-    expect(combined).to_match(_PROVIDER_ERROR_PATTERN)
+    expect(combined).not_to_contain("No such option")
+    expect(combined).not_to_contain("no such option")
 
 
 @pytest.mark.release
