@@ -135,9 +135,10 @@ def test_create_with_agent_args(e2e: E2eSession, agent_name: str) -> None:
     )
     expect(result).to_succeed()
 
-    list_result = e2e.run("mng list --format json", comment="that command launches claude with the opus model")
+    list_result = e2e.run("mng list --format json", comment="Verify agent args were passed through")
     expect(list_result).to_succeed()
     parsed = json.loads(list_result.stdout)
     agents = parsed["agents"]
     matching = [a for a in agents if a["name"] == agent_name]
     assert len(matching) == 1
+    assert "--model opus" in matching[0]["command"]

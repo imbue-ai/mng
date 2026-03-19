@@ -15,7 +15,7 @@ import pytest
 from imbue.mng.e2e.conftest import E2eSession
 from imbue.skitwright.expect import expect
 
-_PROVIDER_ERROR_PATTERN = r"(?i)modal|docker|provider|disabled|not authorized|not available"
+_PROVIDER_ERROR_PATTERN = r"(?i)(modal|docker).*(not authorized|not enabled|disabled|not available|not installed)"
 
 
 def _assert_provider_disabled(result) -> None:

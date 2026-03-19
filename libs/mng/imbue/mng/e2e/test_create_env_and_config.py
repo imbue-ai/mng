@@ -21,9 +21,12 @@ def test_create_with_env(e2e: E2eSession, agent_name: str) -> None:
         )
     ).to_succeed()
 
-    list_result = e2e.run("mng list", comment="Verify agent created with --env")
-    expect(list_result).to_succeed()
-    expect(list_result.stdout).to_match(rf"{agent_name}\s+(RUNNING|WAITING)")
+    env_result = e2e.run(
+        f"mng exec {agent_name} 'printenv DEBUG'",
+        comment="Verify DEBUG env var is set inside the agent",
+    )
+    expect(env_result).to_succeed()
+    expect(env_result.stdout).to_contain("true")
 
 
 @pytest.mark.release
