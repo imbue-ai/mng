@@ -225,6 +225,7 @@ def test_create_modal_snapshot(e2e: E2eSession) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.docker
 def test_create_docker_start_args(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # some providers (like docker), take "start" args as well as build args:
