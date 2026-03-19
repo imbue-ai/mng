@@ -264,10 +264,12 @@ def e2e(
     # Detect test failure
     test_failed = _e2e_test_failed.pop(request.node.nodeid, False)
     config = request.config
-
-    # Save artifacts (transcript, etc.) unless disabled
+    keep_env = _should_keep_env(config, test_failed)
     save_artifacts = _should_save_artifacts(config, test_failed)
-    if save_artifacts:
+
+    # Save artifacts (transcript, etc.) unless disabled.
+    # Always keep the directory if the env is being kept (for the destroy script).
+    if save_artifacts or keep_env:
         transcript_path = test_output_dir / "transcript.txt"
         transcript_path.write_text(session.transcript)
     else:
@@ -277,7 +279,6 @@ def e2e(
         sys.stderr.write(f"\n  Test output: {test_output_dir}\n")
         sys.stderr.write(f"  Debugging tips: {_DEBUGGING_DOC} (relative to git root)\n")
 
-    keep_env = _should_keep_env(config, test_failed)
     if keep_env:
         _write_destroy_script(test_output_dir, env, temp_git_repo, tmux_tmpdir)
         sys.stderr.write(f"\n  Environment kept alive. To clean up: {test_output_dir}/destroy-env\n")
