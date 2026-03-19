@@ -219,9 +219,14 @@ def _fetch_and_save_channel_info(
     api_caller: SlackApiCaller,
     channels_for_info: list[ChannelEvent],
     existing_channel_by_id: dict[SlackChannelId, ChannelEvent],
+    is_save_channel_updates: bool,
     settings: ExporterSettings,
 ) -> None:
-    """Fetch per-channel info via conversations.info and save unread markers and channel updates."""
+    """Fetch per-channel info via conversations.info and save unread markers.
+
+    When is_save_channel_updates is True, also saves channel metadata updates from
+    the conversations.info responses (used when conversations.list was skipped).
+    """
     info_result = fetch_channel_info(api_caller, channels_for_info)
 
     existing_markers = load_existing_unread_markers(settings.output_dir)
@@ -235,8 +240,9 @@ def _fetch_and_save_channel_info(
         entity_name="unread markers",
     )
 
-    # Update channel data from conversations.info responses
-    if info_result.updated_channels:
+    # Update channel data from conversations.info responses when conversations.list
+    # was skipped (otherwise conversations.list already provided authoritative data)
+    if is_save_channel_updates and info_result.updated_channels:
         _diff_and_save(
             fresh_items=list(info_result.updated_channels),
             existing_by_key=dict(existing_channel_by_id),
@@ -429,7 +435,7 @@ def run_export(settings: ExporterSettings, api_caller: SlackApiCaller) -> None:
     ) as cg:
         cg.start_new_thread(
             target=_fetch_and_save_channel_info,
-            args=(api_caller, channels_for_info, existing_channel_by_id, settings),
+            args=(api_caller, channels_for_info, existing_channel_by_id, is_all_channels_cached, settings),
             name="channel-info",
         )
 

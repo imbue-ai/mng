@@ -145,9 +145,12 @@ def fetch_channel_info(
         data = api_caller("conversations.info", {"channel": str(event.channel_id)})
         channel_info = data.get("channel", {})
 
-        # Build an updated channel event from the full conversations.info response
+        # Build an updated channel event from the conversations.info response.
+        # Strip user-specific fields (last_read, latest) so the raw dict is comparable
+        # to what conversations.list returns for stable diff comparisons.
         if channel_info.get("id") and channel_info.get("name"):
-            updated_channels.append(_make_channel_event(channel_info))
+            channel_raw_for_event = {k: v for k, v in channel_info.items() if k not in ("last_read", "latest")}
+            updated_channels.append(_make_channel_event(channel_raw_for_event))
 
         last_read = channel_info.get("last_read")
         if last_read:
