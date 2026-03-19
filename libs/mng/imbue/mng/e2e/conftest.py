@@ -192,8 +192,6 @@ def _write_destroy_script(
         "#!/bin/bash\n"
         "set -euo pipefail\n"
         f'export MNG_HOST_DIR="{env["MNG_HOST_DIR"]}"\n'
-        f'export MNG_PREFIX="{env["MNG_PREFIX"]}"\n'
-        f'export MNG_ROOT_NAME="{env["MNG_ROOT_NAME"]}"\n'
         f'export TMUX_TMPDIR="{tmux_tmpdir}"\n'
         "unset TMUX\n"
         "\n"
@@ -214,8 +212,6 @@ def _write_destroy_script(
 @pytest.fixture
 def e2e(
     temp_host_dir: Path,
-    mng_test_prefix: str,
-    mng_test_root_name: str,
     temp_git_repo: Path,
     project_config_dir: Path,
     e2e_run_dir: Path,
@@ -224,7 +220,7 @@ def e2e(
     """Provide an isolated E2eSession for running mng CLI commands.
 
     Sets up a subprocess environment with:
-    - Isolated MNG_HOST_DIR, MNG_PREFIX, MNG_ROOT_NAME (from parent fixtures)
+    - Isolated MNG_HOST_DIR (from parent fixture; sufficient for full isolation)
     - Isolated TMUX_TMPDIR (own tmux server, separate from the one the parent
       autouse fixture creates for the in-process test environment)
     - A temporary git repo as the working directory
@@ -243,11 +239,13 @@ def e2e(
     test_output_dir = e2e_run_dir / test_name
     test_output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build subprocess environment from the current (already-isolated) env
+    # Build subprocess environment from the current (already-isolated) env.
+    # MNG_HOST_DIR is the only env var needed for isolation -- it segregates
+    # the test's agent data from the host mng. MNG_PREFIX and MNG_ROOT_NAME
+    # are already set by the parent autouse fixture and inherited via
+    # os.environ.copy().
     env = os.environ.copy()
     env["MNG_HOST_DIR"] = str(temp_host_dir)
-    env["MNG_PREFIX"] = mng_test_prefix
-    env["MNG_ROOT_NAME"] = mng_test_root_name
     env["TMUX_TMPDIR"] = str(tmux_tmpdir)
     env["MNG_TEST_ASCIINEMA_DIR"] = str(test_output_dir)
     env.pop("TMUX", None)
@@ -297,8 +295,6 @@ def e2e(
         _write_destroy_script(test_output_dir, env, temp_git_repo, tmux_tmpdir)
         sys.stderr.write(f"\n  Environment kept alive. To clean up: {test_output_dir}/destroy-env\n")
         sys.stderr.write(f"  MNG_HOST_DIR={temp_host_dir}\n")
-        sys.stderr.write(f"  MNG_PREFIX={mng_test_prefix}\n")
-        sys.stderr.write(f"  MNG_ROOT_NAME={mng_test_root_name}\n")
         sys.stderr.write(f"  TMUX_TMPDIR={tmux_tmpdir}\n")
         sys.stderr.write(f"  CWD={temp_git_repo}\n")
         return

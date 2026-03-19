@@ -39,12 +39,12 @@ The three values are:
 
 Note: `--mng-e2e-artifacts` must be at least as broad as `--mng-e2e-keep-env` (e.g., you cannot use `--mng-e2e-artifacts=no` with `--mng-e2e-keep-env=yes`).
 
-When the environment is kept, the test output includes all the env vars you need. The examples below use placeholder values; substitute the actual values from the test output.
+When the environment is kept, the test output includes the env vars you need. The only variable required for mng isolation is `MNG_HOST_DIR`. The examples below use placeholder values; substitute the actual values from the test output.
 
 ### Listing agents
 
 ```bash
-MNG_HOST_DIR=/path/from/output MNG_PREFIX=mng_xxx- MNG_ROOT_NAME=mng-test-xxx mng list
+MNG_HOST_DIR=/path/from/output mng list
 ```
 
 ### Sending messages to agents
@@ -52,7 +52,7 @@ MNG_HOST_DIR=/path/from/output MNG_PREFIX=mng_xxx- MNG_ROOT_NAME=mng-test-xxx mn
 `mng message` sends a text message to a running agent without connecting interactively. This works on both local and remote agents:
 
 ```bash
-MNG_HOST_DIR=/path/from/output MNG_PREFIX=mng_xxx- MNG_ROOT_NAME=mng-test-xxx mng message <agent_name> "What is your status?"
+MNG_HOST_DIR=/path/from/output mng message <agent_name> "What is your status?"
 ```
 
 ### Capturing agent output
@@ -60,7 +60,7 @@ MNG_HOST_DIR=/path/from/output MNG_PREFIX=mng_xxx- MNG_ROOT_NAME=mng-test-xxx mn
 `mng capture` takes a snapshot of an agent's current terminal output. This is useful for seeing what the agent is doing without attaching:
 
 ```bash
-MNG_HOST_DIR=/path/from/output MNG_PREFIX=mng_xxx- MNG_ROOT_NAME=mng-test-xxx mng capture <agent_name>
+MNG_HOST_DIR=/path/from/output mng capture <agent_name>
 ```
 
 ### Connecting to an agent's tmux session
@@ -73,7 +73,7 @@ TMUX= TMUX_TMPDIR=/tmp/mng-e2e-tmux-xxx tmux attach -t <session_name>
 ### Running commands on agents
 
 ```bash
-MNG_HOST_DIR=/path/from/output MNG_PREFIX=mng_xxx- MNG_ROOT_NAME=mng-test-xxx mng exec <agent_name> 'ps aux'
+MNG_HOST_DIR=/path/from/output mng exec <agent_name> 'ps aux'
 ```
 
 ### Cleaning up
