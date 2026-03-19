@@ -4,6 +4,8 @@ import signal
 import sys
 import tempfile
 from collections.abc import Generator
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 
 import pytest
@@ -36,10 +38,19 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
         _e2e_test_failed[item.nodeid] = True
 
 
-def _read_asciinema_pids(asciinema_dir: Path) -> list[int]:
+@pytest.fixture(scope="session")
+def e2e_run_dir() -> Path:
+    """Create a timestamped directory for this test run's output."""
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+    run_dir = _TEST_OUTPUT_DIR / timestamp
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir
+
+
+def _read_asciinema_pids(test_output_dir: Path) -> list[int]:
     """Read all asciinema PIDs from .pid files in the given directory."""
     pids: list[int] = []
-    for pid_file in asciinema_dir.glob("*.pid"):
+    for pid_file in test_output_dir.glob("*.pid"):
         try:
             pids.append(int(pid_file.read_text().strip()))
         except (ValueError, OSError):
@@ -58,9 +69,9 @@ def _is_pid_alive(pid: int) -> bool:
         return True
 
 
-def _stop_asciinema_processes(asciinema_dir: Path) -> None:
+def _stop_asciinema_processes(test_output_dir: Path) -> None:
     """Send SIGINT to all asciinema processes and wait for them to terminate."""
-    pids = _read_asciinema_pids(asciinema_dir)
+    pids = _read_asciinema_pids(test_output_dir)
     if not pids:
         return
 
@@ -85,6 +96,10 @@ def _stop_asciinema_processes(asciinema_dir: Path) -> None:
             f"within {_ASCIINEMA_SHUTDOWN_TIMEOUT_SECONDS}s: {still_alive}\n"
         )
 
+    # Clean up pid files -- they are only useful while asciinema is running
+    for pid_file in test_output_dir.glob("*.pid"):
+        pid_file.unlink(missing_ok=True)
+
 
 @pytest.fixture
 def e2e(
@@ -93,6 +108,7 @@ def e2e(
     mng_test_root_name: str,
     temp_git_repo: Path,
     project_config_dir: Path,
+    e2e_run_dir: Path,
     request: pytest.FixtureRequest,
 ) -> Generator[Session, None, None]:
     """Provide an isolated skitwright Session for running mng CLI commands.
@@ -105,17 +121,17 @@ def e2e(
     - Disabled remote providers (Modal, Docker) via settings.local.toml
     - A custom connect_command that records tmux sessions via asciinema
 
-    The transcript and asciinema recordings are saved to .test_output/ after each test.
+    Output is saved to .test_output/<timestamp>/<test_name>/.
     """
     # Create a separate tmux tmpdir for subprocess-spawned tmux sessions.
     # The parent autouse fixture isolates the in-process tmux server, but
     # subprocesses need their own isolation since they inherit env vars.
     tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mng-e2e-tmux-", dir="/tmp"))
 
-    # Set up asciinema output directory for this test
+    # Set up per-test output directory under the run directory
     test_name = request.node.name
-    asciinema_dir = _TEST_OUTPUT_DIR / "asciinema" / test_name
-    asciinema_dir.mkdir(parents=True, exist_ok=True)
+    test_output_dir = e2e_run_dir / test_name
+    test_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Build subprocess environment from the current (already-isolated) env
     env = os.environ.copy()
@@ -123,7 +139,7 @@ def e2e(
     env["MNG_PREFIX"] = mng_test_prefix
     env["MNG_ROOT_NAME"] = mng_test_root_name
     env["TMUX_TMPDIR"] = str(tmux_tmpdir)
-    env["MNG_TEST_ASCIINEMA_DIR"] = str(asciinema_dir)
+    env["MNG_TEST_ASCIINEMA_DIR"] = str(test_output_dir)
     env.pop("TMUX", None)
 
     # Add the e2e bin directory to PATH so the connect script is available
@@ -149,27 +165,24 @@ def e2e(
 
     yield session
 
-    # Save transcript
-    transcript_dir = _TEST_OUTPUT_DIR / "transcripts"
-    transcript_dir.mkdir(parents=True, exist_ok=True)
-    transcript_path = transcript_dir / f"{test_name}.txt"
+    # Save transcript alongside the cast files
+    transcript_path = test_output_dir / "transcript.txt"
     transcript_path.write_text(session.transcript)
 
     # Detect test failure
     test_failed = _e2e_test_failed.pop(request.node.nodeid, False)
 
     if test_failed:
-        sys.stderr.write(f"\n  Transcript saved to: {transcript_path}\n")
+        sys.stderr.write(f"\n  Test output saved to: {test_output_dir}\n")
 
     if test_failed and _is_keep_on_failure():
         sys.stderr.write("\n  MNG_E2E_KEEP_ON_FAILURE is set: agents and tmux session kept running.\n")
         sys.stderr.write(f"  TMUX_TMPDIR={tmux_tmpdir}\n")
         sys.stderr.write(f"  MNG_HOST_DIR={temp_host_dir}\n")
-        sys.stderr.write(f"  Asciinema recordings: {asciinema_dir}\n")
         return
 
     # Interrupt asciinema recording processes so they flush and exit
-    _stop_asciinema_processes(asciinema_dir)
+    _stop_asciinema_processes(test_output_dir)
 
     # Destroy all agents before killing tmux
     run_command(
