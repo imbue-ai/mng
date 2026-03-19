@@ -1,8 +1,8 @@
 import pytest
 
+from imbue.slack_exporter.channels import fetch_channel_info
 from imbue.slack_exporter.channels import fetch_channel_list
 from imbue.slack_exporter.channels import fetch_self_identity
-from imbue.slack_exporter.channels import fetch_unread_markers
 from imbue.slack_exporter.channels import fetch_user_list
 from imbue.slack_exporter.channels import resolve_channel_id
 from imbue.slack_exporter.errors import ChannelNotFoundError
@@ -200,16 +200,40 @@ def test_fetch_unread_markers_from_conversations_info() -> None:
         }
     )
 
-    markers = fetch_unread_markers(api_caller, channels)
+    markers, latest = fetch_channel_info(api_caller, channels)
 
     assert len(markers) == 2
     assert markers[0].channel_id == SlackChannelId("C123")
     assert markers[0].last_read_ts == SlackMessageTimestamp("1700000000.000001")
     assert markers[0].source == "slack"
     assert markers[1].last_read_ts == SlackMessageTimestamp("1700000000.000099")
+    assert latest == {}
 
 
-def test_fetch_unread_markers_skips_channels_without_last_read() -> None:
+def test_fetch_channel_info_returns_latest_timestamps() -> None:
+    channels = [make_channel_event("C123", "general")]
+    api_caller = make_fake_api_caller(
+        {
+            "conversations.info": [
+                {
+                    "ok": True,
+                    "channel": {
+                        "id": "C123",
+                        "last_read": "1700000000.000001",
+                        "latest": {"ts": "1700000000.000099", "text": "hello"},
+                    },
+                },
+            ],
+        }
+    )
+
+    markers, latest = fetch_channel_info(api_caller, channels)
+
+    assert len(markers) == 1
+    assert latest[SlackChannelId("C123")] == SlackMessageTimestamp("1700000000.000099")
+
+
+def test_fetch_channel_info_skips_channels_without_last_read() -> None:
     channels = [
         make_channel_event("C123", "general"),
         make_channel_event("C456", "random"),
@@ -223,7 +247,7 @@ def test_fetch_unread_markers_skips_channels_without_last_read() -> None:
         }
     )
 
-    markers = fetch_unread_markers(api_caller, channels)
+    markers, _ = fetch_channel_info(api_caller, channels)
 
     assert len(markers) == 1
     assert markers[0].channel_id == SlackChannelId("C123")

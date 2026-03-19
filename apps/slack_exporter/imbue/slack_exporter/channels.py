@@ -102,36 +102,42 @@ def fetch_self_identity(api_caller: SlackApiCaller) -> SelfIdentityEvent:
     )
 
 
-def fetch_unread_markers(
+def fetch_channel_info(
     api_caller: SlackApiCaller,
     channel_events: list[ChannelEvent],
-) -> list[UnreadMarkerEvent]:
-    """Fetch unread markers for each channel via conversations.info.
+) -> tuple[list[UnreadMarkerEvent], dict[SlackChannelId, SlackMessageTimestamp]]:
+    """Fetch per-channel info via conversations.info.
 
-    The conversations.list API does not reliably include last_read, so we
-    fetch it per channel via conversations.info.
+    Returns (unread_markers, latest_message_ts_by_channel). The latest timestamps
+    can be used to skip channels with no new messages.
     """
     markers: list[UnreadMarkerEvent] = []
+    latest_by_channel: dict[SlackChannelId, SlackMessageTimestamp] = {}
     for event in channel_events:
         data = api_caller("conversations.info", {"channel": str(event.channel_id)})
         channel_info = data.get("channel", {})
+
         last_read = channel_info.get("last_read")
-        if not last_read:
-            continue
-        markers.append(
-            UnreadMarkerEvent(
-                timestamp=make_iso_timestamp(),
-                type=EventType("unread_marker"),
-                event_id=make_event_id(),
-                source=_SLACK_SOURCE,
-                channel_id=event.channel_id,
-                channel_name=event.channel_name,
-                last_read_ts=SlackMessageTimestamp(last_read),
-                raw={"channel_id": str(event.channel_id), "last_read": last_read},
+        if last_read:
+            markers.append(
+                UnreadMarkerEvent(
+                    timestamp=make_iso_timestamp(),
+                    type=EventType("unread_marker"),
+                    event_id=make_event_id(),
+                    source=_SLACK_SOURCE,
+                    channel_id=event.channel_id,
+                    channel_name=event.channel_name,
+                    last_read_ts=SlackMessageTimestamp(last_read),
+                    raw={"channel_id": str(event.channel_id), "last_read": last_read},
+                )
             )
-        )
-    logger.info("Fetched %d unread markers from Slack", len(markers))
-    return markers
+
+        latest = channel_info.get("latest")
+        if isinstance(latest, dict) and latest.get("ts"):
+            latest_by_channel[event.channel_id] = SlackMessageTimestamp(latest["ts"])
+
+    logger.info("Fetched info for %d channels (%d unread markers)", len(channel_events), len(markers))
+    return markers, latest_by_channel
 
 
 def _make_user_event(user_raw: dict[str, Any]) -> UserEvent:

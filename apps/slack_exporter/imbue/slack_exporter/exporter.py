@@ -9,9 +9,9 @@ from typing import TypeVar
 
 from imbue.imbue_common.event_envelope import EventSource
 from imbue.imbue_common.event_envelope import EventType
+from imbue.slack_exporter.channels import fetch_channel_info
 from imbue.slack_exporter.channels import fetch_channel_list
 from imbue.slack_exporter.channels import fetch_self_identity
-from imbue.slack_exporter.channels import fetch_unread_markers
 from imbue.slack_exporter.channels import fetch_user_list
 from imbue.slack_exporter.channels import resolve_channel_id
 from imbue.slack_exporter.data_types import ChannelConfig
@@ -242,7 +242,7 @@ def run_export(settings: ExporterSettings, api_caller: SlackApiCaller) -> None:
         )
         save_fetch_timestamp(settings.output_dir, DataType.SELF_IDENTITY, now)
 
-    # Export channels (and unread markers, which come from the same API call)
+    # Export channel list (cached with TTL for metadata like names/IDs)
     if _is_cache_fresh(fetch_metadata, DataType.CHANNELS, now, settings) and existing_channel_by_id:
         fresh_channels = list(existing_channel_by_id.values())
         logger.info("Using cached channel data (%d channels)", len(fresh_channels))
@@ -257,20 +257,21 @@ def run_export(settings: ExporterSettings, api_caller: SlackApiCaller) -> None:
             output_dir=settings.output_dir,
             entity_name="channels",
         )
-
-        # Fetch unread markers per channel via conversations.info
-        fresh_markers = fetch_unread_markers(api_caller, fresh_channels)
-        existing_markers = load_existing_unread_markers(settings.output_dir)
-        _diff_and_save(
-            fresh_items=fresh_markers,
-            existing_by_key=dict(existing_markers),
-            get_key=lambda m: m.channel_id,
-            get_raw=lambda m: m.raw,
-            save_fn=save_unread_marker_events,
-            output_dir=settings.output_dir,
-            entity_name="unread markers",
-        )
         save_fetch_timestamp(settings.output_dir, DataType.CHANNELS, now)
+
+    # Always fetch per-channel info (unread markers + latest message timestamps).
+    # This is NOT cached because we need latest timestamps to skip unchanged channels.
+    fresh_markers, channel_latest = fetch_channel_info(api_caller, fresh_channels)
+    existing_markers = load_existing_unread_markers(settings.output_dir)
+    _diff_and_save(
+        fresh_items=fresh_markers,
+        existing_by_key=dict(existing_markers),
+        get_key=lambda m: m.channel_id,
+        get_raw=lambda m: m.raw,
+        save_fn=save_unread_marker_events,
+        output_dir=settings.output_dir,
+        entity_name="unread markers",
+    )
 
     channel_id_by_name: dict[SlackChannelName, SlackChannelId] = {
         event.channel_name: event.channel_id for event in existing_channel_by_id.values()
@@ -315,6 +316,7 @@ def run_export(settings: ExporterSettings, api_caller: SlackApiCaller) -> None:
             known_reply_keys=known_reply_keys,
             latest_reply_by_thread=latest_reply_by_thread,
             channel_export_metadata=channel_export_metadata,
+            channel_latest=channel_latest.get(channel_id),
             existing_reactions=existing_reactions,
             existing_relevant_threads=existing_relevant_threads,
             user_id=self_identity.user_id,
@@ -331,6 +333,7 @@ def _export_single_channel(
     known_reply_keys: set[tuple[SlackChannelId, SlackMessageTimestamp, SlackMessageTimestamp]],
     latest_reply_by_thread: dict[tuple[SlackChannelId, SlackMessageTimestamp], SlackMessageTimestamp],
     channel_export_metadata: dict[SlackChannelId, SlackMessageTimestamp],
+    channel_latest: SlackMessageTimestamp | None,
     existing_reactions: dict[str, ReactionEvent],
     existing_relevant_threads: dict[str, RelevantThreadEvent],
     user_id: SlackUserId,
@@ -338,29 +341,40 @@ def _export_single_channel(
     api_caller: SlackApiCaller,
 ) -> None:
     """Export messages, replies, reactions, and relevant threads from a single channel."""
-    logger.info("Exporting channel %s (ID: %s)", channel_config.name, channel_id)
-
     existing_state = state_by_channel_id.get(channel_id)
 
     oldest_datetime = channel_config.oldest or settings.default_oldest
     requested_oldest_ts = _datetime_to_slack_timestamp(oldest_datetime)
 
-    # Forward fetch: get new messages since last export (or from requested oldest on first run)
-    if existing_state and existing_state.latest_message_timestamp:
-        forward_oldest = existing_state.latest_message_timestamp
-        forward_inclusive = False
-        logger.info("  Resuming from timestamp %s for channel %s", forward_oldest, channel_config.name)
-    else:
-        forward_oldest = requested_oldest_ts
-        forward_inclusive = True
-
-    all_fetched = _fetch_all_messages_for_channel(
-        channel_id=channel_id,
-        channel_name=channel_config.name,
-        oldest_ts=forward_oldest,
-        is_inclusive=forward_inclusive,
-        api_caller=api_caller,
+    # Check if there are new messages by comparing conversations.info latest with our state
+    has_new_messages = (
+        existing_state is None
+        or existing_state.latest_message_timestamp is None
+        or channel_latest is None
+        or channel_latest > existing_state.latest_message_timestamp
     )
+
+    all_fetched: list[MessageEvent] = []
+
+    if has_new_messages:
+        logger.info("Exporting channel %s (ID: %s)", channel_config.name, channel_id)
+
+        # Forward fetch: get new messages since last export (or from requested oldest on first run)
+        if existing_state and existing_state.latest_message_timestamp:
+            forward_oldest = existing_state.latest_message_timestamp
+            forward_inclusive = False
+            logger.info("  Resuming from timestamp %s for channel %s", forward_oldest, channel_config.name)
+        else:
+            forward_oldest = requested_oldest_ts
+            forward_inclusive = True
+
+        all_fetched = _fetch_all_messages_for_channel(
+            channel_id=channel_id,
+            channel_name=channel_config.name,
+            oldest_ts=forward_oldest,
+            is_inclusive=forward_inclusive,
+            api_caller=api_caller,
+        )
 
     # Backfill: fetch older messages if --since goes further back than what we've already searched
     searched_oldest = channel_export_metadata.get(channel_id)
@@ -391,23 +405,27 @@ def _export_single_channel(
     else:
         logger.info("  No new messages in channel %s", channel_config.name)
 
+    # Reaction scan: fetch recent messages to catch new reactions on older messages.
+    # Also used as the message source for reply/thread detection when no new messages were fetched.
+    reaction_scan_messages = _fetch_recent_messages_for_reactions(
+        channel_id=channel_id,
+        channel_name=channel_config.name,
+        api_caller=api_caller,
+    )
+
+    # Use forward-fetched messages for reply detection, falling back to reaction scan
+    messages_for_replies = all_fetched if all_fetched else reaction_scan_messages
+
     # Export replies, collecting reaction and relevance data
     reply_reactions, relevant_threads = _export_replies_for_channel(
         channel_id=channel_id,
         channel_name=channel_config.name,
-        all_message_events=all_fetched,
+        all_message_events=messages_for_replies,
         known_reply_keys=known_reply_keys,
         latest_reply_by_thread=latest_reply_by_thread,
         existing_relevant_threads=existing_relevant_threads,
         user_id=user_id,
         settings=settings,
-        api_caller=api_caller,
-    )
-
-    # Reaction scan: re-fetch recent messages to catch new reactions on older messages
-    reaction_scan_messages = _fetch_recent_messages_for_reactions(
-        channel_id=channel_id,
-        channel_name=channel_config.name,
         api_caller=api_caller,
     )
 
