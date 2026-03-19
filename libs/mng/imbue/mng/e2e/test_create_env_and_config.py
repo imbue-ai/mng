@@ -92,6 +92,7 @@ def test_create_with_template_modal_disabled(e2e: Session, agent_name: str) -> N
 
 
 @pytest.mark.release
+@pytest.mark.tmux
 def test_create_with_plugin_flags(e2e: Session, agent_name: str) -> None:
     """
     # you can enable or disable specific plugins:
