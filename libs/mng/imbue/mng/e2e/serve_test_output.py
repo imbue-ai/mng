@@ -19,6 +19,96 @@ _TEST_OUTPUT_DIR = Path(__file__).resolve().parent / ".test_output"
 _ASCIINEMA_PLAYER_CSS = "https://cdn.jsdelivr.net/npm/asciinema-player@3.9.0/dist/bundle/asciinema-player.css"
 _ASCIINEMA_PLAYER_JS = "https://cdn.jsdelivr.net/npm/asciinema-player@3.9.0/dist/bundle/asciinema-player.min.js"
 
+# Standard 8-color and bright 8-color ANSI palette (indices 0-15).
+_ANSI_COLORS_16 = [
+    "#000",
+    "#c00",
+    "#0a0",
+    "#a50",
+    "#00a",
+    "#a0a",
+    "#0aa",
+    "#aaa",
+    "#555",
+    "#f55",
+    "#5f5",
+    "#ff5",
+    "#55f",
+    "#f5f",
+    "#5ff",
+    "#fff",
+]
+
+
+def _ansi_to_html(text: str) -> str:
+    """Convert ANSI escape sequences in text to HTML spans.
+
+    Handles SGR sequences (ESC[...m) for:
+    - Reset (0)
+    - Bold (1)
+    - Foreground 30-37, 90-97 (standard + bright)
+    - 256-color foreground 38;5;N
+    """
+    result: list[str] = []
+    pos = 0
+    open_spans = 0
+    # Match ESC[ followed by semicolon-separated numbers followed by 'm'
+    ansi_re = re.compile(r"\x1b\[([\d;]*)m")
+
+    for m in ansi_re.finditer(text):
+        # Emit text before this escape
+        result.append(html.escape(text[pos : m.start()]))
+        pos = m.end()
+
+        codes = m.group(1)
+        if not codes or codes == "0":
+            # Reset -- close all open spans
+            result.append("</span>" * open_spans)
+            open_spans = 0
+            continue
+
+        parts = codes.split(";")
+        styles: list[str] = []
+        i = 0
+        while i < len(parts):
+            c = int(parts[i]) if parts[i].isdigit() else 0
+            if c == 0:
+                result.append("</span>" * open_spans)
+                open_spans = 0
+            elif c == 1:
+                styles.append("font-weight:bold")
+            elif 30 <= c <= 37:
+                styles.append(f"color:{_ANSI_COLORS_16[c - 30]}")
+            elif 90 <= c <= 97:
+                styles.append(f"color:{_ANSI_COLORS_16[c - 90 + 8]}")
+            elif c == 38 and i + 2 < len(parts) and parts[i + 1] == "5":
+                # 256-color: 38;5;N
+                n = int(parts[i + 2]) if parts[i + 2].isdigit() else 0
+                if n < 16:
+                    styles.append(f"color:{_ANSI_COLORS_16[n]}")
+                elif n < 232:
+                    # 6x6x6 color cube
+                    n -= 16
+                    r = (n // 36) * 51
+                    g = ((n % 36) // 6) * 51
+                    b = (n % 6) * 51
+                    styles.append(f"color:rgb({r},{g},{b})")
+                else:
+                    # Grayscale
+                    v = 8 + (n - 232) * 10
+                    styles.append(f"color:rgb({v},{v},{v})")
+                i += 2
+            i += 1
+
+        if styles:
+            result.append(f'<span style="{";".join(styles)}">')
+            open_spans += 1
+
+    # Emit remaining text
+    result.append(html.escape(text[pos:]))
+    result.append("</span>" * open_spans)
+    return "".join(result)
+
 
 def _html_page(title: str, body: str) -> str:
     return f"""<!DOCTYPE html>
@@ -37,12 +127,12 @@ def _html_page(title: str, body: str) -> str:
   nav a {{ margin-right: 0.3em; }}
   ul {{ list-style: none; padding: 0; }}
   li {{ margin: 0.3em 0; }}
-  .transcript {{ background: #1e1e1e; color: #d4d4d4; padding: 1em; border-radius: 6px; overflow-x: auto; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.85em; line-height: 1.6; }}
+  .transcript {{ background: #1e1e1e; color: #d4d4d4; padding: 1em; border-radius: 6px; overflow-x: auto; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.85em; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; }}
   .transcript .cmd-block {{ border-top: 1px solid #444; padding-top: 0.6em; margin-top: 0.6em; }}
   .transcript .cmd-block:first-child {{ border-top: none; padding-top: 0; margin-top: 0; }}
   .transcript .comment {{ color: #6a9955; }}
   .transcript .prompt {{ color: #569cd6; }}
-  .transcript .stderr {{ color: #f44747; }}
+  .transcript .stderr-prefix {{ color: #f44747; }}
   .transcript .exit-code {{ color: #888; font-style: italic; }}
   .cast-player {{ margin: 1em 0; }}
   .cast-label {{ font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.85em; color: #666; margin-bottom: 0.3em; }}
@@ -58,24 +148,11 @@ def _html_page(title: str, body: str) -> str:
 def _render_transcript(text: str) -> str:
     """Render a transcript into styled HTML blocks."""
     lines = text.splitlines()
+
+    # Split into blocks: a new block starts when a comment or command line
+    # follows an exit-code line.
     blocks: list[list[str]] = []
     current_block: list[str] = []
-
-    for line in lines:
-        if line.startswith("# ") or line.startswith("$ "):
-            if current_block and (line.startswith("# ") or line.startswith("$ ")):
-                # Check if this is the start of a new command (comment or prompt following an exit code)
-                if current_block and any(l.startswith("$ ") for l in current_block):
-                    blocks.append(current_block)
-                    current_block = []
-        current_block.append(line)
-
-    if current_block:
-        blocks.append(current_block)
-
-    # Re-split: a block starts at the first "# " or "$ " that follows a "? " line
-    blocks = []
-    current_block = []
     for line in lines:
         is_new_block_start = (
             (line.startswith("# ") or line.startswith("$ "))
@@ -93,21 +170,23 @@ def _render_transcript(text: str) -> str:
     for block in blocks:
         rendered_lines: list[str] = []
         for line in block:
-            escaped = html.escape(line)
             if line.startswith("# "):
-                rendered_lines.append(f'<span class="comment">{escaped}</span>')
+                rendered_lines.append(f'<span class="comment">{html.escape(line)}</span>')
             elif line.startswith("$ "):
-                rendered_lines.append(f'<span class="prompt">{escaped}</span>')
+                rendered_lines.append(f'<span class="prompt">{html.escape(line)}</span>')
             elif line.startswith("! "):
-                rendered_lines.append(f'<span class="stderr">{escaped}</span>')
+                # Color only the "! " prefix red; render the rest with ANSI parsing
+                rest = line[2:]
+                rendered_lines.append(f'<span class="stderr-prefix">! </span>{_ansi_to_html(rest)}')
             elif re.match(r"^\? \d+$", line):
                 code = line[2:]
                 rendered_lines.append(f'<span class="exit-code">exit code: {html.escape(code)}</span>')
             else:
-                rendered_lines.append(escaped)
+                # Stdout lines may also contain ANSI sequences
+                rendered_lines.append(_ansi_to_html(line))
         html_parts.append('<div class="cmd-block">' + "\n".join(rendered_lines) + "</div>")
 
-    return '<div class="transcript">' + "\n".join(html_parts) + "</div>"
+    return '<pre class="transcript">' + "\n".join(html_parts) + "</pre>"
 
 
 def _index_page() -> str:
@@ -127,7 +206,7 @@ def _run_page(run_name: str) -> str | None:
         return None
     tests = sorted(d for d in run_dir.iterdir() if d.is_dir())
     items = "\n".join(f'<li><a href="/run/{run_name}/{t.name}">{t.name}</a></li>' for t in tests)
-    nav = f'<nav><a href="/">&larr; all runs</a></nav>'
+    nav = '<nav><a href="/">&larr; all runs</a></nav>'
     return _html_page(f"Run {run_name}", f"{nav}<h1>Run {html.escape(run_name)}</h1>\n<ul>\n{items}\n</ul>")
 
 
@@ -137,7 +216,10 @@ def _test_page(run_name: str, test_name: str) -> str | None:
     if not test_dir.is_dir():
         return None
 
-    nav = f'<nav><a href="/">&larr; all runs</a> / <a href="/run/{html.escape(run_name)}">{html.escape(run_name)}</a></nav>'
+    nav = (
+        f'<nav><a href="/">&larr; all runs</a> / '
+        f'<a href="/run/{html.escape(run_name)}">{html.escape(run_name)}</a></nav>'
+    )
     parts = [f"{nav}<h1>{html.escape(test_name)}</h1>"]
 
     # Transcript
@@ -146,18 +228,36 @@ def _test_page(run_name: str, test_name: str) -> str | None:
         parts.append("<h2>Transcript</h2>")
         parts.append(_render_transcript(transcript_path.read_text()))
 
-    # Cast files
+    # Cast files -- collect player init calls and run them after the JS loads
     cast_files = sorted(test_dir.glob("*.cast"))
+    player_inits: list[str] = []
     for i, cast_file in enumerate(cast_files):
         cast_url = f"/cast/{run_name}/{test_name}/{cast_file.name}"
         parts.append(f"<h2>Recording: {html.escape(cast_file.stem)}</h2>")
         parts.append(f'<div class="cast-label">{html.escape(cast_file.name)}</div>')
         div_id = f"player-{i}"
         parts.append(f'<div id="{div_id}" class="cast-player"></div>')
-        parts.append(
-            f"<script>AsciinemaPlayer.create({json.dumps(cast_url)}, "
+        player_inits.append(
+            f"AsciinemaPlayer.create({json.dumps(cast_url)}, "
             f"document.getElementById({json.dumps(div_id)}), "
-            f"{{fit: 'width', theme: 'asciinema'}});</script>"
+            f"{{fit: 'width', theme: 'asciinema'}});"
+        )
+
+    if player_inits:
+        # Defer player creation until after the asciinema JS has loaded
+        init_code = "\n  ".join(player_inits)
+        parts.append(
+            f"<script>\n"
+            f"document.addEventListener('DOMContentLoaded', function() {{\n"
+            f"  // Wait for asciinema-player JS to load\n"
+            f"  var check = setInterval(function() {{\n"
+            f"    if (typeof AsciinemaPlayer !== 'undefined') {{\n"
+            f"      clearInterval(check);\n"
+            f"      {init_code}\n"
+            f"    }}\n"
+            f"  }}, 50);\n"
+            f"}});\n"
+            f"</script>"
         )
 
     return _html_page(f"{test_name} - {run_name}", "\n".join(parts))
@@ -226,7 +326,7 @@ class _Handler(SimpleHTTPRequestHandler):
         self.wfile.write(b"Not found")
 
     def log_message(self, format: str, *args: object) -> None:
-        # Quieter logging -- just method and path
+        # Quieter logging
         pass
 
 
