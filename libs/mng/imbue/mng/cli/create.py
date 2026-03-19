@@ -628,13 +628,11 @@ def _create_agent(
             return CreateAgentResult(agent=agent, host=host), connection_opts
 
     # If ensure-clean is set, verify the source work_dir is clean.
-    # Skip the check when using worktree mode with an explicit base branch, since the
-    # agent will be created from that branch and uncommitted changes in the current
-    # working tree are irrelevant.
-    is_worktree_from_other_branch = (
-        agent_opts.git is not None and agent_opts.git.copy_mode == WorkDirCopyMode.WORKTREE and has_explicit_base
-    )
-    if opts.ensure_clean and not is_worktree_from_other_branch:
+    # Skip the check when using an explicit base branch, since the agent will be
+    # created from that branch and uncommitted changes in the current working tree
+    # are irrelevant (regardless of copy mode: worktree, clone, or copy).
+    is_from_explicit_base = agent_opts.git is not None and has_explicit_base
+    if opts.ensure_clean and not is_from_explicit_base:
         _ensure_clean_work_dir(setup.source_location)
 
     # figure out the target host (if we just have a reference)

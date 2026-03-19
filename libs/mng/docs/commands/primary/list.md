@@ -44,6 +44,7 @@ mng list [OPTIONS]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--fields` | text | Which fields to include (comma-separated) | None |
+| `--header` | text | Override column header label (format: FIELD=LABEL, repeatable) | None |
 | `--sort` | text | Sort by CEL expression(s) with optional direction, e.g. 'name asc, create_time desc'; enables sorted (non-streaming) output [default: create_time] | `create_time` |
 | `--limit` | integer | Limit number of results (applied after fetching from all providers) | None |
 
@@ -241,4 +242,10 @@ $ mng list --sort 'name desc'
 
 ```bash
 $ mng list --sort 'state, name asc, create_time desc'
+```
+
+**Custom column header**
+
+```bash
+$ mng list --fields name,labels.env --header labels.env=ENV
 ```

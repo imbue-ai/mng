@@ -85,7 +85,6 @@ _PLUGIN_NAME_OPTION_NAMES: Final[frozenset[str]] = frozenset(
 _EXCLUDED_CONFIG_KEY_PREFIXES: Final[frozenset[str]] = frozenset(
     {
         "disabled_plugins",
-        "enabled_backends",
     }
 )
 
