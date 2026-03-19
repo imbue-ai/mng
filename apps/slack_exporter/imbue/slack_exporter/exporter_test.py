@@ -729,10 +729,11 @@ def test_run_export_cached_channels_filtered_by_membership(temp_output_dir: Path
     # Both channels stored, conversations.info called for both
     assert counts1.get("conversations.info", 0) == 2
 
-    # Second run with members_only=True: cache is fresh, but should filter out non-member channel
+    # Second run with members_only=True and channels=None so only the membership
+    # filter is active (not the channel-name filter)
     counts1.clear()
     settings_members = ExporterSettings(
-        channels=settings.channels,
+        channels=None,
         default_oldest=settings.default_oldest,
         output_dir=settings.output_dir,
         reaction_lookback=settings.reaction_lookback,
