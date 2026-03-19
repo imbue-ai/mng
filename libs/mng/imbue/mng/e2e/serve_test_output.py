@@ -39,6 +39,40 @@ _ANSI_COLORS_16 = [
     "#fff",
 ]
 
+_SIDEBAR_CSS = (
+    ".layout { display: flex; gap: 0; }\n"
+    "  .sidebar-panel { display: flex; flex-shrink: 0; border-right: 1px solid #ddd; }\n"
+    "  .sidebar-toggle { writing-mode: vertical-lr; cursor: pointer; user-select: none; "
+    "font-size: 0.8em; color: #666; padding: 0.5em 0.3em; background: #f0f0f0; border: none; "
+    "border-right: 1px solid #ddd; }\n"
+    "  .sidebar-toggle:hover { color: #0066cc; background: #e8e8e8; }\n"
+    "  .sidebar { width: 300px; padding: 0.5em 1em; font-size: 0.85em; overflow-y: auto; "
+    "max-height: calc(100vh - 6em); position: sticky; top: 0; }\n"
+    "  .sidebar.collapsed { width: 0; padding: 0; overflow: hidden; }\n"
+    "  .sidebar ul { list-style: none; padding: 0; margin: 0; }\n"
+    "  .sidebar li { margin: 0.3em 0; }\n"
+    "  .sidebar li.active { font-weight: bold; }\n"
+    "  .sidebar a { color: #333; }\n"
+    "  .main-content { flex: 1; min-width: 0; padding-left: 1.5em; }"
+)
+
+_SIDEBAR_JS = """
+<script>
+(function() {
+  var KEY = 'e2e-sidebar-collapsed';
+  var sidebar = document.querySelector('.sidebar');
+  var toggle = document.querySelector('.sidebar-toggle');
+  if (!sidebar || !toggle) return;
+  if (localStorage.getItem(KEY) === 'true') {
+    sidebar.classList.add('collapsed');
+  }
+  toggle.addEventListener('click', function() {
+    sidebar.classList.toggle('collapsed');
+    localStorage.setItem(KEY, sidebar.classList.contains('collapsed'));
+  });
+})();
+</script>"""
+
 
 def _ansi_to_html(text: str) -> str:
     """Convert ANSI escape sequences in text to HTML spans.
@@ -111,74 +145,33 @@ def _ansi_to_html(text: str) -> str:
 
 
 def _linkify_agent_names(rendered_html: str, cast_stems: list[str]) -> str:
-    """Replace occurrences of cast stem names in already-rendered HTML with anchor links.
-
-    Only replaces occurrences that appear as plain text (not inside HTML tags).
-    The cast stems are agent names like "e2e-abc123" which are used as anchor IDs
-    for the corresponding player sections.
-    """
+    """Replace occurrences of cast stem names in already-rendered HTML with anchor links."""
     for stem in cast_stems:
         escaped_stem = html.escape(stem)
-        # The anchor ID uses the stem directly
         link = f'<a href="#cast-{escaped_stem}" style="color:#6cb6ff;text-decoration:underline">{escaped_stem}</a>'
         rendered_html = rendered_html.replace(escaped_stem, link, 1)
     return rendered_html
 
 
-def _html_page(title: str, body: str, sidebar: str | None = None) -> str:
-    sidebar_css = ""
-    sidebar_js = ""
-    sidebar_html = ""
-    body_wrapper_start = ""
-    body_wrapper_end = ""
+def _html_page(title: str, nav: str, body: str, sidebar: str | None = None) -> str:
+    """Render a full HTML page.
 
+    The nav (breadcrumb) is always rendered at the top of the page, outside any
+    sidebar layout. If sidebar is provided, the body is placed inside a flex
+    layout with the sidebar on the left.
+    """
+    extra_css = ""
+    extra_js = ""
     if sidebar is not None:
-        sidebar_css = (
-            ".layout { display: flex; gap: 0; }\n"
-            "  .sidebar-panel { display: flex; flex-shrink: 0; border-right: 1px solid #ddd; }\n"
-            "  .sidebar-toggle { writing-mode: vertical-lr; cursor: pointer; user-select: none; "
-            "font-size: 0.8em; color: #666; padding: 0.5em 0.3em; background: #f0f0f0; border: none; "
-            "border-right: 1px solid #ddd; }\n"
-            "  .sidebar-toggle:hover { color: #0066cc; background: #e8e8e8; }\n"
-            "  .sidebar { width: 300px; padding: 0.5em 1em; font-size: 0.85em; overflow-y: auto; "
-            "max-height: calc(100vh - 4em); position: sticky; top: 2em; }\n"
-            "  .sidebar.collapsed { width: 0; padding: 0; overflow: hidden; }\n"
-            "  .sidebar ul { list-style: none; padding: 0; margin: 0; }\n"
-            "  .sidebar li { margin: 0.3em 0; }\n"
-            "  .sidebar li.active { font-weight: bold; }\n"
-            "  .sidebar a { color: #333; }\n"
-            "  .main-content { flex: 1; min-width: 0; padding-left: 1.5em; }"
-        )
-        sidebar_js = """
-<script>
-(function() {
-  var KEY = 'e2e-sidebar-collapsed';
-  var sidebar = document.querySelector('.sidebar');
-  var toggle = document.querySelector('.sidebar-toggle');
-  if (!sidebar || !toggle) return;
-  function update() {
-    var collapsed = sidebar.classList.contains('collapsed');
-    toggle.textContent = collapsed ? 'Tests' : 'Tests';
-  }
-  if (localStorage.getItem(KEY) === 'true') {
-    sidebar.classList.add('collapsed');
-  }
-  update();
-  toggle.addEventListener('click', function() {
-    sidebar.classList.toggle('collapsed');
-    localStorage.setItem(KEY, sidebar.classList.contains('collapsed'));
-    update();
-  });
-})();
-</script>"""
+        extra_css = _SIDEBAR_CSS
+        extra_js = _SIDEBAR_JS
         sidebar_html = (
             '<div class="sidebar-panel">'
             '<button class="sidebar-toggle">Tests</button>'
             f'<div class="sidebar">{sidebar}</div>'
             "</div>"
         )
-        body_wrapper_start = '<div class="layout">' + sidebar_html + '<div class="main-content">'
-        body_wrapper_end = "</div></div>"
+        body = '<div class="layout">' + sidebar_html + '<div class="main-content">' + body + "</div></div>"
 
     return f"""<!DOCTYPE html>
 <html>
@@ -188,11 +181,10 @@ def _html_page(title: str, body: str, sidebar: str | None = None) -> str:
 <link rel="stylesheet" type="text/css" href="{_ASCIINEMA_PLAYER_CSS}">
 <style>
   body {{ font-family: system-ui, -apple-system, sans-serif; margin: 2em; background: #fafafa; color: #222; }}
-  h1 {{ font-size: 1.4em; }}
   h2 {{ font-size: 1.1em; margin-top: 2em; }}
   a {{ color: #0066cc; text-decoration: none; }}
   a:hover {{ text-decoration: underline; }}
-  nav {{ margin-bottom: 1.5em; font-size: 0.9em; color: #666; }}
+  nav {{ margin-bottom: 1em; font-size: 0.9em; color: #666; }}
   nav a {{ margin-right: 0.3em; }}
   ul {{ list-style: none; padding: 0; }}
   li {{ margin: 0.3em 0; }}
@@ -205,15 +197,14 @@ def _html_page(title: str, body: str, sidebar: str | None = None) -> str:
   .transcript .exit-code {{ color: #888; font-style: italic; }}
   .cast-player {{ margin: 1em 0; }}
   .cast-label {{ font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.85em; color: #666; margin-bottom: 0.3em; }}
-  {sidebar_css}
+  {extra_css}
 </style>
 </head>
 <body>
-{body_wrapper_start}
+{nav}
 {body}
-{body_wrapper_end}
 <script src="{_ASCIINEMA_PLAYER_JS}"></script>
-{sidebar_js}
+{extra_js}
 </body>
 </html>"""
 
@@ -236,11 +227,7 @@ def _render_tutorial_block(text: str) -> str:
 
 
 def _render_transcript(text: str, cast_stems: list[str] | None = None) -> str:
-    """Render a transcript into styled HTML blocks.
-
-    If cast_stems is provided, the first occurrence of each stem in the
-    transcript is turned into an anchor link to the corresponding player.
-    """
+    """Render a transcript into styled HTML blocks."""
     lines = text.splitlines()
 
     # Split into blocks: a new block starts when a comment or command line
@@ -269,14 +256,12 @@ def _render_transcript(text: str, cast_stems: list[str] | None = None) -> str:
             elif line.startswith("$ "):
                 rendered_lines.append(f'<span class="prompt">{html.escape(line)}</span>')
             elif line.startswith("! "):
-                # Color only the "! " prefix red; render the rest with ANSI parsing
                 rest = line[2:]
                 rendered_lines.append(f'<span class="stderr-prefix">! </span>{_ansi_to_html(rest)}')
             elif re.match(r"^\? \d+$", line):
                 code = line[2:]
                 rendered_lines.append(f'<span class="exit-code">exit code: {html.escape(code)}</span>')
             else:
-                # Stdout lines may also contain ANSI sequences
                 rendered_lines.append(_ansi_to_html(line))
         html_parts.append('<div class="cmd-block">' + "\n".join(rendered_lines) + "</div>")
 
@@ -295,10 +280,21 @@ def _index_page() -> str:
         reverse=True,
     )
     items = "\n".join(f'<li><a href="/run/{r.name}">{r.name}</a></li>' for r in runs)
-    return _html_page("E2E Test Runs", "<nav><b>Test Runs</b></nav>\n<ul>\n" + items + "\n</ul>")
+    return _html_page("E2E Test Runs", "<nav><b>Test Runs</b></nav>", "<ul>\n" + items + "\n</ul>")
 
 
-def _build_test_sidebar(run_name: str, run_dir: Path, active_test: str | None = None) -> str:
+def _run_page(run_name: str) -> str | None:
+    """List all tests in a run -- full listing, no sidebar."""
+    run_dir = _TEST_OUTPUT_DIR / run_name
+    if not run_dir.is_dir():
+        return None
+    tests = sorted(d for d in run_dir.iterdir() if d.is_dir())
+    items = "\n".join(f'<li><a href="/run/{run_name}/{t.name}">{t.name}</a></li>' for t in tests)
+    nav = f'<nav><a href="/">Test Runs</a> / <b>{html.escape(run_name)}</b></nav>'
+    return _html_page(f"Run {run_name}", nav, "<ul>\n" + items + "\n</ul>")
+
+
+def _build_test_sidebar(run_name: str, run_dir: Path, active_test: str) -> str:
     """Build sidebar HTML listing all tests in a run."""
     all_tests = sorted(d.name for d in run_dir.iterdir() if d.is_dir())
     items: list[str] = []
@@ -306,17 +302,6 @@ def _build_test_sidebar(run_name: str, run_dir: Path, active_test: str | None = 
         cls = ' class="active"' if t == active_test else ""
         items.append(f'<li{cls}><a href="/run/{run_name}/{t}">{t}</a></li>')
     return "<ul>" + "\n".join(items) + "</ul>"
-
-
-def _run_page(run_name: str) -> str | None:
-    """List all tests in a run."""
-    run_dir = _TEST_OUTPUT_DIR / run_name
-    if not run_dir.is_dir():
-        return None
-    sidebar = _build_test_sidebar(run_name, run_dir)
-    nav = f'<nav><a href="/">Test Runs</a> / <b>{html.escape(run_name)}</b></nav>'
-    body = f"{nav}\n<p>Select a test from the sidebar to view its output.</p>"
-    return _html_page(f"Run {run_name}", body, sidebar=sidebar)
 
 
 def _test_page(run_name: str, test_name: str) -> str | None:
@@ -333,7 +318,8 @@ def _test_page(run_name: str, test_name: str) -> str | None:
         f'<a href="/run/{html.escape(run_name)}">{html.escape(run_name)}</a> / '
         f"<b>{html.escape(test_name)}</b></nav>"
     )
-    parts = [nav]
+
+    parts: list[str] = []
 
     # Tutorial block (the original script block this test covers)
     tutorial_block_path = test_dir / "tutorial_block.txt"
@@ -367,7 +353,6 @@ def _test_page(run_name: str, test_name: str) -> str | None:
         )
 
     if player_inits:
-        # Defer player creation until after the asciinema JS has loaded
         init_code = "\n  ".join(player_inits)
         parts.append(
             f"<script>\n"
@@ -382,7 +367,7 @@ def _test_page(run_name: str, test_name: str) -> str | None:
             f"</script>"
         )
 
-    return _html_page(f"{test_name} - {run_name}", "\n".join(parts), sidebar=sidebar)
+    return _html_page(f"{test_name} - {run_name}", nav, "\n".join(parts), sidebar=sidebar)
 
 
 class _Handler(SimpleHTTPRequestHandler):
@@ -448,7 +433,6 @@ class _Handler(SimpleHTTPRequestHandler):
         self.wfile.write(b"Not found")
 
     def log_message(self, format: str, *args: object) -> None:
-        # Quieter logging
         pass
 
 
