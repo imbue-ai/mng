@@ -55,7 +55,7 @@ def test_prevent_broad_exception_catch() -> None:
 
 
 def test_prevent_base_exception_catch() -> None:
-    rc.check_base_exception_catch(_DIR, snapshot(4))
+    rc.check_base_exception_catch(_DIR, snapshot(3))
 
 
 def test_prevent_builtin_exception_raises() -> None:

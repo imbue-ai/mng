@@ -119,17 +119,14 @@ def info_span(message: str, *args: Any, **context: Any) -> Iterator[None]:
     with logger.contextualize(**context):
         logger.info(message, *args)
         start_time = time.monotonic()
+        is_success = False
         try:
             yield
-        except BaseException:
+            is_success = True
+        finally:
             elapsed = time.monotonic() - start_time
-            failed_message = message + " [failed after {:.5f} sec]"
-            logger.debug(failed_message, *args, elapsed)
-            raise
-        else:
-            elapsed = time.monotonic() - start_time
-            done_message = message + " [done in {:.5f} sec]"
-            logger.debug(done_message, *args, elapsed)
+            suffix = " [done in {:.5f} sec]" if is_success else " [failed after {:.5f} sec]"
+            logger.debug(message + suffix, *args, elapsed)
 
 
 @contextmanager
