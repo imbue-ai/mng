@@ -121,7 +121,7 @@ def info_span(message: str, *args: Any, **context: Any) -> Iterator[None]:
         start_time = time.monotonic()
         try:
             yield
-        except Exception:
+        except BaseException:
             elapsed = time.monotonic() - start_time
             error_message = message + " [failed after {:.5f} sec]"
             logger.debug(error_message, *args, elapsed)
