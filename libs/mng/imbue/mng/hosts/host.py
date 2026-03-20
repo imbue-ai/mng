@@ -38,6 +38,7 @@ from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import info_span
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
@@ -1193,7 +1194,7 @@ class Host(BaseHost, OnlineHostInterface):
                 origin_result.stdout.strip() if origin_result.success and origin_result.stdout.strip() else None
             )
 
-        with log_span(
+        with info_span(
             "Transferring git repository",
             source=str(source_path),
             target=str(target_path),

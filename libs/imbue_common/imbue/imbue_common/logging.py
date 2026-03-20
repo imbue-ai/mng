@@ -107,6 +107,32 @@ def log_span(message: str, *args: Any, **context: Any) -> Iterator[None]:
 
 
 @contextmanager
+def info_span(message: str, *args: Any, **context: Any) -> Iterator[None]:
+    """Context manager that logs an info message on entry and a trace message with timing on exit.
+
+    On entry, emits logger.info(message, *args).
+    On exit, emits logger.debug(message + " [done in X.XXXXX sec]", *args, elapsed).
+
+    Keyword arguments are passed to logger.contextualize so that all log messages
+    within the span include the extra context fields.
+    """
+    with logger.contextualize(**context):
+        logger.info(message, *args)
+        start_time = time.monotonic()
+        try:
+            yield
+        except BaseException:
+            elapsed = time.monotonic() - start_time
+            failed_message = message + " [failed after {:.5f} sec]"
+            logger.debug(failed_message, *args, elapsed)
+            raise
+        else:
+            elapsed = time.monotonic() - start_time
+            done_message = message + " [done in {:.5f} sec]"
+            logger.debug(done_message, *args, elapsed)
+
+
+@contextmanager
 def trace_span(message: str, *args: Any, _is_trace_span_enabled: bool = True, **context: Any) -> Iterator[None]:
     """Context manager that logs a trace message on entry and a trace message with timing on exit.
 

@@ -27,6 +27,7 @@ from pyinfra.api import Host as PyinfraHost
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import info_span
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.logging import trace_span
 from imbue.imbue_common.model_update import to_update
@@ -1240,7 +1241,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
 
             # Wait for sshd to be ready
-            with log_span("Waiting for sshd to be ready..."):
+            with info_span("Waiting for sshd to be ready..."):
                 self._wait_for_sshd(ssh_host, ssh_port)
 
             with log_span("Executing post-ssh operations"):
