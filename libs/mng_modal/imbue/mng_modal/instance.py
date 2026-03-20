@@ -1197,7 +1197,7 @@ class ModalProviderInstance(BaseProviderInstance):
         with self.mng_ctx.concurrency_group.make_concurrency_group("start ssh and create host") as concurrency_group:
             # For persistent apps, deploy the snapshot function and create shutdown script
             snapshot_url_future: Future[str] | None = None
-            if self.config.is_persistent:
+            if self.config.is_persistent and os.environ.get("MNG_MODAL_DISABLE_SNAPSHOT_DEPLOY", "0") != "1":
                 # it's a little sad that we're constantly re-deploying this, but it's a bit too easy to make mistakes otherwise
                 #  (eg, we might end up with outdated code at that endpoint, which would be hard to debug)
                 snapshot_url_future = Future()
