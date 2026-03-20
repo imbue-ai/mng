@@ -35,6 +35,7 @@ from tenacity import wait_chain
 from tenacity import wait_fixed
 
 from imbue.concurrency_group.errors import ProcessError
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
@@ -983,34 +984,35 @@ class Host(BaseHost, OnlineHostInterface):
         """
         with log_span("Loading all agents from host {}", self.id):
             agents_dir = self.host_dir / "agents"
-            if not self._is_directory(agents_dir):
-                logger.trace("Failed to find agents directory for host {}", self.id)
-                return []
 
             with log_span("Listing agent dir for host {}", self.id):
-                dir_listing = self._list_directory(agents_dir)
+                try:
+                    dir_listing = self._list_directory(agents_dir)
+                except FileNotFoundError:
+                    logger.trace("Failed to find agents directory for host {}", self.id)
+                    return []
 
             with log_span("Listing agent files from dir for host {}", self.id):
                 agent_refs: list[DiscoveredAgent] = []
                 for dir_name in dir_listing:
                     agent_dir = agents_dir / dir_name
-                    if self._is_directory(agent_dir):
-                        data_path = agent_dir / "data.json"
-                        try:
-                            content = self.read_text_file(data_path)
-                        except FileNotFoundError:
+                    data_path = agent_dir / "data.json"
+                    try:
+                        content = self.read_text_file(data_path)
+                    except FileNotFoundError:
+                        if not self._is_directory(agent_dir):
                             logger.warning("Could not load agent reference from {}", data_path)
-                            continue
-                        try:
-                            data = json.loads(content)
-                        except json.JSONDecodeError as e:
-                            logger.warning(
-                                "Could not load agent reference from {} because json was invalid: {}", data_path, e
-                            )
-                            continue
-                        ref = self._validate_and_create_discovered_agent(data)
-                        if ref is not None:
-                            agent_refs.append(ref)
+                        continue
+                    try:
+                        data = json.loads(content)
+                    except json.JSONDecodeError as e:
+                        logger.warning(
+                            "Could not load agent reference from {} because json was invalid: {}", data_path, e
+                        )
+                        continue
+                    ref = self._validate_and_create_discovered_agent(data)
+                    if ref is not None:
+                        agent_refs.append(ref)
 
             logger.trace("Loaded {} agent reference(s) from host {}", len(agent_refs), self.id)
             return agent_refs
@@ -1682,18 +1684,31 @@ class Host(BaseHost, OnlineHostInterface):
                 "created_branch_name": created_branch_name,
             }
 
-            data_path = state_dir / "data.json"
-            self.write_text_file(data_path, json.dumps(data, indent=2))
+            # this is really just here to parallelize some of the work and decrease latency to creating a host
+            with self.mng_ctx.concurrency_group.make_concurrency_group("write_agent_state") as concurrency_group:
+                threads: list[ObservableThread] = []
 
-            # Persist agent data to external storage (e.g., Modal volume)
-            self.provider_instance.persist_agent_data(self.id, data)
+                threads.append(
+                    concurrency_group.start_new_thread(
+                        self.write_text_file, (state_dir / "data.json", json.dumps(data, indent=2))
+                    )
+                )
 
-            # Record CREATE activity for idle detection
-            agent.record_activity(ActivitySource.CREATE)
+                # Persist agent data to external storage (e.g., Modal volume)
+                threads.append(
+                    concurrency_group.start_new_thread(self.provider_instance.persist_agent_data, (self.id, data))
+                )
 
-            # Notify plugins that the agent state directory was created
-            with log_span("Calling on_agent_state_dir_created hooks"):
-                self.mng_ctx.pm.hook.on_agent_state_dir_created(agent=agent, host=self)
+                # Record CREATE activity for idle detection
+                threads.append(concurrency_group.start_new_thread(agent.record_activity, (ActivitySource.CREATE,)))
+
+                # Notify plugins that the agent state directory was created
+                with log_span("Calling on_agent_state_dir_created hooks"):
+                    self.mng_ctx.pm.hook.on_agent_state_dir_created(agent=agent, host=self)
+
+                # make sure they all finish in a reasonable amount of time
+                for thread in threads:
+                    thread.join(60.0)
 
             return agent
 
