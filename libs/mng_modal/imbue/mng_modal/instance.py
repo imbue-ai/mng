@@ -1082,41 +1082,37 @@ class ModalProviderInstance(BaseProviderInstance):
             # Check for required packages and install if missing
             self._check_and_install_packages(sandbox)
 
-        with log_span("Configuring SSH keys and hosts in sandbox", ssh_user=ssh_user):
-            # Build and execute the SSH configuration command
-            configure_ssh_cmd = build_configure_ssh_command(
-                user=ssh_user,
-                client_public_key=client_public_key,
-                host_private_key=host_private_key,
-                host_public_key=host_public_key,
-            )
-            exit_code = sandbox.exec("sh", "-c", configure_ssh_cmd).wait()
-            if exit_code != 0:
-                raise MngError(f"Failed to configure SSH in sandbox (exit code {exit_code})")
+        with log_span("Configuring SSH and preparing sshd in sandbox", ssh_user=ssh_user):
+            # Build a single combined command for all SSH setup + sshd prep to minimize round trips
+            setup_parts: list[str] = [
+                build_configure_ssh_command(
+                    user=ssh_user,
+                    client_public_key=client_public_key,
+                    host_private_key=host_private_key,
+                    host_public_key=host_public_key,
+                ),
+            ]
 
-            # Add known_hosts entries for outbound SSH if specified
             if known_hosts:
                 add_known_hosts_cmd = build_add_known_hosts_command(ssh_user, tuple(known_hosts))
                 if add_known_hosts_cmd is not None:
-                    with log_span("Adding {} known_hosts entries to sandbox", len(known_hosts)):
-                        exit_code = sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
-                        if exit_code != 0:
-                            raise MngError(f"Failed to add known_hosts entries to sandbox (exit code {exit_code})")
+                    setup_parts.append(add_known_hosts_cmd)
 
             if authorized_keys:
                 add_authorized_keys_cmd = build_add_authorized_keys_command(ssh_user, tuple(authorized_keys))
                 if add_authorized_keys_cmd is not None:
-                    with log_span("Adding {} authorized_keys entries to sandbox", len(authorized_keys)):
-                        exit_code = sandbox.exec("sh", "-c", add_authorized_keys_cmd).wait()
-                        if exit_code != 0:
-                            raise MngError(f"Failed to add authorized_keys entries to sandbox (exit code {exit_code})")
+                    setup_parts.append(add_authorized_keys_cmd)
+
+            # Ensure the events/logs directory exists before sshd starts writing to it
+            sshd_log_path = f"{self.host_dir}/events/logs/sshd.log"
+            setup_parts.append(f"mkdir -p '{self.host_dir}/events/logs'")
+
+            combined_cmd = " && ".join(setup_parts)
+            exit_code = sandbox.exec("sh", "-c", combined_cmd).wait()
+            if exit_code != 0:
+                raise MngError(f"Failed to configure SSH in sandbox (exit code {exit_code})")
 
         with log_span("Starting sshd in sandbox"):
-            sshd_log_path = f"{self.host_dir}/events/logs/sshd.log"
-            # Ensure the events/logs directory exists before sshd starts writing to it
-            exit_code = sandbox.exec("mkdir", "-p", f"{self.host_dir}/events/logs").wait()
-            if exit_code != 0:
-                raise MngError(f"Failed to create events/logs directory in sandbox (exit code {exit_code})")
             # Start sshd (-D: don't detach, -E: log to file instead of syslog)
             # stdout/stderr are suppressed so Modal doesn't track them for performance/stability reasons.
             self._ssh_process = sandbox.exec(
