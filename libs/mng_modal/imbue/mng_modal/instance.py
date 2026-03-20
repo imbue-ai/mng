@@ -1090,25 +1090,33 @@ class ModalProviderInstance(BaseProviderInstance):
                 host_private_key=host_private_key,
                 host_public_key=host_public_key,
             )
-            sandbox.exec("sh", "-c", configure_ssh_cmd).wait()
+            exit_code = sandbox.exec("sh", "-c", configure_ssh_cmd).wait()
+            if exit_code != 0:
+                raise MngError(f"Failed to configure SSH in sandbox (exit code {exit_code})")
 
             # Add known_hosts entries for outbound SSH if specified
             if known_hosts:
                 add_known_hosts_cmd = build_add_known_hosts_command(ssh_user, tuple(known_hosts))
                 if add_known_hosts_cmd is not None:
                     with log_span("Adding {} known_hosts entries to sandbox", len(known_hosts)):
-                        sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
+                        exit_code = sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
+                        if exit_code != 0:
+                            raise MngError(f"Failed to add known_hosts entries to sandbox (exit code {exit_code})")
 
             if authorized_keys:
                 add_authorized_keys_cmd = build_add_authorized_keys_command(ssh_user, tuple(authorized_keys))
                 if add_authorized_keys_cmd is not None:
                     with log_span("Adding {} authorized_keys entries to sandbox", len(authorized_keys)):
-                        sandbox.exec("sh", "-c", add_authorized_keys_cmd).wait()
+                        exit_code = sandbox.exec("sh", "-c", add_authorized_keys_cmd).wait()
+                        if exit_code != 0:
+                            raise MngError(f"Failed to add authorized_keys entries to sandbox (exit code {exit_code})")
 
         with log_span("Starting sshd in sandbox"):
             sshd_log_path = f"{self.host_dir}/events/logs/sshd.log"
             # Ensure the events/logs directory exists before sshd starts writing to it
-            sandbox.exec("mkdir", "-p", f"{self.host_dir}/events/logs").wait()
+            exit_code = sandbox.exec("mkdir", "-p", f"{self.host_dir}/events/logs").wait()
+            if exit_code != 0:
+                raise MngError(f"Failed to create events/logs directory in sandbox (exit code {exit_code})")
             # Start sshd (-D: don't detach, -E: log to file instead of syslog)
             # stdout/stderr are suppressed so Modal doesn't track them for performance/stability reasons.
             self._ssh_process = sandbox.exec(
@@ -1245,11 +1253,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 connector = PyinfraConnector(pyinfra_host)
 
                 # for latency reasons, we set this afterwards:
-                true_on_updated_host_data = (
-                    lambda callback_host_id, certified_data: self._on_certified_host_data_updated(
-                        callback_host_id, certified_data
-                    )
-                )
+                true_on_updated_host_data = self._on_certified_host_data_updated
 
                 # Create the Host object with callback for future certified data updates
                 host = Host(
@@ -1281,13 +1285,17 @@ class ModalProviderInstance(BaseProviderInstance):
             # Plus we really want the boot time to be written, etc, as otherwise it can be a bit racey
             with log_span("Starting activity watcher in sandbox"):
                 start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
-                sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
+                exit_code = sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
+                if exit_code != 0:
+                    raise MngError(f"Failed to start activity watcher in sandbox (exit code {exit_code})")
 
             # Start periodic volume sync to flush writes to the host volume (only when a host volume is mounted)
             if self.config.is_host_volume_created:
                 with log_span("Starting volume sync in sandbox"):
                     volume_sync_cmd = build_start_volume_sync_command(HOST_VOLUME_MOUNT_PATH, str(self.host_dir))
-                    sandbox.exec("sh", "-c", volume_sync_cmd).wait()
+                    exit_code = sandbox.exec("sh", "-c", volume_sync_cmd).wait()
+                    if exit_code != 0:
+                        raise MngError(f"Failed to start volume sync in sandbox (exit code {exit_code})")
 
             with log_span("Waiting for modal operations to complete"):
                 # something has gone horribly wrong if those operations take longer than that

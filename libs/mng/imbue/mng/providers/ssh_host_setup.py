@@ -100,13 +100,13 @@ def build_check_and_install_packages_command(
     if host_volume_mount_path is not None:
         # Remove any existing directory (e.g., from a pre-volume snapshot) before
         # creating the symlink. ln -sfn alone won't replace an existing directory.
-        script_lines.append(
-            f"[ -L {mng_host_dir} ] || rm -rf {mng_host_dir}; ln -sfn {host_volume_mount_path} {mng_host_dir}"
-        )
+        # The subshell groups the conditional removal so && chaining works correctly.
+        script_lines.append(f"( [ -L {mng_host_dir} ] || rm -rf {mng_host_dir} )")
+        script_lines.append(f"ln -sfn {host_volume_mount_path} {mng_host_dir}")
     else:
         script_lines.append(f"mkdir -p {mng_host_dir}")
 
-    return "; ".join(script_lines)
+    return " && ".join(script_lines)
 
 
 @pure
@@ -154,7 +154,7 @@ def build_configure_ssh_command(
         "chmod 644 /etc/ssh/ssh_host_ed25519_key.pub",
     ]
 
-    return "; ".join(script_lines)
+    return " && ".join(script_lines)
 
 
 @pure
@@ -193,7 +193,7 @@ def build_add_known_hosts_command(
     # Set proper permissions on known_hosts file
     script_lines.append(f"chmod 600 '{known_hosts_path}'")
 
-    return "; ".join(script_lines)
+    return " && ".join(script_lines)
 
 
 @pure
@@ -229,7 +229,7 @@ def build_add_authorized_keys_command(
     # Set proper permissions on authorized_keys file
     script_lines.append(f"chmod 600 '{authorized_keys_path}'")
 
-    return "; ".join(script_lines)
+    return " && ".join(script_lines)
 
 
 @pure
@@ -284,7 +284,7 @@ def build_start_volume_sync_command(
         f"nohup '{script_path}' > '{log_path}' 2>&1 &",
     ]
 
-    return "; ".join(script_lines)
+    return " && ".join(script_lines)
 
 
 @pure
@@ -332,4 +332,4 @@ def build_start_activity_watcher_command(
         f"nohup '{script_path}' '{mng_host_dir}' > '{log_path}' 2>&1 &",
     ]
 
-    return "; ".join(script_lines)
+    return " && ".join(script_lines)
