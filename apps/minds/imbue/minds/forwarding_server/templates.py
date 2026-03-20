@@ -1,3 +1,4 @@
+import os
 from collections.abc import Sequence
 from typing import Final
 
@@ -244,7 +245,7 @@ _DEFAULT_GIT_URL: Final[str] = "https://github.com/imbue-ai/simple_mind.git"
 _DEFAULT_AGENT_NAME: Final[str] = "selene"
 
 
-_DEFAULT_BRANCH: Final[str] = "josh/slack"
+_DEFAULT_BRANCH: Final[str] = os.getenv("MIND_BRANCH", "main")
 
 
 @pure

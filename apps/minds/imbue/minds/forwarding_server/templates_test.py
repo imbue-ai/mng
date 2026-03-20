@@ -85,7 +85,7 @@ def test_render_create_form_has_default_values() -> None:
     assert "selene" in html
     assert "simple_mind" in html
     assert "agent_name" in html
-    assert "josh/slack" in html
+    assert "main" in html
 
 
 def test_render_create_form_prefills_values() -> None:
