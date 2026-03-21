@@ -690,8 +690,11 @@ class Host(BaseHost, OnlineHostInterface):
     def lock_cooperatively(self, timeout_seconds: float = 300.0) -> Iterator[None]:
         """Context manager for acquiring and releasing the host lock.
 
-        TODO: Implement remote locking mechanism (e.g., via lock files with PIDs).
-        Currently only works for local hosts.
+        For local hosts, uses flock for process-level locking.
+        For remote hosts, writes/removes a lock file to prevent the idle shutdown script
+        from triggering during operations. On error, the lock file is removed by default
+        so the host can idle-shutdown; set MNG_RETAIN_LOCK_FOR_FAILED_HOSTS_DURING_CREATE=1
+        to retain it for debugging.
         """
         lock_file_path = self.host_dir / "host_lock"
 
@@ -711,8 +714,11 @@ class Host(BaseHost, OnlineHostInterface):
                 else:
                     try:
                         self.execute_command(f"rm -f '{lock_file_path}'")
-                    except (BaseMngError, OSError):
-                        logger.debug("Failed to remove host lock file during error cleanup")
+                    except (BaseMngError, OSError) as lock_removal_error:
+                        logger.warning(
+                            "Failed to remove host lock file during error cleanup: {}",
+                            lock_removal_error,
+                        )
                 raise
             else:
                 self.execute_command(f"rm -f '{lock_file_path}'")
