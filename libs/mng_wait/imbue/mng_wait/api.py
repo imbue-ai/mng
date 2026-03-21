@@ -180,28 +180,28 @@ def poll_target_state(
     Gets a fresh host interface from the provider and queries state directly.
     Does NOT call reset_caches().
 
-    When the host is unreachable (SSH connection error), falls back to
-    the offline host representation to determine the state (e.g. DESTROYED,
-    STOPPED, CRASHED).
+    When any operation fails with a HostConnectionError (e.g. SSH unreachable
+    because the host was destroyed), falls back to the offline host
+    representation to determine the provider-level state (DESTROYED, STOPPED, etc.).
     """
     try:
         host_interface = resolved.provider.get_host(resolved.host_id)
+        host_state = host_interface.get_state()
+
+        agent_state: AgentLifecycleState | None = None
+        if resolved.agent_id is not None:
+            if isinstance(host_interface, OnlineHostInterface):
+                agent_state = _get_agent_lifecycle_state(host_interface, resolved.agent_id)
+            else:
+                agent_state = AgentLifecycleState.STOPPED
+
+        return CombinedState(host_state=host_state, agent_state=agent_state)
     except HostConnectionError as exc:
-        # Host is unreachable -- fall back to offline host to get the provider-level state
+        # Host is unreachable (e.g. destroyed, stopped) -- get state from provider metadata
         logger.debug("Host unreachable, falling back to offline state: {}", exc)
-        host_interface = resolved.provider.to_offline_host(resolved.host_id)
-
-    host_state = host_interface.get_state()
-
-    agent_state: AgentLifecycleState | None = None
-    if resolved.agent_id is not None:
-        if isinstance(host_interface, OnlineHostInterface):
-            agent_state = _get_agent_lifecycle_state(host_interface, resolved.agent_id)
-        else:
-            # Host is offline, agent is considered stopped
-            agent_state = AgentLifecycleState.STOPPED
-
-    return CombinedState(host_state=host_state, agent_state=agent_state)
+        offline_host = resolved.provider.to_offline_host(resolved.host_id)
+        offline_agent_state = AgentLifecycleState.STOPPED if resolved.agent_id is not None else None
+        return CombinedState(host_state=offline_host.get_state(), agent_state=offline_agent_state)
 
 
 def _get_agent_lifecycle_state(
