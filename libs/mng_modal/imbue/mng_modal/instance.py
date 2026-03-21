@@ -1599,7 +1599,7 @@ log "=== Shutdown script completed ==="
         self._sandbox_cache_by_name.clear()
         self._host_by_id_cache.clear()
         self._host_record_cache_by_id.clear()
-        self._full_sandbox_list_cache.clear()
+        self._full_sandbox_list_cache = None
 
     def _find_sandbox_by_host_id(
         self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
