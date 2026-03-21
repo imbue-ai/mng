@@ -360,11 +360,13 @@ def _find_agents_to_destroy(
     """
     # Step 1: Find matching agents using the shared address-aware resolution.
     # This handles address parsing, name/ID matching, and host/provider filtering.
+    # include_destroyed=True so we can find and clean up agents on already-destroyed hosts.
     matches = find_agents_by_addresses(
         raw_identifiers=agent_identifiers,
         filter_all=destroy_all,
         target_state=None,
         mng_ctx=mng_ctx,
+        include_destroyed=True,
     )
 
     # Step 2: Partition matches into online agents vs offline hosts.
