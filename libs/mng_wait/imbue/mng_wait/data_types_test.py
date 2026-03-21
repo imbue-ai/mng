@@ -92,6 +92,13 @@ def test_describe_combined_state_agent_target_agent_only() -> None:
     assert "host=" not in result
 
 
+def test_describe_combined_state_agent_target_host_only() -> None:
+    combined_state = CombinedState(host_state=HostState.CRASHED)
+    result = describe_combined_state(combined_state, WaitTargetType.AGENT)
+    assert "host=CRASHED" in result
+    assert "agent=" not in result
+
+
 def test_describe_combined_state_host_target_stopped() -> None:
     combined_state = CombinedState(host_state=HostState.STOPPED)
     result = describe_combined_state(combined_state, WaitTargetType.HOST)

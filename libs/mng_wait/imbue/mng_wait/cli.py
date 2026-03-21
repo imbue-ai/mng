@@ -1,3 +1,4 @@
+import io
 import sys
 from typing import assert_never
 
@@ -42,11 +43,14 @@ class WaitCliOptions(CommonCliOptions):
     interval: str
 
 
-def _read_target_from_stdin() -> str:
+def _read_target_from_stdin(
+    stdin: io.TextIOBase | None = None,
+) -> str:
     """Read a target identifier from stdin (one line)."""
-    if sys.stdin.isatty():
+    stream = stdin if stdin is not None else sys.stdin
+    if hasattr(stream, "isatty") and stream.isatty():
         write_human_line("Waiting for target on stdin...")
-    line = sys.stdin.readline().strip()
+    line = stream.readline().strip()
     if not line:
         raise click.UsageError("No target provided on stdin")
     return line
