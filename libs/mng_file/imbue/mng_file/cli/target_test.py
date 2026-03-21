@@ -7,6 +7,7 @@ from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import AgentId
 from imbue.mng_file.cli.target import ResolveFileTargetResult
 from imbue.mng_file.cli.target import _compute_agent_base_path
+from imbue.mng_file.cli.target import _is_not_found_error
 from imbue.mng_file.cli.target import _is_volume_accessible_path
 from imbue.mng_file.cli.target import compute_volume_path
 from imbue.mng_file.cli.target import resolve_full_path
@@ -147,3 +148,18 @@ def test_resolve_file_target_result_is_online_false_when_no_host() -> None:
         relative_to=PathRelativeTo.HOST,
     )
     assert result.is_online is False
+
+
+def test_is_not_found_error_returns_true_for_not_found() -> None:
+    err = UserInputError("Could not find agent with ID or name: foo")
+    assert _is_not_found_error(err) is True
+
+
+def test_is_not_found_error_returns_false_for_multiple_match() -> None:
+    err = UserInputError("Multiple agents found with ID or name: foo")
+    assert _is_not_found_error(err) is False
+
+
+def test_is_not_found_error_returns_false_for_other_error() -> None:
+    err = UserInputError("Something completely different")
+    assert _is_not_found_error(err) is False

@@ -126,6 +126,13 @@ class ResolveFileTargetResult(FrozenModel):
         return self.online_host is not None
 
 
+@pure
+def _is_not_found_error(err: UserInputError) -> bool:
+    """Whether this UserInputError indicates a 'not found' condition rather than an ambiguity."""
+    message = str(err)
+    return "Could not find" in message
+
+
 def resolve_file_target(
     target_identifier: str,
     mng_ctx: MngContext,
@@ -144,7 +151,7 @@ def resolve_file_target(
 
     all_hosts = list(agents_by_host.keys())
 
-    # Try agent resolution
+    # Try agent resolution -- only suppress "not found" errors, re-raise everything else
     agent_result: tuple[DiscoveredHost, DiscoveredAgent] | None = None
     try:
         agent_result = resolve_agent_reference(
@@ -153,11 +160,12 @@ def resolve_file_target(
             agents_by_host=agents_by_host,
         )
     except UserInputError as err:
-        if "Multiple" in str(err):
+        if _is_not_found_error(err):
+            logger.trace("Agent lookup did not find {}: {}", target_identifier, err)
+        else:
             raise
-        pass
 
-    # Try host resolution
+    # Try host resolution -- only suppress "not found" errors, re-raise everything else
     host_result: DiscoveredHost | None = None
     try:
         host_result = resolve_host_reference(
@@ -165,9 +173,10 @@ def resolve_file_target(
             all_hosts=all_hosts,
         )
     except UserInputError as err:
-        if "Multiple" in str(err):
+        if _is_not_found_error(err):
+            logger.trace("Host lookup did not find {}: {}", target_identifier, err)
+        else:
             raise
-        pass
 
     # Check for ambiguity
     if agent_result is not None and host_result is not None:
@@ -207,21 +216,35 @@ def resolve_file_target(
     )
 
 
-def _try_get_online_host(
-    provider: "BaseProviderInstance",
-    host_id: "HostId",
-) -> OnlineHostInterface | None:
-    """Try to get an online host interface, returning None if the host is offline."""
+def _get_host_access(
+    provider: BaseProviderInstance,
+    host_id: HostId,
+    target_display_name: str,
+) -> tuple[OnlineHostInterface | None, Volume | None]:
+    """Get online host and/or volume access for a host, raising if neither is available."""
+    # Try online access
+    online_host: OnlineHostInterface | None = None
     try:
         host_interface = provider.get_host(host_id)
     except MngError as err:
         logger.trace("Host {} is not available: {}", host_id, err)
-        return None
+        host_interface = None
 
-    if not isinstance(host_interface, OnlineHostInterface):
-        return None
+    if host_interface is not None and isinstance(host_interface, OnlineHostInterface):
+        online_host = host_interface
 
-    return host_interface
+    # Try volume access
+    host_volume = provider.get_volume_for_host(host_id)
+    volume: Volume | None = None
+    if host_volume is not None:
+        volume = host_volume.volume
+
+    if online_host is None and volume is None:
+        raise MngError(
+            f"{target_display_name} is offline and the provider does not support volume access. Cannot access files."
+        )
+
+    return online_host, volume
 
 
 def _resolve_agent_target(
@@ -233,20 +256,11 @@ def _resolve_agent_target(
     with log_span("Getting access for agent target"):
         provider = get_provider_instance(discovered_host.provider_name, mng_ctx)
 
-    # Try online access
-    online_host = _try_get_online_host(provider, discovered_host.host_id)
-
-    # Try volume access
-    host_volume = provider.get_volume_for_host(discovered_host.host_id)
-    volume: Volume | None = None
-    if host_volume is not None:
-        volume = host_volume.volume
-
-    if online_host is None and volume is None:
-        raise MngError(
-            f"Host for agent '{discovered_agent.agent_name}' is offline and the provider "
-            f"does not support volume access. Cannot access files."
-        )
+    online_host, volume = _get_host_access(
+        provider=provider,
+        host_id=discovered_host.host_id,
+        target_display_name=f"Host for agent '{discovered_agent.agent_name}'",
+    )
 
     # When online, get work_dir from the host's agent list
     work_dir: Path | None = None
@@ -274,7 +288,6 @@ def _resolve_agent_target(
 
     # Compute a synthetic host_dir for path computation when offline
     if host_dir is None:
-        # Volume is rooted at host_dir, so we use a placeholder
         host_dir = Path("/mng-host-dir")
 
     base_path = _compute_agent_base_path(
@@ -302,20 +315,11 @@ def _resolve_host_target(
     with log_span("Getting access for host target"):
         provider = get_provider_instance(discovered_host.provider_name, mng_ctx)
 
-    # Try online access
-    online_host = _try_get_online_host(provider, discovered_host.host_id)
-
-    # Try volume access
-    host_volume = provider.get_volume_for_host(discovered_host.host_id)
-    volume: Volume | None = None
-    if host_volume is not None:
-        volume = host_volume.volume
-
-    if online_host is None and volume is None:
-        raise MngError(
-            f"Host '{discovered_host.host_name}' is offline and the provider "
-            f"does not support volume access. Cannot access files."
-        )
+    online_host, volume = _get_host_access(
+        provider=provider,
+        host_id=discovered_host.host_id,
+        target_display_name=f"Host '{discovered_host.host_name}'",
+    )
 
     if online_host is not None:
         base_path = online_host.host_dir
