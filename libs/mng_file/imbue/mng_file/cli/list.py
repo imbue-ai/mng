@@ -1,0 +1,362 @@
+import json
+import shlex
+from collections.abc import Sequence
+from datetime import datetime
+from datetime import timezone
+from pathlib import Path
+from typing import Any
+from typing import Final
+from typing import assert_never
+
+import click
+from click_option_group import optgroup
+from loguru import logger
+from tabulate import tabulate
+
+from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.pure import pure
+from imbue.mng.cli.common_opts import add_common_options
+from imbue.mng.cli.common_opts import setup_command_context
+from imbue.mng.cli.output_helpers import emit_final_json
+from imbue.mng.cli.output_helpers import format_size
+from imbue.mng.cli.output_helpers import render_format_template
+from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.config.data_types import CommonCliOptions
+from imbue.mng.config.data_types import OutputOptions
+from imbue.mng.errors import MngError
+from imbue.mng.interfaces.data_types import VolumeFileType
+from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.interfaces.volume import Volume
+from imbue.mng.primitives import OutputFormat
+from imbue.mng_file.cli.group import file_group
+from imbue.mng_file.cli.target import compute_volume_path
+from imbue.mng_file.cli.target import resolve_file_target
+from imbue.mng_file.cli.target import resolve_full_path
+from imbue.mng_file.data_types import FileEntry
+from imbue.mng_file.data_types import PathRelativeTo
+
+_DEFAULT_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
+    "name",
+    "file_type",
+    "size",
+    "modified",
+)
+
+_ALL_FIELDS: Final[tuple[str, ...]] = (
+    "name",
+    "path",
+    "file_type",
+    "size",
+    "modified",
+    "permissions",
+)
+
+_HEADER_LABELS: Final[dict[str, str]] = {
+    "name": "NAME",
+    "path": "PATH",
+    "file_type": "TYPE",
+    "size": "SIZE",
+    "modified": "MODIFIED",
+    "permissions": "PERMISSIONS",
+}
+
+# find -printf format: name\tsize\tmodified\ttype-char\tpermissions\tpath
+# %f = filename, %s = size, %T+ = mod time, %y = type char, %M = symbolic permissions, %p = full path
+_FIND_FORMAT: Final[str] = r"%f\t%s\t%T+\t%y\t%M\t%p\n"
+
+_FILE_TYPE_BY_FIND_CHAR: Final[dict[str, str]] = {
+    "f": "file",
+    "d": "directory",
+    "l": "symlink",
+    "p": "pipe",
+    "s": "socket",
+    "b": "block",
+    "c": "character",
+}
+
+
+class _FileListCliOptions(CommonCliOptions):
+    """Options for the file list subcommand."""
+
+    target: str
+    path: str | None
+    relative_to: str
+    fields: str | None
+    recursive: bool
+
+
+@pure
+def _parse_find_output_line(line: str) -> FileEntry | None:
+    """Parse a single line of find -printf output into a FileEntry."""
+    parts = line.split("\t", 5)
+    if len(parts) != 6:
+        logger.trace("Skipping malformed find output line: {}", line)
+        return None
+
+    name, size_str, modified, type_char, permissions, full_path = parts
+
+    # Skip the root directory entry itself
+    if name == ".":
+        return None
+
+    file_type = _FILE_TYPE_BY_FIND_CHAR.get(type_char, "other")
+
+    parsed_size: int | None = None
+    if file_type != "directory":
+        try:
+            parsed_size = int(size_str)
+        except ValueError:
+            parsed_size = None
+
+    return FileEntry(
+        name=name,
+        path=full_path,
+        file_type=file_type,
+        size=parsed_size,
+        modified=modified,
+        permissions=permissions,
+    )
+
+
+@pure
+def parse_find_output(output: str) -> list[FileEntry]:
+    """Parse the output of find -printf into a list of FileEntry objects."""
+    entries: list[FileEntry] = []
+    for line in output.strip().splitlines():
+        entry = _parse_find_output_line(line)
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
+def list_files_on_host(
+    host: OnlineHostInterface,
+    directory: Path,
+    is_recursive: bool,
+) -> list[FileEntry]:
+    """List files in a directory on a remote host using find."""
+    quoted_dir = shlex.quote(str(directory))
+
+    if is_recursive:
+        command = f"find {quoted_dir} -printf {shlex.quote(_FIND_FORMAT)}"
+    else:
+        command = f"find {quoted_dir} -maxdepth 1 -printf {shlex.quote(_FIND_FORMAT)}"
+
+    with log_span("Listing files on host"):
+        result = host.execute_command(command, timeout_seconds=30.0)
+
+    if not result.success:
+        raise MngError(f"Failed to list files at {directory}: {result.stderr}")
+
+    return parse_find_output(result.stdout)
+
+
+def list_files_on_volume(
+    volume: Volume,
+    vol_path: str,
+    is_recursive: bool,
+) -> list[FileEntry]:
+    """List files in a directory using a Volume interface."""
+    with log_span("Listing files on volume"):
+        volume_files = volume.listdir(vol_path)
+
+    entries: list[FileEntry] = []
+    for vf in volume_files:
+        name = vf.path.rsplit("/", 1)[-1] if "/" in vf.path else vf.path
+        match vf.file_type:
+            case VolumeFileType.FILE:
+                file_type = "file"
+            case VolumeFileType.DIRECTORY:
+                file_type = "directory"
+            case _ as unreachable:
+                assert_never(unreachable)
+
+        size = vf.size if file_type != "directory" else None
+        modified = None
+        if vf.mtime > 0:
+            modified = datetime.fromtimestamp(vf.mtime, tz=timezone.utc).isoformat()
+
+        entries.append(
+            FileEntry(
+                name=name,
+                path=vf.path,
+                file_type=file_type,
+                size=size,
+                modified=modified,
+                permissions=None,
+            )
+        )
+
+    return entries
+
+
+@pure
+def _get_field_value(entry: FileEntry, field: str) -> str:
+    """Extract a display value from a FileEntry for the given field name."""
+    match field:
+        case "name":
+            return entry.name
+        case "path":
+            return entry.path
+        case "file_type":
+            return entry.file_type
+        case "size":
+            if entry.size is None:
+                return "-"
+            return format_size(entry.size)
+        case "modified":
+            return entry.modified if entry.modified is not None else "-"
+        case "permissions":
+            return entry.permissions if entry.permissions is not None else "-"
+        case _:
+            return ""
+
+
+@pure
+def _entry_to_field_mapping(entry: FileEntry, fields: Sequence[str]) -> dict[str, str]:
+    """Convert a FileEntry to a mapping of field name -> display value."""
+    return {field: _get_field_value(entry, field) for field in fields}
+
+
+@pure
+def _entry_to_json_dict(entry: FileEntry) -> dict[str, Any]:
+    """Convert a FileEntry to a JSON-serializable dict with raw values."""
+    return {
+        "name": entry.name,
+        "path": entry.path,
+        "file_type": entry.file_type,
+        "size": entry.size,
+        "modified": entry.modified,
+        "permissions": entry.permissions,
+    }
+
+
+def _emit_list_result(
+    entries: list[FileEntry],
+    fields: tuple[str, ...],
+    output_opts: OutputOptions,
+) -> None:
+    match output_opts.output_format:
+        case OutputFormat.HUMAN:
+            if not entries:
+                write_human_line("(empty)")
+                return
+            headers = [_HEADER_LABELS.get(f, f.upper()) for f in fields]
+            rows = [[_get_field_value(entry, f) for f in fields] for entry in entries]
+            table = tabulate(rows, headers=headers, tablefmt="plain")
+            write_human_line(table)
+        case OutputFormat.JSON:
+            emit_final_json(
+                {
+                    "count": len(entries),
+                    "files": [_entry_to_json_dict(e) for e in entries],
+                }
+            )
+        case OutputFormat.JSONL:
+            for entry in entries:
+                data = _entry_to_json_dict(entry)
+                write_human_line(json.dumps(data))
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+@file_group.command(name="list")
+@click.argument("target")
+@click.argument("path", required=False, default=None)
+@optgroup.group("Path Resolution")
+@optgroup.option(
+    "--relative-to",
+    type=click.Choice(["work", "state", "host"], case_sensitive=False),
+    default="work",
+    show_default=True,
+    help="Base directory for relative paths (agent targets only): work (work_dir), state (agent state dir), host (host dir)",
+)
+@optgroup.group("Output Format")
+@optgroup.option(
+    "--fields",
+    default=None,
+    help="Comma-separated list of fields to display: name, path, file_type, size, modified, permissions",
+)
+@optgroup.group("Options")
+@optgroup.option(
+    "--recursive",
+    "-R",
+    is_flag=True,
+    default=False,
+    help="List files recursively",
+)
+@add_common_options
+@click.pass_context
+def file_list(ctx: click.Context, **kwargs: Any) -> None:
+    """List files on an agent or host.
+
+    \b
+    TARGET is the agent or host name/ID.
+    PATH is the directory to list (defaults to the base directory).
+    """
+    mng_ctx, output_opts, opts = setup_command_context(
+        ctx=ctx,
+        command_name="file-list",
+        command_class=_FileListCliOptions,
+    )
+
+    relative_to = PathRelativeTo(opts.relative_to.upper())
+
+    # Resolve target
+    with log_span("Resolving file target"):
+        resolved = resolve_file_target(
+            target_identifier=opts.target,
+            mng_ctx=mng_ctx,
+            relative_to=relative_to,
+        )
+
+    # Determine directory to list
+    if opts.path is not None:
+        directory = resolve_full_path(resolved.base_path, opts.path)
+    else:
+        directory = resolved.base_path
+
+    # Determine fields
+    if opts.fields is not None:
+        fields = tuple(f.strip() for f in opts.fields.split(","))
+        invalid_fields = [f for f in fields if f not in _ALL_FIELDS]
+        if invalid_fields:
+            valid_list = ", ".join(_ALL_FIELDS)
+            raise click.BadParameter(
+                f"Unknown field(s): {', '.join(invalid_fields)}. Valid fields: {valid_list}",
+                param_hint="--fields",
+            )
+    elif output_opts.format_template is not None:
+        fields = _ALL_FIELDS
+    else:
+        fields = _DEFAULT_DISPLAY_FIELDS
+
+    # List files -- prefer online host, fall back to volume
+    if resolved.is_online:
+        entries = list_files_on_host(
+            host=resolved.host,
+            directory=directory,
+            is_recursive=opts.recursive,
+        )
+    elif resolved.volume is not None:
+        vol_path = compute_volume_path(relative_to, resolved.agent_id, opts.path)
+        entries = list_files_on_volume(
+            volume=resolved.volume,
+            vol_path=vol_path,
+            is_recursive=opts.recursive,
+        )
+    else:
+        entries = list_files_on_host(
+            host=resolved.host,
+            directory=directory,
+            is_recursive=opts.recursive,
+        )
+
+    # Output
+    if output_opts.format_template is not None:
+        for entry in entries:
+            field_mapping = _entry_to_field_mapping(entry, _ALL_FIELDS)
+            line = render_format_template(output_opts.format_template, field_mapping)
+            write_human_line(line)
+    else:
+        _emit_list_result(entries, fields, output_opts)
