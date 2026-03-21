@@ -130,7 +130,7 @@ def file_put(ctx: click.Context, **kwargs: Any) -> None:
             assert resolved.volume is not None
             if opts.mode is not None:
                 logger.warning("--mode is not supported when writing via volume (host is offline); ignoring")
-            vol_path = compute_volume_path(relative_to, resolved.agent_id, opts.path)
+            vol_path = compute_volume_path(resolved.relative_to, resolved.agent_id, opts.path)
             resolved.volume.write_files({vol_path: content})
             display_path = Path(vol_path)
 

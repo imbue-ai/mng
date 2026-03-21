@@ -396,7 +396,7 @@ def file_list(ctx: click.Context, **kwargs: Any) -> None:
         )
     else:
         assert resolved.volume is not None
-        vol_path = compute_volume_path(relative_to, resolved.agent_id, opts.path)
+        vol_path = compute_volume_path(resolved.relative_to, resolved.agent_id, opts.path)
         entries = list_files_on_volume(
             volume=resolved.volume,
             vol_path=vol_path,

@@ -105,7 +105,7 @@ def file_get(ctx: click.Context, **kwargs: Any) -> None:
             display_path = full_path
         else:
             assert resolved.volume is not None
-            vol_path = compute_volume_path(relative_to, resolved.agent_id, opts.path)
+            vol_path = compute_volume_path(resolved.relative_to, resolved.agent_id, opts.path)
             content = resolved.volume.read_file(vol_path)
             display_path = Path(vol_path)
 
