@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -1009,13 +1010,17 @@ class _StubHost:
 def _create_agent_with_stub_host(
     temp_mng_ctx: MngContext,
     stub: _StubHost,
+    cls: type[BaseAgent] = BaseAgent,
+    **kwargs: Any,
 ) -> BaseAgent:
-    """Create a BaseAgent that uses a stub host for command recording.
+    """Create an agent with a stub host for command recording.
 
     Uses model_construct to bypass Pydantic validation so the stub host
     (which does not implement the full OnlineHostInterface) can be used.
+    Accepts a cls parameter to create subclass instances and **kwargs
+    for additional fields (e.g. enter_submission_timeout_seconds).
     """
-    return BaseAgent.model_construct(
+    return cls.model_construct(
         id=AgentId.generate(),
         name=AgentName("stub-agent"),
         agent_type=AgentTypeName("test"),
@@ -1025,6 +1030,7 @@ def _create_agent_with_stub_host(
         host=stub,
         mng_ctx=temp_mng_ctx,
         agent_config=AgentTypeConfig(command=CommandString("sleep 1000")),
+        **kwargs,
     )
 
 
@@ -1309,18 +1315,8 @@ def _create_failing_agent(
     from tenacity import wait_none
 
     stub = _StubHost()
-    agent = _FailingAgent.model_construct(
-        id=AgentId.generate(),
-        name=AgentName("failing-agent"),
-        agent_type=AgentTypeName("test"),
-        work_dir=Path("/tmp/stub-work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        host=stub,
-        mng_ctx=temp_mng_ctx,
-        agent_config=AgentTypeConfig(command=CommandString("sleep 1000")),
-        enter_submission_timeout_seconds=20.0,
-    )
+    agent = _create_agent_with_stub_host(temp_mng_ctx, stub, cls=_FailingAgent, enter_submission_timeout_seconds=20.0)
+    assert isinstance(agent, _FailingAgent)
     agent._fail_count = fail_count
     agent._send_attempts = 0
     agent._clear_input_calls = 0
@@ -1329,40 +1325,28 @@ def _create_failing_agent(
     return agent
 
 
-def test_send_message_succeeds_on_first_attempt(
-    temp_mng_ctx: MngContext,
-) -> None:
-    """send_message should succeed without retries when the first attempt works."""
-    agent = _create_failing_agent(temp_mng_ctx, fail_count=0)
-
-    agent.send_message("hello")
-
-    assert agent._send_attempts == 1
-    assert agent._clear_input_calls == 0
-
-
+@pytest.mark.parametrize(
+    ("fail_count", "expected_attempts", "expected_clears"),
+    [
+        (0, 1, 0),
+        (1, 2, 1),
+        (2, 3, 2),
+    ],
+    ids=["succeeds_first_attempt", "retries_once", "retries_twice"],
+)
 def test_send_message_retries_on_send_message_error(
     temp_mng_ctx: MngContext,
+    fail_count: int,
+    expected_attempts: int,
+    expected_clears: int,
 ) -> None:
-    """send_message should retry on SendMessageError and succeed on a later attempt."""
-    agent = _create_failing_agent(temp_mng_ctx, fail_count=1)
+    """send_message should retry on SendMessageError, calling clear_input before each retry."""
+    agent = _create_failing_agent(temp_mng_ctx, fail_count=fail_count)
 
     agent.send_message("hello")
 
-    assert agent._send_attempts == 2
-    assert agent._clear_input_calls == 1
-
-
-def test_send_message_calls_clear_input_before_each_retry(
-    temp_mng_ctx: MngContext,
-) -> None:
-    """send_message should call clear_input before each retry attempt."""
-    agent = _create_failing_agent(temp_mng_ctx, fail_count=2)
-
-    agent.send_message("hello")
-
-    assert agent._send_attempts == 3
-    assert agent._clear_input_calls == 2
+    assert agent._send_attempts == expected_attempts
+    assert agent._clear_input_calls == expected_clears
 
 
 def test_send_message_raises_after_max_attempts(
@@ -1400,18 +1384,6 @@ def test_clear_input_sends_ctrl_c_and_sleeps_when_no_tui_indicator(
     assert "sleep" in stub.executed_commands[1]
 
 
-class _TuiIndicatorStubHost(_StubHost):
-    """Stub host that returns configurable pane content for capture."""
-
-    def __init__(
-        self,
-        pane_content: str,
-        command_results: list[CommandResult] | None = None,
-    ) -> None:
-        super().__init__(command_results=command_results)
-        self.pane_content = pane_content
-
-
 class _TuiIndicatorAgent(BaseAgent):
     """Agent with a configurable TUI ready indicator for testing clear_input."""
 
@@ -1431,17 +1403,8 @@ def test_clear_input_polls_for_tui_indicator_when_configured(
             CommandResult(success=True, stdout="ready> \n", stderr=""),
         ]
     )
-    agent = _TuiIndicatorAgent.model_construct(
-        id=AgentId.generate(),
-        name=AgentName("tui-agent"),
-        agent_type=AgentTypeName("test"),
-        work_dir=Path("/tmp/stub-work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        host=stub,
-        mng_ctx=temp_mng_ctx,
-        agent_config=AgentTypeConfig(command=CommandString("sleep 1000")),
-    )
+    agent = _create_agent_with_stub_host(temp_mng_ctx, stub, cls=_TuiIndicatorAgent)
+    assert isinstance(agent, _TuiIndicatorAgent)
     agent._tui_indicator = "ready>"
 
     agent.clear_input()
