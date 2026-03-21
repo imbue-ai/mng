@@ -7,10 +7,10 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mng.api.discover import discover_all_hosts_and_agents
+from imbue.mng.api.find import resolve_agent_reference
+from imbue.mng.api.find import resolve_host_reference
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.errors import AgentNotFoundError
-from imbue.mng.errors import HostNotFoundError
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentId
@@ -18,7 +18,6 @@ from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
-from imbue.mng.primitives import HostName
 from imbue.mng.providers.base_provider import BaseProviderInstance
 from imbue.mng_wait.data_types import CombinedState
 from imbue.mng_wait.data_types import StateChange
@@ -43,112 +42,112 @@ def resolve_wait_target(
     identifier: str,
     mng_ctx: MngContext,
 ) -> ResolvedTarget:
-    """Resolve a target identifier to provider, host, and optional agent references."""
+    """Resolve a target identifier to provider, host, and optional agent references.
+
+    Uses the existing find.py resolution functions for agent/host lookup.
+    """
     with log_span("Discovering hosts and agents"):
         agents_by_host, _providers = discover_all_hosts_and_agents(mng_ctx)
 
+    all_hosts = list(agents_by_host.keys())
+
     # Determine target type from identifier format
     if identifier.startswith("agent-"):
-        return _resolve_agent_target(identifier, agents_by_host, mng_ctx)
+        return _build_agent_resolved_target(identifier, agents_by_host, mng_ctx)
     elif identifier.startswith("host-"):
-        return _resolve_host_target(identifier, agents_by_host, mng_ctx)
+        return _build_host_resolved_target(identifier, all_hosts, mng_ctx)
     else:
-        # Ambiguous name -- try agent first, then host
-        return _resolve_by_name(identifier, agents_by_host, mng_ctx)
+        # Ambiguous name -- try agent first, then host, error on ambiguity
+        return _resolve_by_name(identifier, agents_by_host, all_hosts, mng_ctx)
 
 
-def _is_agent_match(
-    agent_ref: DiscoveredAgent,
-    identifier: str,
-    is_agent_id: bool,
-) -> bool:
-    """Check if a discovered agent matches the given identifier."""
-    if is_agent_id:
-        try:
-            agent_id = AgentId(identifier)
-        except ValueError:
-            return False
-        return agent_ref.agent_id == agent_id
-    else:
-        return str(agent_ref.agent_name) == identifier
-
-
-def _safe_host_identifier(identifier: str) -> HostId | HostName:
-    """Convert a string to HostId or HostName, falling back to HostName if HostId construction fails."""
-    try:
-        return HostId(identifier)
-    except ValueError:
-        return HostName(identifier)
-
-
-def _resolve_agent_target(
+def _build_agent_resolved_target(
     identifier: str,
     agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]],
     mng_ctx: MngContext,
 ) -> ResolvedTarget:
-    """Resolve an agent target by ID or name."""
-    is_agent_id = identifier.startswith("agent-")
+    """Build a ResolvedTarget for an agent identifier using find.py's resolve_agent_reference."""
+    result = resolve_agent_reference(identifier, resolved_host=None, agents_by_host=agents_by_host)
+    if result is None:
+        raise UserInputError(f"Could not find agent: {identifier}")
+    host_ref, agent_ref = result
+    provider = get_provider_instance(host_ref.provider_name, mng_ctx)
+    return ResolvedTarget(
+        target=WaitTarget(identifier=identifier, target_type=WaitTargetType.AGENT),
+        provider=provider,
+        host_id=host_ref.host_id,
+        agent_id=agent_ref.agent_id,
+    )
 
-    matching: list[tuple[DiscoveredHost, DiscoveredAgent]] = []
-    for host_ref, agent_refs in agents_by_host.items():
-        for agent_ref in agent_refs:
-            if _is_agent_match(agent_ref, identifier, is_agent_id):
-                matching.append((host_ref, agent_ref))
 
-    if not matching:
-        raise AgentNotFoundError(identifier)
-    elif len(matching) > 1:
-        agent_list = ", ".join(str(a.agent_id) for _, a in matching)
+def _build_host_resolved_target(
+    identifier: str,
+    all_hosts: list[DiscoveredHost],
+    mng_ctx: MngContext,
+) -> ResolvedTarget:
+    """Build a ResolvedTarget for a host identifier using find.py's resolve_host_reference."""
+    host_ref = resolve_host_reference(identifier, all_hosts)
+    if host_ref is None:
+        raise UserInputError(f"Could not find host: {identifier}")
+    provider = get_provider_instance(host_ref.provider_name, mng_ctx)
+    return ResolvedTarget(
+        target=WaitTarget(identifier=identifier, target_type=WaitTargetType.HOST),
+        provider=provider,
+        host_id=host_ref.host_id,
+        agent_id=None,
+    )
+
+
+def _resolve_by_name(
+    identifier: str,
+    agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]],
+    all_hosts: list[DiscoveredHost],
+    mng_ctx: MngContext,
+) -> ResolvedTarget:
+    """Resolve a name by trying agent names first, then host names.
+
+    Raises UserInputError if the name matches both an agent and a host.
+    """
+    # Try agent resolution (suppressing errors to try host next)
+    agent_result: tuple[DiscoveredHost, DiscoveredAgent] | None = None
+    agent_error: UserInputError | None = None
+    try:
+        agent_result = resolve_agent_reference(identifier, resolved_host=None, agents_by_host=agents_by_host)
+    except UserInputError as exc:
+        agent_error = exc
+
+    # Try host resolution
+    host_ref: DiscoveredHost | None = None
+    host_error: UserInputError | None = None
+    try:
+        host_ref = resolve_host_reference(identifier, all_hosts)
+    except UserInputError as exc:
+        host_error = exc
+
+    # If both match, it's ambiguous
+    if agent_result is not None and host_ref is not None:
         raise UserInputError(
-            f"Multiple agents found with name '{identifier}': {agent_list}. Use the agent ID instead."
+            f"Name '{identifier}' matches both an agent and a host. "
+            "Use the full ID (agent-* or host-*) to disambiguate."
         )
-    else:
-        host_ref, agent_ref = matching[0]
-        provider = get_provider_instance(host_ref.provider_name, mng_ctx)
+
+    # If agent matched (possibly with error for multiple matches)
+    if agent_result is not None:
+        matched_host_ref, agent_ref = agent_result
+        provider = get_provider_instance(matched_host_ref.provider_name, mng_ctx)
         return ResolvedTarget(
             target=WaitTarget(identifier=identifier, target_type=WaitTargetType.AGENT),
             provider=provider,
-            host_id=host_ref.host_id,
+            host_id=matched_host_ref.host_id,
             agent_id=agent_ref.agent_id,
         )
 
+    # If agent had a "multiple matches" error, re-raise it
+    if agent_error is not None and "Multiple" in str(agent_error):
+        raise agent_error
 
-def _is_host_match(
-    host_ref: DiscoveredHost,
-    identifier: str,
-    is_host_id: bool,
-) -> bool:
-    """Check if a discovered host matches the given identifier."""
-    if is_host_id:
-        try:
-            host_id = HostId(identifier)
-        except ValueError:
-            return False
-        return host_ref.host_id == host_id
-    else:
-        return str(host_ref.host_name) == identifier
-
-
-def _resolve_host_target(
-    identifier: str,
-    agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]],
-    mng_ctx: MngContext,
-) -> ResolvedTarget:
-    """Resolve a host target by ID or name."""
-    is_host_id = identifier.startswith("host-")
-
-    matching: list[DiscoveredHost] = []
-    for host_ref in agents_by_host.keys():
-        if _is_host_match(host_ref, identifier, is_host_id):
-            matching.append(host_ref)
-
-    if not matching:
-        raise HostNotFoundError(_safe_host_identifier(identifier))
-    elif len(matching) > 1:
-        host_list = ", ".join(str(h.host_id) for h in matching)
-        raise UserInputError(f"Multiple hosts found with name '{identifier}': {host_list}. Use the host ID instead.")
-    else:
-        host_ref = matching[0]
+    # If host matched
+    if host_ref is not None:
         provider = get_provider_instance(host_ref.provider_name, mng_ctx)
         return ResolvedTarget(
             target=WaitTarget(identifier=identifier, target_type=WaitTargetType.HOST),
@@ -157,68 +156,13 @@ def _resolve_host_target(
             agent_id=None,
         )
 
+    # If host had a "multiple matches" error, re-raise it
+    if host_error is not None and "Multiple" in str(host_error):
+        raise host_error
 
-def _resolve_by_name(
-    identifier: str,
-    agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]],
-    mng_ctx: MngContext,
-) -> ResolvedTarget:
-    """Resolve a name by trying agent names first, then host names."""
-    # Collect agent matches
-    agent_matches: list[tuple[DiscoveredHost, DiscoveredAgent]] = []
-    for host_ref, agent_refs in agents_by_host.items():
-        for agent_ref in agent_refs:
-            if _is_agent_match(agent_ref, identifier, is_agent_id=False):
-                agent_matches.append((host_ref, agent_ref))
-
-    # Collect host matches
-    host_matches: list[DiscoveredHost] = []
-    for host_ref in agents_by_host.keys():
-        if _is_host_match(host_ref, identifier, is_host_id=False):
-            host_matches.append(host_ref)
-
-    # If both match, it's ambiguous
-    if agent_matches and host_matches:
-        raise UserInputError(
-            f"Name '{identifier}' matches both an agent and a host. "
-            "Use the full ID (agent-* or host-*) to disambiguate."
-        )
-
-    if agent_matches:
-        if len(agent_matches) > 1:
-            agent_list = ", ".join(str(a.agent_id) for _, a in agent_matches)
-            raise UserInputError(
-                f"Multiple agents found with name '{identifier}': {agent_list}. Use the agent ID instead."
-            )
-        else:
-            host_ref, agent_ref = agent_matches[0]
-            provider = get_provider_instance(host_ref.provider_name, mng_ctx)
-            return ResolvedTarget(
-                target=WaitTarget(identifier=identifier, target_type=WaitTargetType.AGENT),
-                provider=provider,
-                host_id=host_ref.host_id,
-                agent_id=agent_ref.agent_id,
-            )
-    elif host_matches:
-        if len(host_matches) > 1:
-            host_list = ", ".join(str(h.host_id) for h in host_matches)
-            raise UserInputError(
-                f"Multiple hosts found with name '{identifier}': {host_list}. Use the host ID instead."
-            )
-        else:
-            host_ref = host_matches[0]
-            provider = get_provider_instance(host_ref.provider_name, mng_ctx)
-            return ResolvedTarget(
-                target=WaitTarget(identifier=identifier, target_type=WaitTargetType.HOST),
-                provider=provider,
-                host_id=host_ref.host_id,
-                agent_id=None,
-            )
-    else:
-        raise UserInputError(
-            f"No agent or host found with name or ID: '{identifier}'. "
-            "Use 'mng list' to see available agents and hosts."
-        )
+    raise UserInputError(
+        f"No agent or host found with name or ID: '{identifier}'. Use 'mng list' to see available agents and hosts."
+    )
 
 
 def poll_target_state(
