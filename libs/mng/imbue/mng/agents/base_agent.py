@@ -42,7 +42,8 @@ _CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 
 # Default timeout for signal-based synchronization
 # Note that this does need to be fairly long, since it can take a little while for the machine to respond if you're unlucky
-_DEFAULT_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 10.0
+# this is *especially* the case when running on modal, when really overloading the machine while it is starting, etc
+_DEFAULT_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 20.0
 
 # Compiled once for _normalize_for_match performance
 _NON_ALNUM_RE: Final[re.Pattern[str]] = re.compile(r"[^a-z0-9]")

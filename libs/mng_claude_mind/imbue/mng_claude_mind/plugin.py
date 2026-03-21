@@ -132,11 +132,6 @@ class ClaudeMindAgent(ClaudeAgent):
 
     agent_config: ClaudeMindConfig = Field(frozen=True, repr=False, description="Agent type config")
 
-    enter_submission_timeout_seconds: float = Field(
-        default=15.0,
-        description="Timeout in seconds for waiting on the enter submission signal",
-    )
-
     def _configure_role_settings(
         self,
         host: OnlineHostInterface,
