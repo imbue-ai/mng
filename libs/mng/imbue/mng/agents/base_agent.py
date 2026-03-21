@@ -294,19 +294,16 @@ class BaseAgent(AgentInterface[AgentConfigT]):
         """
         return f"{self.session_name}:0"
 
-    @retry(
-        retry=retry_if_exception_type(SendMessageError),
-        stop=stop_after_attempt(_SEND_MESSAGE_MAX_ATTEMPTS),
-        wait=wait_fixed(_SEND_MESSAGE_RETRY_WAIT_SECONDS),
-        reraise=True,
-        before_sleep=lambda retry_state: retry_state.args[0]._on_send_message_retry(retry_state),
-    )
     def send_message(self, message: str) -> None:
         """Send a message to the running agent.
 
-        Retries on SendMessageError up to _SEND_MESSAGE_MAX_ATTEMPTS times.
-        Before each retry, calls clear_input() to clear any garbled input in
-        the TUI.
+        Runs preflight checks (e.g., dialog detection) first -- errors from
+        preflight are NOT retried since they indicate a condition that won't
+        resolve by resending (e.g., a blocking dialog).
+
+        The actual send is retried on SendMessageError up to
+        _SEND_MESSAGE_MAX_ATTEMPTS times, with clear_input() called before
+        each retry to clear any garbled input in the TUI.
 
         For agents that echo input to the terminal (like Claude Code), uses a
         paste-detection approach to ensure the message is fully received before
@@ -314,17 +311,29 @@ class BaseAgent(AgentInterface[AgentConfigT]):
         interpreted as a literal newline instead of a submit action.
 
         Subclasses can enable this by overriding uses_paste_detection_send().
-
-        Before sending, runs preflight checks (e.g., dialog detection) that
-        subclasses can customize by overriding _preflight_send_message().
         """
         with log_span("Sending message to agent {} (length={})", self.name, len(message)):
             self._preflight_send_message(self.tmux_target)
+            self._send_message_with_retry(message)
 
-            if self.uses_paste_detection_send():
-                self._send_message_with_paste_detection(self.tmux_target, message)
-            else:
-                self._send_message_simple(self.tmux_target, message)
+    @retry(
+        retry=retry_if_exception_type(SendMessageError),
+        stop=stop_after_attempt(_SEND_MESSAGE_MAX_ATTEMPTS),
+        wait=wait_fixed(_SEND_MESSAGE_RETRY_WAIT_SECONDS),
+        reraise=True,
+        before_sleep=lambda retry_state: retry_state.args[0]._on_send_message_retry(retry_state),
+    )
+    def _send_message_with_retry(self, message: str) -> None:
+        """Inner send with tenacity retry on SendMessageError.
+
+        Preflight checks are intentionally excluded from retry scope -- they
+        detect conditions (e.g., blocking dialogs) that won't resolve by
+        simply retrying the send.
+        """
+        if self.uses_paste_detection_send():
+            self._send_message_with_paste_detection(self.tmux_target, message)
+        else:
+            self._send_message_simple(self.tmux_target, message)
 
     def _on_send_message_retry(self, retry_state: Any) -> None:
         """Called before each send_message retry to clear garbled input."""

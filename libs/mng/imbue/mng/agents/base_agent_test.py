@@ -1325,7 +1325,7 @@ def _create_failing_agent(
     agent._send_attempts = 0
     agent._clear_input_calls = 0
     # Eliminate tenacity wait so tests run instantly
-    agent.send_message.retry.wait = wait_none()
+    agent._send_message_with_retry.retry.wait = wait_none()
     return agent
 
 
