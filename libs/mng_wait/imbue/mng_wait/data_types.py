@@ -22,7 +22,7 @@ class WaitTarget(FrozenModel):
     target_type: WaitTargetType = Field(description="Whether this is an agent or host target")
 
 
-class StateSnapshot(FrozenModel):
+class CombinedState(FrozenModel):
     """Current state of the target at a point in time."""
 
     host_state: HostState | None = Field(default=None, description="Current host state (None if host is unreachable)")
@@ -46,7 +46,7 @@ class WaitResult(FrozenModel):
     target: WaitTarget = Field(description="The target that was waited on")
     is_matched: bool = Field(description="Whether the target entered a requested state")
     is_timed_out: bool = Field(description="Whether the wait timed out")
-    final_snapshot: StateSnapshot = Field(description="Final state snapshot")
+    final_state: CombinedState = Field(description="Final combined state at end of wait")
     matched_state: str | None = Field(default=None, description="The state string that matched, if any")
     elapsed_seconds: float = Field(description="Total seconds spent waiting")
     state_changes: tuple[StateChange, ...] = Field(default=(), description="All state changes observed during wait")
@@ -69,35 +69,35 @@ def compute_default_target_states(target_type: WaitTargetType) -> frozenset[str]
 
 @pure
 def check_state_match(
-    snapshot: StateSnapshot,
+    combined_state: CombinedState,
     target_type: WaitTargetType,
     target_states: frozenset[str],
 ) -> str | None:
-    """Check if the current state snapshot matches any of the target states.
+    """Check if the current state combined_state matches any of the target states.
 
     Returns the matched state string, or None if no match.
     Handles the RUNNING/STOPPED overlap rules for agent targets.
     """
     match target_type:
         case WaitTargetType.HOST:
-            if snapshot.host_state is not None and snapshot.host_state.value in target_states:
-                return snapshot.host_state.value
+            if combined_state.host_state is not None and combined_state.host_state.value in target_states:
+                return combined_state.host_state.value
             return None
         case WaitTargetType.AGENT:
-            return _check_agent_state_match(snapshot, target_states)
+            return _check_agent_state_match(combined_state, target_states)
         case _ as unreachable:
             assert_never(unreachable)
 
 
 @pure
 def _check_agent_state_match(
-    snapshot: StateSnapshot,
+    combined_state: CombinedState,
     target_states: frozenset[str],
 ) -> str | None:
     """Check state match for an agent target, handling RUNNING/STOPPED overlap."""
     # Check agent-specific states first
-    if snapshot.agent_state is not None:
-        agent_state_str = snapshot.agent_state.value
+    if combined_state.agent_state is not None:
+        agent_state_str = combined_state.agent_state.value
         if agent_state_str == SHARED_STATE_RUNNING:
             # RUNNING only counts if the *agent* is running
             if SHARED_STATE_RUNNING in target_states:
@@ -114,8 +114,8 @@ def _check_agent_state_match(
             pass
 
     # Check host states (excluding RUNNING, which only counts for agent)
-    if snapshot.host_state is not None:
-        host_state_str = snapshot.host_state.value
+    if combined_state.host_state is not None:
+        host_state_str = combined_state.host_state.value
         if host_state_str == SHARED_STATE_RUNNING:
             # Host RUNNING does NOT count when watching an agent
             pass

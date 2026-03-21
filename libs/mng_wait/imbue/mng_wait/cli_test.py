@@ -8,8 +8,8 @@ from imbue.mng.primitives import HostState
 from imbue.mng.primitives import OutputFormat
 from imbue.mng_wait.cli import _emit_state_change
 from imbue.mng_wait.cli import _output_result
+from imbue.mng_wait.data_types import CombinedState
 from imbue.mng_wait.data_types import StateChange
-from imbue.mng_wait.data_types import StateSnapshot
 from imbue.mng_wait.data_types import WaitResult
 from imbue.mng_wait.data_types import WaitTarget
 from imbue.mng_wait.primitives import WaitTargetType
@@ -20,7 +20,7 @@ def _make_matched_result() -> WaitResult:
         target=WaitTarget(identifier="test-agent", target_type=WaitTargetType.AGENT),
         is_matched=True,
         is_timed_out=False,
-        final_snapshot=StateSnapshot(
+        final_state=CombinedState(
             host_state=HostState.RUNNING,
             agent_state=AgentLifecycleState.DONE,
         ),
@@ -35,7 +35,7 @@ def _make_timed_out_result() -> WaitResult:
         target=WaitTarget(identifier="test-agent", target_type=WaitTargetType.AGENT),
         is_matched=False,
         is_timed_out=True,
-        final_snapshot=StateSnapshot(
+        final_state=CombinedState(
             host_state=HostState.RUNNING,
             agent_state=AgentLifecycleState.RUNNING,
         ),
@@ -150,7 +150,7 @@ def test_output_result_unmatched_not_timed_out(capsys: pytest.CaptureFixture[str
         target=WaitTarget(identifier="test-host", target_type=WaitTargetType.HOST),
         is_matched=False,
         is_timed_out=False,
-        final_snapshot=StateSnapshot(host_state=HostState.RUNNING),
+        final_state=CombinedState(host_state=HostState.RUNNING),
         matched_state=None,
         elapsed_seconds=2.0,
         state_changes=(),

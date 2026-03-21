@@ -21,8 +21,8 @@ from imbue.mng_wait.api import _resolve_by_name
 from imbue.mng_wait.api import _resolve_host_target
 from imbue.mng_wait.api import _safe_host_identifier
 from imbue.mng_wait.api import wait_for_state
+from imbue.mng_wait.data_types import CombinedState
 from imbue.mng_wait.data_types import StateChange
-from imbue.mng_wait.data_types import StateSnapshot
 from imbue.mng_wait.data_types import WaitTarget
 from imbue.mng_wait.primitives import WaitTargetType
 
@@ -127,14 +127,14 @@ def test_is_host_match_wrong_name() -> None:
 
 
 def test_detect_state_changes_records_host_state_change() -> None:
-    previous = StateSnapshot(host_state=HostState.RUNNING)
-    current = StateSnapshot(host_state=HostState.STOPPED)
+    previous = CombinedState(host_state=HostState.RUNNING)
+    current = CombinedState(host_state=HostState.STOPPED)
     changes: list[StateChange] = []
     recorded: list[StateChange] = []
 
     _detect_state_changes(
-        previous_snapshot=previous,
-        current_snapshot=current,
+        previous_state=previous,
+        current_state=current,
         elapsed=5.0,
         state_changes=changes,
         on_state_change=recorded.append,
@@ -148,19 +148,19 @@ def test_detect_state_changes_records_host_state_change() -> None:
 
 
 def test_detect_state_changes_records_agent_state_change() -> None:
-    previous = StateSnapshot(
+    previous = CombinedState(
         host_state=HostState.RUNNING,
         agent_state=AgentLifecycleState.RUNNING,
     )
-    current = StateSnapshot(
+    current = CombinedState(
         host_state=HostState.RUNNING,
         agent_state=AgentLifecycleState.WAITING,
     )
     changes: list[StateChange] = []
 
     _detect_state_changes(
-        previous_snapshot=previous,
-        current_snapshot=current,
+        previous_state=previous,
+        current_state=current,
         elapsed=10.0,
         state_changes=changes,
         on_state_change=None,
@@ -173,15 +173,15 @@ def test_detect_state_changes_records_agent_state_change() -> None:
 
 
 def test_detect_state_changes_no_change_records_nothing() -> None:
-    snapshot = StateSnapshot(
+    combined_state = CombinedState(
         host_state=HostState.RUNNING,
         agent_state=AgentLifecycleState.RUNNING,
     )
     changes: list[StateChange] = []
 
     _detect_state_changes(
-        previous_snapshot=snapshot,
-        current_snapshot=snapshot,
+        previous_state=combined_state,
+        current_state=combined_state,
         elapsed=5.0,
         state_changes=changes,
         on_state_change=None,
@@ -191,19 +191,19 @@ def test_detect_state_changes_no_change_records_nothing() -> None:
 
 
 def test_detect_state_changes_both_change() -> None:
-    previous = StateSnapshot(
+    previous = CombinedState(
         host_state=HostState.RUNNING,
         agent_state=AgentLifecycleState.RUNNING,
     )
-    current = StateSnapshot(
+    current = CombinedState(
         host_state=HostState.STOPPED,
         agent_state=AgentLifecycleState.STOPPED,
     )
     changes: list[StateChange] = []
 
     _detect_state_changes(
-        previous_snapshot=previous,
-        current_snapshot=current,
+        previous_state=previous,
+        current_state=current,
         elapsed=15.0,
         state_changes=changes,
         on_state_change=None,
@@ -215,13 +215,13 @@ def test_detect_state_changes_both_change() -> None:
 
 
 def test_detect_state_changes_skips_none_previous() -> None:
-    previous = StateSnapshot()
-    current = StateSnapshot(host_state=HostState.RUNNING)
+    previous = CombinedState()
+    current = CombinedState(host_state=HostState.RUNNING)
     changes: list[StateChange] = []
 
     _detect_state_changes(
-        previous_snapshot=previous,
-        current_snapshot=current,
+        previous_state=previous,
+        current_state=current,
         elapsed=1.0,
         state_changes=changes,
         on_state_change=None,
@@ -405,11 +405,11 @@ def _make_wait_target(target_type: WaitTargetType = WaitTargetType.HOST) -> Wait
 
 def test_wait_for_state_returns_immediately_when_already_matched() -> None:
     target = _make_wait_target(WaitTargetType.HOST)
-    snapshot = StateSnapshot(host_state=HostState.STOPPED)
+    combined_state = CombinedState(host_state=HostState.STOPPED)
 
     result = wait_for_state(
         target=target,
-        poll_fn=lambda: snapshot,
+        poll_fn=lambda: combined_state,
         target_states=frozenset({"STOPPED"}),
         timeout_seconds=5.0,
         interval_seconds=1.0,
@@ -424,11 +424,11 @@ def test_wait_for_state_returns_immediately_when_already_matched() -> None:
 
 def test_wait_for_state_times_out_when_state_never_matches() -> None:
     target = _make_wait_target(WaitTargetType.HOST)
-    snapshot = StateSnapshot(host_state=HostState.RUNNING)
+    combined_state = CombinedState(host_state=HostState.RUNNING)
 
     result = wait_for_state(
         target=target,
-        poll_fn=lambda: snapshot,
+        poll_fn=lambda: combined_state,
         target_states=frozenset({"STOPPED"}),
         timeout_seconds=0.1,
         interval_seconds=0.05,
@@ -444,12 +444,12 @@ def test_wait_for_state_detects_state_transition() -> None:
     target = _make_wait_target(WaitTargetType.HOST)
     call_count = 0
 
-    def _poll_with_transition() -> StateSnapshot:
+    def _poll_with_transition() -> CombinedState:
         nonlocal call_count
         call_count += 1
         if call_count >= 3:
-            return StateSnapshot(host_state=HostState.STOPPED)
-        return StateSnapshot(host_state=HostState.RUNNING)
+            return CombinedState(host_state=HostState.STOPPED)
+        return CombinedState(host_state=HostState.RUNNING)
 
     result = wait_for_state(
         target=target,
@@ -469,15 +469,15 @@ def test_wait_for_state_records_state_changes() -> None:
     target = _make_wait_target(WaitTargetType.HOST)
     call_count = 0
 
-    def _poll_through_states() -> StateSnapshot:
+    def _poll_through_states() -> CombinedState:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            return StateSnapshot(host_state=HostState.RUNNING)
+            return CombinedState(host_state=HostState.RUNNING)
         elif call_count == 2:
-            return StateSnapshot(host_state=HostState.STOPPING)
+            return CombinedState(host_state=HostState.STOPPING)
         else:
-            return StateSnapshot(host_state=HostState.STOPPED)
+            return CombinedState(host_state=HostState.STOPPED)
 
     recorded_changes: list[StateChange] = []
 
@@ -499,12 +499,12 @@ def test_wait_for_state_handles_poll_errors_gracefully() -> None:
     target = _make_wait_target(WaitTargetType.HOST)
     call_count = 0
 
-    def _poll_with_error() -> StateSnapshot:
+    def _poll_with_error() -> CombinedState:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise ConnectionError("transient error")
-        return StateSnapshot(host_state=HostState.STOPPED)
+        return CombinedState(host_state=HostState.STOPPED)
 
     result = wait_for_state(
         target=target,
@@ -521,14 +521,14 @@ def test_wait_for_state_handles_poll_errors_gracefully() -> None:
 
 def test_wait_for_state_agent_target_matches_agent_state() -> None:
     target = _make_wait_target(WaitTargetType.AGENT)
-    snapshot = StateSnapshot(
+    combined_state = CombinedState(
         host_state=HostState.RUNNING,
         agent_state=AgentLifecycleState.WAITING,
     )
 
     result = wait_for_state(
         target=target,
-        poll_fn=lambda: snapshot,
+        poll_fn=lambda: combined_state,
         target_states=frozenset({"WAITING"}),
         timeout_seconds=5.0,
         interval_seconds=1.0,
@@ -541,14 +541,14 @@ def test_wait_for_state_agent_target_matches_agent_state() -> None:
 
 def test_wait_for_state_agent_target_matches_host_crashed() -> None:
     target = _make_wait_target(WaitTargetType.AGENT)
-    snapshot = StateSnapshot(
+    combined_state = CombinedState(
         host_state=HostState.CRASHED,
         agent_state=AgentLifecycleState.RUNNING,
     )
 
     result = wait_for_state(
         target=target,
-        poll_fn=lambda: snapshot,
+        poll_fn=lambda: combined_state,
         target_states=frozenset({"CRASHED"}),
         timeout_seconds=5.0,
         interval_seconds=1.0,

@@ -87,8 +87,8 @@ def _output_result(result: WaitResult, output_opts: OutputOptions) -> None:
         "is_timed_out": result.is_timed_out,
         "matched_state": result.matched_state,
         "elapsed_seconds": round(result.elapsed_seconds, 2),
-        "final_host_state": result.final_snapshot.host_state.value if result.final_snapshot.host_state else None,
-        "final_agent_state": result.final_snapshot.agent_state.value if result.final_snapshot.agent_state else None,
+        "final_host_state": result.final_state.host_state.value if result.final_state.host_state else None,
+        "final_agent_state": result.final_state.agent_state.value if result.final_state.agent_state else None,
         "state_changes": [
             {
                 "field": c.field,

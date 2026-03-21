@@ -20,8 +20,8 @@ from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.providers.base_provider import BaseProviderInstance
+from imbue.mng_wait.data_types import CombinedState
 from imbue.mng_wait.data_types import StateChange
-from imbue.mng_wait.data_types import StateSnapshot
 from imbue.mng_wait.data_types import WaitResult
 from imbue.mng_wait.data_types import WaitTarget
 from imbue.mng_wait.data_types import check_state_match
@@ -223,7 +223,7 @@ def _resolve_by_name(
 
 def poll_target_state(
     resolved: ResolvedTarget,
-) -> StateSnapshot:
+) -> CombinedState:
     """Poll the current state of the resolved target.
 
     Gets a fresh host interface from the provider and queries state directly.
@@ -240,7 +240,7 @@ def poll_target_state(
             # Host is offline, agent is considered stopped
             agent_state = AgentLifecycleState.STOPPED
 
-    return StateSnapshot(host_state=host_state, agent_state=agent_state)
+    return CombinedState(host_state=host_state, agent_state=agent_state)
 
 
 def _get_agent_lifecycle_state(
@@ -258,7 +258,7 @@ def _get_agent_lifecycle_state(
 
 def wait_for_state(
     target: WaitTarget,
-    poll_fn: Callable[[], StateSnapshot],
+    poll_fn: Callable[[], CombinedState],
     target_states: frozenset[str],
     timeout_seconds: float | None,
     interval_seconds: float,
@@ -266,11 +266,11 @@ def wait_for_state(
 ) -> WaitResult:
     """Poll until the target reaches one of the target states, or timeout.
 
-    poll_fn is called each iteration to get the current state snapshot.
+    poll_fn is called each iteration to get the current combined state.
     """
     start_time = time.monotonic()
     state_changes: list[StateChange] = []
-    previous_snapshot = StateSnapshot()
+    previous_state = CombinedState()
     is_waiting = True
 
     while is_waiting:
@@ -278,24 +278,24 @@ def wait_for_state(
 
         # Poll current state
         try:
-            current_snapshot = poll_fn()
+            current_state = poll_fn()
         except Exception as exc:
             logger.warning("Polling error (will retry): {}", exc)
-            current_snapshot = StateSnapshot()
+            current_state = CombinedState()
 
         # Detect and log state changes
         _detect_state_changes(
-            previous_snapshot=previous_snapshot,
-            current_snapshot=current_snapshot,
+            previous_state=previous_state,
+            current_state=current_state,
             elapsed=elapsed,
             state_changes=state_changes,
             on_state_change=on_state_change,
         )
-        previous_snapshot = current_snapshot
+        previous_state = current_state
 
         # Check for match
         matched_state = check_state_match(
-            snapshot=current_snapshot,
+            combined_state=current_state,
             target_type=target.target_type,
             target_states=target_states,
         )
@@ -304,7 +304,7 @@ def wait_for_state(
                 target=target,
                 is_matched=True,
                 is_timed_out=False,
-                final_snapshot=current_snapshot,
+                final_state=current_state,
                 matched_state=matched_state,
                 elapsed_seconds=time.monotonic() - start_time,
                 state_changes=tuple(state_changes),
@@ -322,7 +322,7 @@ def wait_for_state(
         target=target,
         is_matched=False,
         is_timed_out=True,
-        final_snapshot=previous_snapshot,
+        final_state=previous_state,
         matched_state=None,
         elapsed_seconds=final_elapsed,
         state_changes=tuple(state_changes),
@@ -330,22 +330,22 @@ def wait_for_state(
 
 
 def _detect_state_changes(
-    previous_snapshot: StateSnapshot,
-    current_snapshot: StateSnapshot,
+    previous_state: CombinedState,
+    current_state: CombinedState,
     elapsed: float,
     state_changes: list[StateChange],
     on_state_change: Callable[[StateChange], None] | None,
 ) -> None:
-    """Detect and record state changes between two snapshots."""
+    """Detect and record state changes between two combined states."""
     if (
-        current_snapshot.host_state is not None
-        and previous_snapshot.host_state is not None
-        and current_snapshot.host_state != previous_snapshot.host_state
+        current_state.host_state is not None
+        and previous_state.host_state is not None
+        and current_state.host_state != previous_state.host_state
     ):
         change = StateChange(
             field="host_state",
-            old_value=previous_snapshot.host_state.value,
-            new_value=current_snapshot.host_state.value,
+            old_value=previous_state.host_state.value,
+            new_value=current_state.host_state.value,
             elapsed_seconds=elapsed,
         )
         state_changes.append(change)
@@ -359,14 +359,14 @@ def _detect_state_changes(
             on_state_change(change)
 
     if (
-        current_snapshot.agent_state is not None
-        and previous_snapshot.agent_state is not None
-        and current_snapshot.agent_state != previous_snapshot.agent_state
+        current_state.agent_state is not None
+        and previous_state.agent_state is not None
+        and current_state.agent_state != previous_state.agent_state
     ):
         change = StateChange(
             field="agent_state",
-            old_value=previous_snapshot.agent_state.value,
-            new_value=current_snapshot.agent_state.value,
+            old_value=previous_state.agent_state.value,
+            new_value=current_state.agent_state.value,
             elapsed_seconds=elapsed,
         )
         state_changes.append(change)

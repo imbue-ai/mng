@@ -3,7 +3,7 @@ import pytest
 from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import HostState
-from imbue.mng_wait.data_types import StateSnapshot
+from imbue.mng_wait.data_types import CombinedState
 from imbue.mng_wait.data_types import check_state_match
 from imbue.mng_wait.data_types import compute_default_target_states
 from imbue.mng_wait.data_types import validate_state_strings
@@ -70,8 +70,8 @@ def test_check_state_match_host_target(
     target_states: set[str],
     expected: str | None,
 ) -> None:
-    snapshot = StateSnapshot(host_state=host_state)
-    result = check_state_match(snapshot, WaitTargetType.HOST, frozenset(target_states))
+    combined_state = CombinedState(host_state=host_state)
+    result = check_state_match(combined_state, WaitTargetType.HOST, frozenset(target_states))
     assert result == expected
 
 
@@ -156,8 +156,8 @@ def test_check_state_match_agent_target(
     target_states: set[str],
     expected: str | None,
 ) -> None:
-    snapshot = StateSnapshot(host_state=host_state, agent_state=agent_state)
-    result = check_state_match(snapshot, WaitTargetType.AGENT, frozenset(target_states))
+    combined_state = CombinedState(host_state=host_state, agent_state=agent_state)
+    result = check_state_match(combined_state, WaitTargetType.AGENT, frozenset(target_states))
     assert result == expected
 
 
