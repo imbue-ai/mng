@@ -1,5 +1,3 @@
-from collections.abc import Mapping
-from collections.abc import Sequence
 from pathlib import Path
 from typing import assert_never
 
@@ -11,6 +9,8 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.discover import discover_all_hosts_and_agents
+from imbue.mng.api.find import find_all_matching_agents
+from imbue.mng.api.find import find_all_matching_hosts
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
@@ -19,11 +19,9 @@ from imbue.mng.hosts.host import get_agent_state_dir_path
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.volume import Volume
 from imbue.mng.primitives import AgentId
-from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
-from imbue.mng.primitives import HostName
 from imbue.mng.providers.base_provider import BaseProviderInstance
 from imbue.mng_file.data_types import PathRelativeTo
 
@@ -128,50 +126,6 @@ class ResolveFileTargetResult(FrozenModel):
         return self.online_host is not None
 
 
-@pure
-def _find_matching_agents(
-    identifier: str,
-    agents_by_host: Mapping[DiscoveredHost, Sequence[DiscoveredAgent]],
-) -> list[tuple[DiscoveredHost, DiscoveredAgent]]:
-    """Find all agents matching the given identifier (by ID or name)."""
-    matches: list[tuple[DiscoveredHost, DiscoveredAgent]] = []
-    for host_ref, agent_refs in agents_by_host.items():
-        for agent_ref in agent_refs:
-            try:
-                agent_id = AgentId(identifier)
-                if agent_ref.agent_id == agent_id:
-                    matches.append((host_ref, agent_ref))
-            except ValueError:
-                try:
-                    agent_name = AgentName(identifier)
-                except ValueError:
-                    continue
-                if agent_ref.agent_name == agent_name:
-                    matches.append((host_ref, agent_ref))
-    return matches
-
-
-@pure
-def _find_matching_hosts(
-    identifier: str,
-    all_hosts: Sequence[DiscoveredHost],
-) -> list[DiscoveredHost]:
-    """Find all hosts matching the given identifier (by ID or name)."""
-    # Try as ID first
-    try:
-        host_id = HostId(identifier)
-        return [h for h in all_hosts if h.host_id == host_id]
-    except ValueError:
-        pass
-
-    # Try as name
-    try:
-        host_name = HostName(identifier)
-    except ValueError:
-        return []
-    return [h for h in all_hosts if h.host_name == host_name]
-
-
 def resolve_file_target(
     target_identifier: str,
     mng_ctx: MngContext,
@@ -191,8 +145,8 @@ def resolve_file_target(
     all_hosts = list(agents_by_host.keys())
 
     # Find all matching agents and hosts
-    matching_agents = _find_matching_agents(target_identifier, agents_by_host)
-    matching_hosts = _find_matching_hosts(target_identifier, all_hosts)
+    matching_agents = find_all_matching_agents(target_identifier, agents_by_host)
+    matching_hosts = find_all_matching_hosts(target_identifier, all_hosts)
 
     # Check for ambiguity within each type
     if len(matching_agents) > 1:

@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mng.api.find import find_all_matching_agents
+from imbue.mng.api.find import find_all_matching_hosts
 from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import AgentId
@@ -13,8 +15,6 @@ from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng_file.cli.target import ResolveFileTargetResult
 from imbue.mng_file.cli.target import _compute_agent_base_path
-from imbue.mng_file.cli.target import _find_matching_agents
-from imbue.mng_file.cli.target import _find_matching_hosts
 from imbue.mng_file.cli.target import _is_volume_accessible_path
 from imbue.mng_file.cli.target import compute_volume_path
 from imbue.mng_file.cli.target import resolve_full_path
@@ -159,64 +159,64 @@ def test_resolve_file_target_result_is_online_false_when_no_host() -> None:
     assert result.is_online is False
 
 
-# --- _find_matching_agents ---
+# --- find_all_matching_agents ---
 
 
-def test_find_matching_agents_by_name() -> None:
+def testfind_all_matching_agents_by_name() -> None:
     host = _make_discovered_host()
     agent = _make_discovered_agent(name="my-agent")
-    result = _find_matching_agents("my-agent", {host: [agent]})
+    result = find_all_matching_agents("my-agent", {host: [agent]})
     assert len(result) == 1
     assert result[0] == (host, agent)
 
 
-def test_find_matching_agents_by_id() -> None:
+def testfind_all_matching_agents_by_id() -> None:
     host = _make_discovered_host()
     agent = _make_discovered_agent()
-    result = _find_matching_agents(str(agent.agent_id), {host: [agent]})
+    result = find_all_matching_agents(str(agent.agent_id), {host: [agent]})
     assert len(result) == 1
 
 
-def test_find_matching_agents_no_match() -> None:
+def testfind_all_matching_agents_no_match() -> None:
     host = _make_discovered_host()
     agent = _make_discovered_agent(name="other-agent")
-    result = _find_matching_agents("nonexistent", {host: [agent]})
+    result = find_all_matching_agents("nonexistent", {host: [agent]})
     assert len(result) == 0
 
 
-def test_find_matching_agents_multiple_matches() -> None:
+def testfind_all_matching_agents_multiple_matches() -> None:
     host1 = _make_discovered_host(name="host-1")
     host2 = _make_discovered_host(name="host-2")
     agent1 = _make_discovered_agent(name="shared-name")
     agent2 = _make_discovered_agent(name="shared-name")
-    result = _find_matching_agents("shared-name", {host1: [agent1], host2: [agent2]})
+    result = find_all_matching_agents("shared-name", {host1: [agent1], host2: [agent2]})
     assert len(result) == 2
 
 
-# --- _find_matching_hosts ---
+# --- find_all_matching_hosts ---
 
 
-def test_find_matching_hosts_by_name() -> None:
+def testfind_all_matching_hosts_by_name() -> None:
     host = _make_discovered_host(name="my-host")
-    result = _find_matching_hosts("my-host", [host])
+    result = find_all_matching_hosts("my-host", [host])
     assert len(result) == 1
     assert result[0] == host
 
 
-def test_find_matching_hosts_by_id() -> None:
+def testfind_all_matching_hosts_by_id() -> None:
     host = _make_discovered_host()
-    result = _find_matching_hosts(str(host.host_id), [host])
+    result = find_all_matching_hosts(str(host.host_id), [host])
     assert len(result) == 1
 
 
-def test_find_matching_hosts_no_match() -> None:
+def testfind_all_matching_hosts_no_match() -> None:
     host = _make_discovered_host(name="other-host")
-    result = _find_matching_hosts("nonexistent", [host])
+    result = find_all_matching_hosts("nonexistent", [host])
     assert len(result) == 0
 
 
-def test_find_matching_hosts_multiple_matches() -> None:
+def testfind_all_matching_hosts_multiple_matches() -> None:
     host1 = _make_discovered_host(name="shared-name")
     host2 = _make_discovered_host(name="shared-name")
-    result = _find_matching_hosts("shared-name", [host1, host2])
+    result = find_all_matching_hosts("shared-name", [host1, host2])
     assert len(result) == 2
