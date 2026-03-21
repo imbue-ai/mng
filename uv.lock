@@ -34,6 +34,7 @@ members = [
     "mng-tmr",
     "mng-ttyd",
     "mng-tutor",
+    "mng-wait",
     "modal-proxy",
     "resource-guards",
     "sculptor-web",
@@ -2159,6 +2160,21 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.0" },
+    { name = "click-option-group", specifier = ">=0.5.6" },
+    { name = "mng", editable = "libs/mng" },
+]
+
+[[package]]
+name = "mng-wait"
+version = "0.1.0"
+source = { editable = "libs/mng_wait" }
+dependencies = [
+    { name = "click-option-group" },
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
     { name = "mng", editable = "libs/mng" },
 ]
