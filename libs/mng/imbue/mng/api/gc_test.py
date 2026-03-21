@@ -25,11 +25,14 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
 from imbue.mng.hosts.offline_host import OfflineHost
 from imbue.mng.interfaces.data_types import CertifiedHostData
+from imbue.mng.interfaces.data_types import SnapshotInfo
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.primitives import SnapshotId
+from imbue.mng.primitives import SnapshotName
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.mock_provider_test import MockProviderInstance
 from imbue.mng.providers.mock_provider_test import make_offline_host
@@ -694,6 +697,93 @@ def test_gc_snapshots_skips_provider_without_snapshot_support(
     )
     assert len(result.snapshots_destroyed) == 0
     assert len(result.errors) == 0
+
+
+def _make_snapshot_info(snapshot_id: str = "snap-001", name: str = "test-snapshot") -> SnapshotInfo:
+    """Create a SnapshotInfo for testing."""
+    return SnapshotInfo(
+        id=SnapshotId(snapshot_id),
+        name=SnapshotName(name),
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+def test_gc_snapshots_preserves_paused_host_snapshots(
+    gc_mock_provider: MockProviderInstance, temp_mng_ctx: MngContext
+) -> None:
+    """gc_snapshots must not delete snapshots from PAUSED hosts.
+
+    PAUSED hosts need their snapshots for resumption. Deleting them would
+    cause the host to be considered DESTROYED.
+    """
+    host = _make_offline_host(gc_mock_provider, temp_mng_ctx, stop_reason=HostState.PAUSED.value)
+    gc_mock_provider.mock_hosts = [host]
+    gc_mock_provider.mock_snapshots = [_make_snapshot_info()]
+
+    result = GcResult()
+    gc_snapshots(
+        providers=[gc_mock_provider],
+        dry_run=False,
+        error_behavior=ErrorBehavior.ABORT,
+        result=result,
+    )
+
+    assert len(result.snapshots_destroyed) == 0
+    assert gc_mock_provider.deleted_snapshots == []
+
+
+def test_gc_snapshots_preserves_stopped_host_snapshots(
+    gc_mock_provider: MockProviderInstance, temp_mng_ctx: MngContext
+) -> None:
+    """gc_snapshots must not delete snapshots from STOPPED hosts.
+
+    STOPPED hosts need their snapshots for resumption.
+    """
+    host = _make_offline_host(gc_mock_provider, temp_mng_ctx, stop_reason=HostState.STOPPED.value)
+    gc_mock_provider.mock_hosts = [host]
+    gc_mock_provider.mock_snapshots = [_make_snapshot_info()]
+
+    result = GcResult()
+    gc_snapshots(
+        providers=[gc_mock_provider],
+        dry_run=False,
+        error_behavior=ErrorBehavior.ABORT,
+        result=result,
+    )
+
+    assert len(result.snapshots_destroyed) == 0
+    assert gc_mock_provider.deleted_snapshots == []
+
+
+def test_gc_snapshots_preserves_paused_host_snapshots_snapshot_based_provider(
+    gc_mock_provider: MockProviderInstance, temp_mng_ctx: MngContext
+) -> None:
+    """gc_snapshots preserves snapshots on providers that use snapshots for resumption.
+
+    This mimics the Modal provider scenario where supports_shutdown_hosts=False
+    and the host relies on snapshots to determine its state. Without this fix,
+    gc would delete the snapshots, causing the host state to flip to DESTROYED.
+    """
+    gc_mock_provider.mock_supports_shutdown_hosts = False
+    host = _make_offline_host(gc_mock_provider, temp_mng_ctx, stop_reason=HostState.PAUSED.value)
+    gc_mock_provider.mock_hosts = [host]
+    gc_mock_provider.mock_snapshots = [_make_snapshot_info()]
+
+    # Verify the host is PAUSED (not DESTROYED) before gc
+    assert host.get_state() == HostState.PAUSED
+
+    result = GcResult()
+    gc_snapshots(
+        providers=[gc_mock_provider],
+        dry_run=False,
+        error_behavior=ErrorBehavior.ABORT,
+        result=result,
+    )
+
+    assert len(result.snapshots_destroyed) == 0
+    assert gc_mock_provider.deleted_snapshots == []
+    # Verify the host is still PAUSED after gc
+    assert host.get_state() == HostState.PAUSED
 
 
 # =========================================================================

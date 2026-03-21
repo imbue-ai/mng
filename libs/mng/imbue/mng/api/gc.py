@@ -246,17 +246,36 @@ def gc_snapshots(
     error_behavior: ErrorBehavior,
     result: GcResult,
 ) -> None:
-    """Garbage collect orphaned snapshots."""
+    """Garbage collect snapshots from destroyed hosts.
+
+    Only deletes snapshots from hosts that are in DESTROYED state -- these
+    snapshots serve no purpose because the host can never be resumed.
+
+    Snapshots on RUNNING, PAUSED, and STOPPED hosts are never deleted:
+    - PAUSED/STOPPED hosts need their snapshots for resumption
+    - RUNNING hosts may have snapshots for backup/restore purposes
+    """
     for provider in providers:
         if not provider.supports_snapshots:
             logger.trace("Skipped provider {} (does not support snapshots)", provider.name)
             continue
 
         try:
-            host_refs = provider.discover_hosts(include_destroyed=False, cg=provider.mng_ctx.concurrency_group)
+            # Only look at destroyed hosts -- their snapshots are orphaned
+            host_refs = provider.discover_hosts(include_destroyed=True, cg=provider.mng_ctx.concurrency_group)
 
             for host_ref in host_refs:
                 try:
+                    host = provider.get_host(host_ref.host_id)
+                    host_state = host.get_state()
+                    if host_state != HostState.DESTROYED:
+                        logger.trace(
+                            "Skipped snapshot GC for host {} (state: {})",
+                            host_ref.host_id,
+                            host_state,
+                        )
+                        continue
+
                     snapshots = provider.list_snapshots(host_ref.host_id)
 
                     for snapshot in snapshots:
