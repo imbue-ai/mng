@@ -1,5 +1,6 @@
 import io
 import logging
+import os
 import re
 import sys
 from collections import deque
@@ -234,6 +235,8 @@ We redirect these to debug level. Unknown/unexpected paramiko errors are
 forwarded at warning level so they remain visible.
 """
 
+_IS_PARAMIKO_LOGGING_ENABLED: bool = os.environ.get("MNG_ENABLE_PARAMIKO_LOGGING", "0") == "1"
+
 
 class _ParamikoToLoguruHandler(logging.Handler):
     """Forward paramiko log messages to loguru with level-appropriate routing.
@@ -252,9 +255,10 @@ class _ParamikoToLoguruHandler(logging.Handler):
             else:
                 logger.warning("[paramiko] {}", msg)
         elif record.levelno >= logging.WARNING:
-            logger.debug("[paramiko] {}", msg)
+            logger.warning("[paramiko] {}", msg)
         else:
-            logger.trace("[paramiko] {}", msg)
+            if _IS_PARAMIKO_LOGGING_ENABLED:
+                logger.trace("[paramiko] {}", msg)
 
 
 def suppress_warnings() -> None:
