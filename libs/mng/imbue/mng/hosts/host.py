@@ -712,6 +712,9 @@ class Host(BaseHost, OnlineHostInterface):
                         "Retaining host lock file for debugging (MNG_RETAIN_LOCK_FOR_FAILED_HOSTS_DURING_CREATE=1)"
                     )
                 else:
+                    logger.debug(
+                        "Removing host lock file on error to allow idle shutdown (set MNG_RETAIN_LOCK_FOR_FAILED_HOSTS_DURING_CREATE=1 to prevent this and debug)"
+                    )
                     try:
                         self.execute_command(f"rm -f '{lock_file_path}'")
                     except (BaseMngError, OSError) as lock_removal_error:
