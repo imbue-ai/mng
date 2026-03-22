@@ -26,8 +26,10 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.concurrency_group import InvalidConcurrencyGroupStateError
 from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
@@ -611,8 +613,7 @@ def _load_claude_resource_script(filename: str) -> str:
 
 
 def _provision_background_scripts(
-    host: OnlineHostInterface,
-    agent_state_dir: Path,
+    host: OnlineHostInterface, agent_state_dir: Path, concurrency_group: ConcurrencyGroup
 ) -> None:
     """Write the background task scripts to $MNG_AGENT_STATE_DIR/commands/.
 
@@ -627,12 +628,26 @@ def _provision_background_scripts(
     commands_dir = agent_state_dir / "commands"
     host.execute_command(f"mkdir -p {shlex.quote(str(commands_dir))}", timeout_seconds=5.0)
 
-    # Write Claude-specific scripts from this plugin's resources
+    # Claude-specific scripts from this plugin's resources
+    threads: list[ObservableThread] = []
     for script_name in ("stream_transcript.sh", "claude_background_tasks.sh", "common_transcript.sh"):
         script_content = _load_claude_resource_script(script_name)
         script_path = commands_dir / script_name
         with log_span("Writing {} to agent state dir", script_name):
-            host.write_file(script_path, script_content.encode(), "0755")
+            try:
+                thread = concurrency_group.start_new_thread(
+                    host.write_file, (script_path, script_content.encode(), "0755")
+                )
+            except InvalidConcurrencyGroupStateError:
+                # The parent group is shutting down (e.g., another provisioning step
+                # failed). Stop spawning threads and let the real error propagate.
+                logger.debug("Concurrency group shutting down; aborting background script provisioning")
+                return
+            threads.append(thread)
+
+    # make sure everything actually uploaded
+    for thread in threads:
+        thread.join(60.0)
 
 
 def _has_api_credentials_available(
@@ -1349,7 +1364,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
 
             # Provision background task scripts to the agent state directory
             provision_backgroun_script_thread = concurrency_group.start_new_thread(
-                _provision_background_scripts, (host, self._get_agent_dir())
+                _provision_background_scripts, (host, self._get_agent_dir(), concurrency_group)
             )
 
             if host.is_local:
