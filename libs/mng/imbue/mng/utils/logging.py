@@ -10,6 +10,7 @@ from typing import Final
 from typing import TextIO
 from typing import cast
 
+import paramiko.transport
 from loguru import logger
 from pydantic import Field
 
@@ -217,22 +218,18 @@ _PARAMIKO_EXPECTED_ERROR_RE = re.compile(
     r"Exception \((?:client|server)\):"
     r"|Socket exception:"
     r"|EOF in transport thread"
-    r"|Traceback \(most recent call last\):"
-    r"|^\s+File "
-    r"|^\s+raise "
-    r"|^paramiko\."
-    r"|^EOFError"
-    r"|^socket\."
-    r"|^ConnectionResetError"
-    r"|^OSError"
 )
-"""Patterns for paramiko messages that are expected when hosts go offline.
+"""Patterns for paramiko ERROR messages that are expected when hosts go offline.
 
 Paramiko's transport thread logs SSH connection failures (banner read errors,
-socket disconnects, EOF) at ERROR level with full tracebacks. Mng already
-handles these via HostConnectionError, so the paramiko output is noise.
-We redirect these to debug level. Unknown/unexpected paramiko errors are
-forwarded at warning level so they remain visible.
+socket disconnects, EOF) at ERROR level. Mng already handles these via
+HostConnectionError, so the paramiko output is noise. We redirect these to
+debug level. Unknown/unexpected paramiko errors are forwarded at warning
+level so they remain visible.
+
+Note: paramiko's _log method splits tracebacks into individual lines and logs
+each separately. We patch Transport._log in suppress_warnings() to join them
+back into a single message so this regex can match the header line.
 """
 
 _IS_PARAMIKO_LOGGING_ENABLED: bool = os.environ.get("MNG_ENABLE_PARAMIKO_LOGGING", "0") == "1"
@@ -273,6 +270,23 @@ def suppress_warnings() -> None:
     pyinfra_logger.handlers.clear()
     pyinfra_logger.addHandler(_PyinfraToLoguruHandler())
     pyinfra_logger.propagate = False
+
+    # Patch paramiko's Transport._log to join list messages (tracebacks) into a
+    # single log record instead of logging each line separately. Paramiko's _log
+    # method splits traceback strings into individual lines and logs each at ERROR
+    # level, making it impossible to match the header and suppress the rest. By
+    # joining them, our handler sees one record with the full traceback and can
+    # match the "Exception (client):" header to route the entire thing to debug.
+    _original_transport_log = paramiko.transport.Transport._log
+
+    def _patched_transport_log(self: object, level: int, msg: object, *args: object) -> None:
+        if isinstance(msg, list):
+            joined = "\n".join(str(line) for line in msg if line)
+            _original_transport_log(self, level, joined, *args)
+        else:
+            _original_transport_log(self, level, msg, *args)
+
+    paramiko.transport.Transport._log = _patched_transport_log  # type: ignore[assignment]
 
     # Redirect paramiko log output to loguru with level-appropriate routing.
     # Paramiko's transport thread logs SSH connection failures at ERROR level
