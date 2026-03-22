@@ -429,13 +429,14 @@ class ProviderInstanceInterface(MutableModel, ABC):
         is_authentication_failure = False
         try:
             host = self.get_host(host_ref.host_id)
+            # this is inside the try block so that, if the host appears to be online but transitions to offline, we properly fall back to offline data
+            host_details, ssh_activity = _build_host_details_from_host(host, host_ref, is_authentication_failure)
         except HostConnectionError as e:
+            self.on_connection_error(host_ref.host_id)
             logger.debug("Host {} unreachable, falling back to offline data: {}", host_ref.host_id, e)
             host = self.to_offline_host(host_ref.host_id)
             is_authentication_failure = isinstance(e, HostAuthenticationError)
-
-        # Build host details
-        host_details, ssh_activity = _build_host_details_from_host(host, host_ref, is_authentication_failure)
+            host_details, ssh_activity = _build_host_details_from_host(host, host_ref, is_authentication_failure)
 
         # Get all agents on this host
         agents: list[AgentInterface] | None = None
