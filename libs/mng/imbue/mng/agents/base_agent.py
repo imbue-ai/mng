@@ -566,7 +566,13 @@ class BaseAgent(AgentInterface[AgentConfigT]):
             f'timeout {timeout_secs} tmux wait-for "$0"'
             f"' {shlex.quote(wait_channel)} {shlex.quote(tmux_target)}"
         )
-        result = self.host.execute_command(cmd, timeout_seconds=remaining_time)
+        try:
+            result = self.host.execute_command(cmd, timeout_seconds=remaining_time)
+        except TimeoutError:
+            # The execute_command timeout can race with the bash `timeout` inside
+            # the command. Treat the pyinfra-level timeout as a normal timeout.
+            logger.debug("Execute command timed out before bash timeout; treating as signal timeout")
+            return False
         elapsed_ms = (time.time() - start) * 1000
         if result.success:
             logger.trace("Received submission signal in {:.0f}ms", elapsed_ms)

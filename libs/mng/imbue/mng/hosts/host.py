@@ -47,6 +47,7 @@ from imbue.mng.config.agent_config_registry import resolve_agent_type
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import AgentStartError
+from imbue.mng.errors import BaseMngError
 from imbue.mng.errors import HostAuthenticationError
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostDataSchemaError
@@ -689,16 +690,38 @@ class Host(BaseHost, OnlineHostInterface):
     def lock_cooperatively(self, timeout_seconds: float = 300.0) -> Iterator[None]:
         """Context manager for acquiring and releasing the host lock.
 
-        TODO: Implement remote locking mechanism (e.g., via lock files with PIDs).
-        Currently only works for local hosts.
+        For local hosts, uses flock for process-level locking.
+        For remote hosts, writes/removes a lock file to prevent the idle shutdown script
+        from triggering during operations. On error, the lock file is removed by default
+        so the host can idle-shutdown; set MNG_RETAIN_LOCK_FOR_FAILED_HOSTS_DURING_CREATE=1
+        to retain it for debugging.
         """
         lock_file_path = self.host_dir / "host_lock"
 
         if not self.is_local:
-            # this is obviously not yet right--we're just making the host lock so that the shutdown script doesnt trigger while creating a host
+            # Write a lock file so the shutdown script does not trigger while we are operating on the host
             self.write_text_file(lock_file_path, str(time.time()))
-            yield
-            self.execute_command(f"rm -f '{lock_file_path}'")
+            try:
+                yield
+            except BaseException:
+                # On error, remove the lock file so the host can idle-shutdown normally,
+                # unless the user wants to retain it for debugging
+                is_retain_lock = os.environ.get("MNG_RETAIN_LOCK_FOR_FAILED_HOSTS_DURING_CREATE") == "1"
+                if is_retain_lock:
+                    logger.debug(
+                        "Retaining host lock file for debugging (MNG_RETAIN_LOCK_FOR_FAILED_HOSTS_DURING_CREATE=1)"
+                    )
+                else:
+                    try:
+                        self.execute_command(f"rm -f '{lock_file_path}'")
+                    except (BaseMngError, OSError) as lock_removal_error:
+                        logger.warning(
+                            "Failed to remove host lock file during error cleanup: {}",
+                            lock_removal_error,
+                        )
+                raise
+            else:
+                self.execute_command(f"rm -f '{lock_file_path}'")
             return
 
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
