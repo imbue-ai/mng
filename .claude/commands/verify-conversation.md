@@ -48,7 +48,7 @@ This outputs a single number (total bytes).
 - If total size exceeds 3MB (3000000 bytes), STOP and warn the user. The transcripts are too large for even the 1M context window. Suggest narrowing scope, for example:
   - `/verify-conversation only review tracked sessions`
   - `/verify-conversation skip subagents`
-  - Disabling some sources in `.reviews/config/verify-conversation.json`
+  - Disabling some sources in `.reviews/config/verify-conversation.json` (or `.local.json` for local-only overrides)
 
   Do NOT proceed unless the user confirms they want to try anyway.
 

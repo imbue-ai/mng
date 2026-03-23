@@ -219,6 +219,7 @@ frontend-dist/
 
 # Conversation review artifacts (but keep config)
 .reviews/conversation/
+.reviews/config/verify-conversation.local.json
 
 # Claude Code local settings (session-specific permissions)
 .claude/settings.local.json
@@ -257,6 +258,7 @@ current.tar.gz
 # Autofix session artifacts (plans, verification markers, issue logs)
 .autofix/plans/
 .autofix/issues/
+.autofix/config/stop-hook.local.json
 
 # Stuck agent tracking (stop hook escape valve)
 .claude/blocked_stop_commits
