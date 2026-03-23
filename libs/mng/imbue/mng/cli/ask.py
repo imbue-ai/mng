@@ -275,6 +275,24 @@ def _remove_work_dir_on_host(host: OnlineHostInterface, work_path: Path) -> None
         logger.debug("Failed to remove ask work dir {}", work_path)
 
 
+def _check_headless_claude_available() -> None:
+    """Verify the headless_claude plugin is available.
+
+    When mng is installed as a standalone tool (not via ``uv run``), the
+    mng_claude plugin may not be present, causing a silent fallback to
+    BaseAgent which doesn't support streaming output.
+    """
+    agent_class = get_agent_class("headless_claude")
+    if not issubclass(agent_class, StreamingHeadlessAgentMixin):
+        raise MngError(
+            "The 'headless_claude' agent type is not available. "
+            "The mng_claude plugin may not be installed.\n"
+            "Reinstall mng with the mng_claude plugin included, e.g.:\n"
+            "  uv tool install -e libs/mng --with 'mng-claude @ libs/mng_claude' --reinstall\n"
+            "Or use: uv run mng ask ..."
+        )
+
+
 @contextmanager
 def _headless_claude_output(
     host: OnlineHostInterface, mng_ctx: MngContext, prompt: str, system_prompt: str
@@ -288,19 +306,7 @@ def _headless_claude_output(
     All filesystem operations go through the host interface so this works
     for both local and remote hosts.
     """
-    # Verify the headless_claude plugin is available before doing any work.
-    # When mng is installed as a standalone tool (not via `uv run`), the
-    # mng_claude plugin may not be present, causing a silent fallback to
-    # BaseAgent which doesn't support streaming output.
-    agent_class = get_agent_class("headless_claude")
-    if not issubclass(agent_class, StreamingHeadlessAgentMixin):
-        raise MngError(
-            "The 'headless_claude' agent type is not available. "
-            "The mng_claude plugin may not be installed.\n"
-            "Reinstall mng with the mng_claude plugin included, e.g.:\n"
-            "  uv tool install -e libs/mng --with 'mng-claude @ libs/mng_claude' --reinstall\n"
-            "Or use: uv run mng ask ..."
-        )
+    _check_headless_claude_available()
 
     work_path = _create_work_dir_on_host(host)
     try:
