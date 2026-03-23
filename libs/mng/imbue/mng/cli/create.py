@@ -92,6 +92,7 @@ from imbue.mng.utils.editor import EditorSession
 from imbue.mng.utils.git_utils import derive_project_name_from_path
 from imbue.mng.utils.git_utils import find_git_worktree_root
 from imbue.mng.utils.git_utils import get_current_git_branch
+from imbue.mng.utils.git_utils import get_git_remote_url
 from imbue.mng.utils.logging import LoggingConfig
 from imbue.mng.utils.logging import LoggingSuppressor
 from imbue.mng.utils.name_generator import generate_agent_name
@@ -476,6 +477,7 @@ class _CreateSetup(FrozenModel):
     source_location: HostLocation = Field(description="Resolved source location")
     source_agent_id: AgentId | None = Field(default=None, description="Resolved source agent ID (when --from-agent)")
     project_name: str = Field(description="Project name for agent labels")
+    remote_url: str | None = Field(default=None, description="Git remote origin URL for agent labels")
     host_lifecycle: HostLifecycleOptions = Field(description="Host lifecycle options")
     plugin_cli_params: dict[str, Any] = Field(
         default_factory=dict, description="Plugin-registered CLI params to merge into plugin_data"
@@ -532,6 +534,9 @@ def _setup_create(
     # figure out the project label, in case we need that
     project_name = _parse_project_name(source_location, opts, address, mng_ctx)
 
+    # figure out the remote URL label
+    remote_url = _parse_remote_url(source_location, mng_ctx.concurrency_group)
+
     # Parse host lifecycle options (these go on the host, not the agent)
     host_lifecycle = _parse_host_lifecycle_options(opts)
 
@@ -543,6 +548,7 @@ def _setup_create(
         source_location=source_location,
         source_agent_id=source_agent_id,
         project_name=project_name,
+        remote_url=remote_url,
         host_lifecycle=host_lifecycle,
         plugin_cli_params=plugin_cli_params or {},
     )
@@ -644,12 +650,17 @@ def _create_agent(
     if isinstance(resolved_target_host, OnlineHostInterface):
         _apply_host_labels(resolved_target_host, opts.host_label)
 
-    # Set the project as a label on the agent (labels are agent-level, not host-level)
+    # Set the project and remote as labels on the agent (labels are agent-level, not host-level)
+    auto_labels: dict[str, str] = {}
     if setup.project_name:
+        auto_labels["project"] = setup.project_name
+    if setup.remote_url:
+        auto_labels["remote"] = setup.remote_url
+    if auto_labels:
         agent_opts = agent_opts.model_copy_update(
             to_update(
                 agent_opts.field_ref().label_options,
-                AgentLabelOptions(labels={**agent_opts.label_options.labels, "project": setup.project_name}),
+                AgentLabelOptions(labels={**agent_opts.label_options.labels, **auto_labels}),
             ),
         )
 
@@ -795,6 +806,13 @@ def _parse_project_name(
             )
 
     return source_project
+
+
+def _parse_remote_url(source_location: HostLocation, cg: ConcurrencyGroup) -> str | None:
+    """Get the git remote origin URL from the source location, if available."""
+    if not source_location.host.is_local:
+        return None
+    return get_git_remote_url(source_location.path, "origin", cg)
 
 
 def _try_reuse_existing_agent(
