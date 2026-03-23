@@ -195,7 +195,7 @@ def test_observer_command_is_parseable_as_named_command() -> None:
 
 def _make_host_stub() -> Any:
     """Create a host stub that supports execute_command for settings loading."""
-    # execute_command is called by load_settings_from_host to check for minds.toml
+    # execute_command is called by load_from_host to check for minds.toml
     stub = SimpleNamespace(
         host_dir=Path("/home/user/.mng"),
         execute_command=lambda cmd, **kwargs: SimpleNamespace(success=False, stdout="", stderr=""),
