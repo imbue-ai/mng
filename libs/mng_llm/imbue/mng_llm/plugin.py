@@ -115,7 +115,9 @@ class LlmAgent(BaseAgent[LlmAgentConfig]):
         """Load settings from minds.toml on the host, using this agent's settings class.
 
         Returns settings with defaults for any missing values.
-        Subclasses override ``_settings_class`` to load their own extended settings type.
+        Uses ``_settings_class`` to determine the Pydantic model for parsing.
+        ClaudeMindAgent defines its own version of this method and ``_settings_class``
+        to load ClaudeMindSettings instead.
         """
         return load_from_host(host, self.work_dir, self._settings_class)
 
