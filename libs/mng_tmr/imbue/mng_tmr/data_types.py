@@ -16,27 +16,56 @@ from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotName
 
 
-class TestOutcome(str, Enum):
-    """Outcome of running a single test via an agent."""
+class ChangeKind(str, Enum):
+    """What kind of change the agent attempted."""
+
+    IMPROVE_TEST = "IMPROVE_TEST"
+    FIX_TEST = "FIX_TEST"
+    FIX_IMPL = "FIX_IMPL"
+    FIX_TUTORIAL = "FIX_TUTORIAL"
+
+
+class ChangeStatus(str, Enum):
+    """Whether the change succeeded."""
+
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    BLOCKED = "BLOCKED"
+
+
+class Change(FrozenModel):
+    """One change the agent attempted."""
+
+    kind: ChangeKind = Field(description="What kind of change was attempted")
+    status: ChangeStatus = Field(description="Whether the change succeeded, failed, or is blocked")
+    summary: str = Field(description="Short description of what was done or attempted")
+
+
+class DisplayCategory(str, Enum):
+    """Derived display category for HTML report grouping and coloring."""
 
     PENDING = "PENDING"
-    RUN_SUCCEEDED = "RUN_SUCCEEDED"
-    IMPROVED_TEST = "IMPROVED_TEST"
-    FIX_TEST_SUCCEEDED = "FIX_TEST_SUCCEEDED"
-    FIX_TEST_FAILED = "FIX_TEST_FAILED"
-    FIX_IMPL_SUCCEEDED = "FIX_IMPL_SUCCEEDED"
-    FIX_IMPL_FAILED = "FIX_IMPL_FAILED"
-    FIX_UNCERTAIN = "FIX_UNCERTAIN"
-    TIMED_OUT = "TIMED_OUT"
-    AGENT_ERROR = "AGENT_ERROR"
-    REMOTE_AGENT_ERROR = "REMOTE_AGENT_ERROR"
+    FIXED = "FIXED"
+    REGRESSED = "REGRESSED"
+    STUCK = "STUCK"
+    ERRORED = "ERRORED"
+    CLEAN_PASS = "CLEAN_PASS"
 
 
 class TestResult(FrozenModel):
     """Result reported by a test agent, read from result.json."""
 
-    outcome: TestOutcome = Field(description="The outcome of running and optionally fixing the test")
-    summary: str = Field(description="Short human-readable summary of what happened")
+    changes: tuple[Change, ...] = Field(default=(), description="Changes the agent attempted")
+    errored: bool = Field(
+        default=False, description="Whether an infrastructure error prevented the agent from working"
+    )
+    tests_passing_before: bool | None = Field(
+        default=None, description="Were tests passing before any changes? None if unknown."
+    )
+    tests_passing_after: bool | None = Field(
+        default=None, description="Are tests passing after all changes? None if unknown."
+    )
+    summary: str = Field(default="", description="Short human-readable summary of what happened")
 
 
 class TestAgentInfo(FrozenModel):
@@ -68,13 +97,25 @@ class TmrLaunchConfig(FrozenModel):
     )
 
 
+class IntegratorResult(FrozenModel):
+    """Result from the integrator agent that merges fix branches."""
+
+    merged: tuple[str, ...] = Field(default=(), description="Branch names successfully merged")
+    failed: tuple[str, ...] = Field(default=(), description="Branch names that could not be merged")
+    branch_name: str | None = Field(default=None, description="Integrated branch name, if any merges succeeded")
+    summary: str = Field(default="", description="Summary from the integrator agent")
+
+
 class TestMapReduceResult(FrozenModel):
-    """Aggregated result of the entire test-mapreduce run."""
+    """Result for one test in the map-reduce run."""
 
     test_node_id: str = Field(description="The pytest node ID for the test")
     agent_name: AgentName = Field(description="Name of the agent that ran this test")
-    outcome: TestOutcome = Field(description="The final outcome")
-    summary: str = Field(description="Short summary from the agent")
+    changes: tuple[Change, ...] = Field(default=(), description="Changes the agent attempted")
+    errored: bool = Field(default=False, description="Whether an error prevented the agent from working")
+    tests_passing_before: bool | None = Field(default=None, description="Were tests passing before changes?")
+    tests_passing_after: bool | None = Field(default=None, description="Are tests passing after changes?")
+    summary: str = Field(default="", description="Short summary from the agent")
     branch_name: str | None = Field(
         default=None,
         description="Git branch name if code changes were pulled, or None",
