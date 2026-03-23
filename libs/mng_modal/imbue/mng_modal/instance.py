@@ -1733,7 +1733,7 @@ log "=== Shutdown script completed ==="
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
         context_dir_path = Path(config.context_dir) if config.context_dir else None
 
-        if not base_image and not dockerfile_path:
+        if not base_image and not dockerfile_path and snapshot is None:
             logger.warning(
                 "No image or Dockerfile specified -- building from mng default Dockerfile. "
                 "Consider using your own Dockerfile (-b --file=<path>) to include "
@@ -2324,11 +2324,17 @@ log "=== Shutdown script completed ==="
                         tag_futures.append(executor.submit(sandbox.get_tags))
 
             running_host_ids: set[HostId] = set()
-            for future in tag_futures:
+            for sandbox, future in zip(sandboxes, tag_futures, strict=True):
                 try:
                     tags = future.result()
                     if TAG_HOST_ID in tags:
-                        running_host_ids.add(HostId(tags[TAG_HOST_ID]))
+                        host_id = HostId(tags[TAG_HOST_ID])
+                        running_host_ids.add(host_id)
+                        # Populate sandbox caches so subsequent get_host_tags()
+                        # calls avoid redundant sandbox_list() API calls
+                        self._sandbox_cache_by_id[host_id] = sandbox
+                        if TAG_HOST_NAME in tags:
+                            self._sandbox_cache_by_name[HostName(tags[TAG_HOST_NAME])] = sandbox
                 except (KeyError, ValueError) as e:
                     logger.warning("Skipped sandbox with invalid tags: {}", e)
 
