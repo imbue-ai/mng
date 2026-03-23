@@ -400,6 +400,75 @@ def test_worktree_with_custom_branch_name(
                 )
 
 
+@pytest.mark.tmux
+def test_worktree_with_existing_branch(
+    tmp_home_dir: Path,
+    temp_mng_ctx: MngContext,
+    temp_git_repo: Path,
+) -> None:
+    """Test creating a worktree that checks out an existing branch (no new branch created)."""
+    agent_name = AgentName(f"test-worktree-existing-{int(time.time())}")
+    session_name = f"{temp_mng_ctx.config.prefix}{agent_name}"
+    existing_branch = "feature/already-exists"
+
+    # Create the branch in the source repo
+    subprocess.run(
+        ["git", "branch", existing_branch],
+        cwd=temp_git_repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    _setup_claude_trust_config(temp_git_repo, tmp_home_dir)
+    worktree_path: Path | None = None
+    with tmux_session_cleanup(session_name):
+        try:
+            local_host, source_location = _get_local_host_and_location(temp_mng_ctx, temp_git_repo)
+
+            agent_options = CreateAgentOptions(
+                agent_type=AgentTypeName("worktree-test"),
+                name=agent_name,
+                command=CommandString("sleep 60"),
+                git=AgentGitOptions(
+                    copy_mode=WorkDirCopyMode.WORKTREE,
+                    base_branch=existing_branch,
+                    # No new_branch_name -- should check out existing branch directly
+                ),
+            )
+
+            result = create(
+                source_location=source_location,
+                target_host=local_host,
+                agent_options=agent_options,
+                mng_ctx=temp_mng_ctx,
+            )
+
+            assert result.agent.id is not None
+
+            agent = _get_agent_from_create_result(result, temp_mng_ctx)
+
+            worktree_path = Path(agent.work_dir)
+            assert worktree_path.exists()
+            assert (worktree_path / "README.md").exists()
+
+            branch_result = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            assert branch_result.stdout.strip() == existing_branch
+        finally:
+            if worktree_path is not None:
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(worktree_path)],
+                    cwd=temp_git_repo,
+                    capture_output=True,
+                )
+
+
 # =============================================================================
 # is_generated_work_dir Tests
 # =============================================================================
