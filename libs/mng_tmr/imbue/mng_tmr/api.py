@@ -266,7 +266,9 @@ def _create_tmr_agent(
     source_location = HostLocation(host=config.source_host, path=config.source_dir)
     snapshot = config.snapshot
     build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
-    target_host = NewHostOptions(provider=config.provider_name, name=HostName(str(agent_name)), build=build)
+    is_local = config.provider_name.lower() == LOCAL_PROVIDER_NAME
+    host_name = None if is_local else HostName(str(agent_name))
+    target_host = NewHostOptions(provider=config.provider_name, name=host_name, build=build)
 
     result = api_create(
         source_location=source_location,
