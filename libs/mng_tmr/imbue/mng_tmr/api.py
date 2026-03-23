@@ -27,7 +27,6 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import HostError
 from imbue.mng.errors import MngError
-from imbue.mng.errors import SendMessageError
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import AgentDetails
@@ -170,7 +169,11 @@ def _build_agent_prompt(
     pytest_flags: tuple[str, ...],
     prompt_suffix: str = "",
 ) -> str:
-    """Build the prompt/initial message for a test-running agent."""
+    """Build the prompt/initial message for a test-running agent.
+
+    Human-sanctioned: prompt is currently specific to mng's E2E tutorial tests.
+    This should be made generic in the future, but is acceptable for now.
+    """
     flags_str = " ".join(pytest_flags)
     run_cmd = f"pytest {test_node_id}"
     if flags_str:
@@ -200,6 +203,8 @@ Consider whether the test can be improved:
   because this can make the tests very brittle.
 
 - Are there interesting edge cases worth covering?
+
+- Is the code run in the pytest function close enough to the tutorial block?
 
 If you make improvements, record a change under the key "IMPROVE_TEST". If you
 identify an improvement that needs a larger-scale intervention, use status
@@ -284,6 +289,7 @@ def _build_agent_options(
     agent_name: AgentName,
     branch_name: str,
     config: TmrLaunchConfig,
+    initial_message: str | None = None,
 ) -> CreateAgentOptions:
     """Build CreateAgentOptions for a tmr agent."""
     copy_mode = _copy_mode_for_provider(config.provider_name)
@@ -291,6 +297,7 @@ def _build_agent_options(
     return CreateAgentOptions(
         agent_type=config.agent_type,
         name=agent_name,
+        initial_message=initial_message,
         git=AgentGitOptions(
             copy_mode=copy_mode,
             new_branch_name=branch_name,
@@ -307,15 +314,14 @@ def _create_tmr_agent(
     branch_name: str,
     config: TmrLaunchConfig,
     mng_ctx: MngContext,
-    message: str | None = None,
+    initial_message: str | None = None,
 ) -> CreateAgentResult:
-    """Create an agent on the configured provider and optionally send a message.
+    """Create an agent on the configured provider with an optional initial message.
 
-    If message is provided, it is sent after agent creation. SendMessageError
-    is caught and logged (the signal detection can fail on remote hosts even
-    when the message is actually delivered).
+    The initial_message is passed via CreateAgentOptions so it is delivered
+    during agent creation (more reliable than sending after creation).
     """
-    agent_options = _build_agent_options(agent_name, branch_name, config)
+    agent_options = _build_agent_options(agent_name, branch_name, config, initial_message=initial_message)
 
     source_location = HostLocation(host=config.source_host, path=config.source_dir)
     snapshot = config.snapshot
@@ -324,22 +330,12 @@ def _create_tmr_agent(
     host_name = None if is_local else HostName(str(agent_name))
     target_host = NewHostOptions(provider=config.provider_name, name=host_name, build=build)
 
-    result = api_create(
+    return api_create(
         source_location=source_location,
         target_host=target_host,
         agent_options=agent_options,
         mng_ctx=mng_ctx,
     )
-
-    if message is not None:
-        try:
-            result.agent.send_message(message)
-        except (SendMessageError, HostError, TimeoutError) as exc:
-            logger.warning(
-                "Failed to confirm message delivery to '{}' (message likely delivered): {}", agent_name, exc
-            )
-
-    return result
 
 
 def launch_test_agent(
@@ -360,7 +356,7 @@ def launch_test_agent(
         branch_name=f"mng-tmr/{agent_name_suffix}-{short_id}",
         config=config,
         mng_ctx=mng_ctx,
-        message=_build_agent_prompt(test_node_id, pytest_flags, prompt_suffix),
+        initial_message=_build_agent_prompt(test_node_id, pytest_flags, prompt_suffix),
     )
 
     return (
@@ -1035,7 +1031,7 @@ Write the result to $MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json with:
         branch_name=f"mng-tmr/integrated-{short_id}",
         config=config,
         mng_ctx=mng_ctx,
-        message=prompt,
+        initial_message=prompt,
     )
 
     return (

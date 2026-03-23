@@ -166,13 +166,15 @@ def _run_integrator_phase(
         for agent_detail in list_result.agents:
             if str(agent_detail.id) == str(integrator.agent_id):
                 integrator_result = read_integrator_result(agent_detail, integrator_host, integrator_branch)
-                pull_agent_branch(
-                    agent_detail,
-                    integrator_host,
-                    config.source_dir,
-                    mng_ctx.concurrency_group,
-                    base_commit=base_commit if is_remote else None,
-                )
+                # Only pull branches from remote providers; local worktree branches already exist
+                if is_remote:
+                    pull_agent_branch(
+                        agent_detail,
+                        integrator_host,
+                        config.source_dir,
+                        mng_ctx.concurrency_group,
+                        base_commit=base_commit,
+                    )
                 break
 
     if integrator_result is None:

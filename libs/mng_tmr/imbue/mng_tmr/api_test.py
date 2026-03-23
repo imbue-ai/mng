@@ -1,16 +1,22 @@
 """Unit tests for test-mapreduce API functions."""
 
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 
 import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.config.data_types import EnvVar
+from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.host import AgentEnvironmentOptions
 from imbue.mng.interfaces.host import AgentLabelOptions
+from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentId
+from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
+from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotName
 from imbue.mng.primitives import WorkDirCopyMode
@@ -28,6 +34,8 @@ from imbue.mng_tmr.api import build_current_results
 from imbue.mng_tmr.api import collect_tests
 from imbue.mng_tmr.api import display_category_of
 from imbue.mng_tmr.api import generate_html_report
+from imbue.mng_tmr.api import read_agent_result
+from imbue.mng_tmr.api import read_integrator_result
 from imbue.mng_tmr.api import should_pull_changes
 from imbue.mng_tmr.data_types import Change
 from imbue.mng_tmr.data_types import ChangeKind
@@ -565,3 +573,104 @@ def test_build_current_results_timed_out_agents() -> None:
     assert len(results) == 1
     assert results[0].errored is True
     assert display_category_of(results[0]) == DisplayCategory.ERRORED
+
+
+# --- read_agent_result / read_integrator_result tests ---
+
+
+def _write_result_json(host_dir: Path, agent_id: AgentId, content: str) -> None:
+    """Write a result.json for an agent in the expected directory structure."""
+    result_dir = host_dir / "agents" / str(agent_id) / "plugin" / PLUGIN_NAME
+    result_dir.mkdir(parents=True, exist_ok=True)
+    (result_dir / "result.json").write_text(content)
+
+
+def _make_agent_detail(agent_id: AgentId, host_dir: Path) -> AgentDetails:
+    """Build a minimal AgentDetails for testing result reading.
+
+    Uses model_construct to skip validation of the host field, which requires
+    a HostDetails that these tests don't need.
+    """
+    return AgentDetails.model_construct(
+        id=agent_id,
+        name=AgentName("tmr-test"),
+        type="claude",
+        command=CommandString("echo"),
+        work_dir=host_dir / "workdir",
+        initial_branch="mng-tmr/test",
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        state=AgentLifecycleState.DONE,
+        host=None,
+    )
+
+
+def test_read_agent_result_parses_changes(localhost: OnlineHostInterface) -> None:
+    agent_id = AgentId.generate()
+    _write_result_json(
+        localhost.host_dir,
+        agent_id,
+        '{"changes": {"FIX_TEST": {"status": "SUCCEEDED", "summary_markdown": "Fixed it"}},'
+        ' "errored": false, "tests_passing_before": false, "tests_passing_after": true,'
+        ' "summary_markdown": "All good"}',
+    )
+    detail = _make_agent_detail(agent_id, localhost.host_dir)
+    result = read_agent_result(detail, localhost)
+    assert ChangeKind.FIX_TEST in result.changes
+    assert result.changes[ChangeKind.FIX_TEST].status == ChangeStatus.SUCCEEDED
+    assert result.tests_passing_before is False
+    assert result.tests_passing_after is True
+    assert result.summary_markdown == "All good"
+
+
+def test_read_agent_result_empty_changes(localhost: OnlineHostInterface) -> None:
+    agent_id = AgentId.generate()
+    _write_result_json(
+        localhost.host_dir,
+        agent_id,
+        '{"changes": {}, "errored": false, "tests_passing_before": true,'
+        ' "tests_passing_after": true, "summary_markdown": "Clean pass"}',
+    )
+    detail = _make_agent_detail(agent_id, localhost.host_dir)
+    result = read_agent_result(detail, localhost)
+    assert result.changes == {}
+    assert result.errored is False
+
+
+def test_read_agent_result_invalid_json(localhost: OnlineHostInterface) -> None:
+    agent_id = AgentId.generate()
+    _write_result_json(localhost.host_dir, agent_id, "not json")
+    detail = _make_agent_detail(agent_id, localhost.host_dir)
+    result = read_agent_result(detail, localhost)
+    assert result.errored is True
+    assert "Failed to read" in result.summary_markdown
+
+
+def test_read_agent_result_missing_file(localhost: OnlineHostInterface) -> None:
+    agent_id = AgentId.generate()
+    detail = _make_agent_detail(agent_id, localhost.host_dir)
+    result = read_agent_result(detail, localhost)
+    assert result.errored is True
+
+
+def test_read_integrator_result_parses_merged_failed(localhost: OnlineHostInterface) -> None:
+    agent_id = AgentId.generate()
+    _write_result_json(
+        localhost.host_dir,
+        agent_id,
+        '{"merged": ["branch-a", "branch-b"], "failed": ["branch-c"], "summary_markdown": "Merged 2 of 3"}',
+    )
+    detail = _make_agent_detail(agent_id, localhost.host_dir)
+    result = read_integrator_result(detail, localhost, "mng-tmr/integrated")
+    assert result.merged == ("branch-a", "branch-b")
+    assert result.failed == ("branch-c",)
+    assert result.branch_name == "mng-tmr/integrated"
+    assert result.summary_markdown == "Merged 2 of 3"
+
+
+def test_read_integrator_result_missing_file(localhost: OnlineHostInterface) -> None:
+    agent_id = AgentId.generate()
+    detail = _make_agent_detail(agent_id, localhost.host_dir)
+    result = read_integrator_result(detail, localhost, "mng-tmr/integrated")
+    assert result.branch_name == "mng-tmr/integrated"
+    assert "Failed to read" in result.summary_markdown
