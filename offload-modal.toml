@@ -1,6 +1,6 @@
 # offload configuration for running mng tests on Modal
 [offload]
-max_parallel = 50
+max_parallel = 100
 test_timeout_secs = 60
 stream_output = true
 sandbox_project_root = "/code/mng"

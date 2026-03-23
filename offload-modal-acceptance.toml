@@ -1,6 +1,6 @@
 # offload configuration for running mng acceptance tests on Modal
 [offload]
-max_parallel = 200
+max_parallel = 100
 test_timeout_secs = 60
 retry_count = 2
 stream_output = true
@@ -18,9 +18,11 @@ command = "uv run pytest"
 run_args = "--no-cov -p no:xdist -o addopts="
 
 [groups.all]
-retry_count = 4
-# Exclude release tests from the acceptance suite. Exclude docker tests because Modal support for Docker is in ALPHA state.
-filters = "-m'not release and not docker'"
+retry_count = 0
+# Exclude release tests from the acceptance suite. Exclude docker, modal, rsync, and unison tests
+# because they require infrastructure not available inside Modal sandboxes.
+# Also ignore modal provider tests that need Modal auth inside the sandbox.
+filters = "-m'not release and not docker and not docker_sdk'"
 
 [report]
 output_dir = "test-results"
