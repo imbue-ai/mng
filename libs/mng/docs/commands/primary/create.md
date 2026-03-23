@@ -109,7 +109,7 @@ By default, `mng create` uses the local host. Use the agent address to specify a
 | `--in-place` | boolean | Run directly in source directory. Incompatible with --target-path | `False` |
 | `--copy` | boolean | Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo] | `False` |
 | `--clone` | boolean | Create a git clone that shares objects with original repo (only works for local agents) | `False` |
-| `--worktree` | boolean | Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires a new branch in --branch (which is the default) | `False` |
+| `--worktree` | boolean | Create a git worktree that shares objects and index with original repo [default for local agents in a git repo] | `False` |
 
 ## Agent Git Configuration
 

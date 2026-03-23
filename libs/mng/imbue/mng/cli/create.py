@@ -292,7 +292,7 @@ class _CreateCommand(click.Command):
 @optgroup.option(
     "--worktree",
     is_flag=True,
-    help="Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires a new branch in --branch (which is the default)",
+    help="Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]",
 )
 @optgroup.group("Agent Git Configuration")
 @optgroup.option(
@@ -1053,9 +1053,9 @@ def _parse_agent_opts(
     # Parse --branch flag: [BASE_BRANCH][:NEW_BRANCH]
     base_branch, new_branch_name, has_explicit_base = _parse_branch_flag(opts.branch, parsed_agent_name)
 
-    # --worktree requires a new branch
-    if copy_mode == WorkDirCopyMode.WORKTREE and new_branch_name is None:
-        raise UserInputError("--worktree requires a new branch. Use --branch BASE:NEW instead of --branch BASE.")
+    # For worktree mode without an explicit new branch (e.g. --branch foo with no colon),
+    # the branch is treated as an existing branch to check out in the worktree.
+    # No error needed -- git worktree add supports checking out existing branches.
 
     # if the user didn't specify whether to include unclean, then infer from ensure_clean
     if opts.include_unclean is None:
