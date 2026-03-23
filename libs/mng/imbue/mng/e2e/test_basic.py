@@ -220,7 +220,60 @@ def test_create_headless(e2e: E2eSession) -> None:
 
     list_result = e2e.run("mng list", comment="Verify headless agent appears in list")
     expect(list_result).to_succeed()
-    expect(list_result.stdout).to_contain("my-task")
+    expect(list_result.stdout).to_match(r"my-task\s+(RUNNING|WAITING)")
+
+
+@pytest.mark.release
+@pytest.mark.tmux
+def test_create_headless_via_env_var(e2e: E2eSession) -> None:
+    e2e.write_tutorial_block("""
+    # mng is very much meant to be used for scripting and automation, so nothing requires interactivity.
+    # if you want to be sure that interactivity is disabled, you can use the --headless flag:
+    mng create my-task --headless
+
+    # or you can set it as an environment variable:
+    export MNG_HEADLESS=true
+    """)
+    expect(
+        e2e.run(
+            "MNG_HEADLESS=true mng create my-task --command 'sleep 99999' --no-ensure-clean",
+            comment="or you can set it as an environment variable",
+        )
+    ).to_succeed()
+
+    list_result = e2e.run("mng list", comment="Verify agent created via env var headless appears in list")
+    expect(list_result).to_succeed()
+    expect(list_result.stdout).to_match(r"my-task\s+(RUNNING|WAITING)")
+
+
+@pytest.mark.release
+@pytest.mark.tmux
+def test_create_headless_via_config(e2e: E2eSession) -> None:
+    e2e.write_tutorial_block("""
+    # mng is very much meant to be used for scripting and automation, so nothing requires interactivity.
+    # if you want to be sure that interactivity is disabled, you can use the --headless flag:
+    mng create my-task --headless
+
+    # or you can set that option in your config so that it always applies:
+    mng config set headless true
+    """)
+    expect(
+        e2e.run(
+            "mng config set headless true",
+            comment="or you can set that option in your config so that it always applies",
+        )
+    ).to_succeed()
+
+    expect(
+        e2e.run(
+            "mng create my-task --command 'sleep 99999' --no-ensure-clean",
+            comment="create agent with headless set via config",
+        )
+    ).to_succeed()
+
+    list_result = e2e.run("mng list", comment="Verify agent created via config headless appears in list")
+    expect(list_result).to_succeed()
+    expect(list_result.stdout).to_match(r"my-task\s+(RUNNING|WAITING)")
 
 
 @pytest.mark.release
