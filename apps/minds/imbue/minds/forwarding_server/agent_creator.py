@@ -429,8 +429,13 @@ class AgentCreator(MutableModel):
             shared_dir=self.paths.shared_dir if launch_mode == LaunchMode.LOCAL else None,
             on_output=emit_log,
         )
-        if launch_mode == LaunchMode.LOCAL:
-            # The real data lives inside the Docker container, so clean up the
-            # local clone directory immediately.
-            log_queue.put("[minds] Cleaning up local clone directory...")
-            shutil.rmtree(mind_dir, ignore_errors=True)
+        match launch_mode:
+            case LaunchMode.LOCAL:
+                # The real data lives inside the Docker container, so clean up the
+                # local clone directory immediately.
+                log_queue.put("[minds] Cleaning up local clone directory...")
+                shutil.rmtree(mind_dir, ignore_errors=True)
+            case LaunchMode.DEV | LaunchMode.CLOUD:
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
