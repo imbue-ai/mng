@@ -1602,20 +1602,17 @@ class Host(BaseHost, OnlineHostInterface):
             git_c = f"git -C {shlex.quote(str(source_path))}"
             mkdir_cmd = f"mkdir -p {work_dir_path.parent}"
 
-            if new_branch_name:
-                # Create a new branch: git worktree add <path> -b <new> [<base>]
-                cmd = f"{mkdir_cmd} && {git_c} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(new_branch_name)}"
-                if base_branch:
-                    cmd += f" {shlex.quote(base_branch)}"
-                created_branch = new_branch_name
-            elif base_branch:
-                # Check out an existing branch: git worktree add <path> <branch>
-                cmd = (
-                    f"{mkdir_cmd} && {git_c} worktree add {shlex.quote(str(work_dir_path))} {shlex.quote(base_branch)}"
-                )
-                created_branch = None
-            else:
+            if not new_branch_name and not base_branch:
                 raise UserInputError("Worktree mode requires a branch. Use --branch BRANCH or --branch BASE:NEW.")
+
+            # git worktree add <path> [-b <new>] [<base>]
+            worktree_args = [mkdir_cmd, "&&", git_c, "worktree", "add", shlex.quote(str(work_dir_path))]
+            if new_branch_name:
+                worktree_args += ["-b", shlex.quote(new_branch_name)]
+            if base_branch:
+                worktree_args.append(shlex.quote(base_branch))
+            cmd = " ".join(worktree_args)
+            created_branch = new_branch_name
 
             result = self.execute_command(cmd)
             if not result.success:
