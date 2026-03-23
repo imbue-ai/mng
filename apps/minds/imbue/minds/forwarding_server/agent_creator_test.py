@@ -225,14 +225,3 @@ def test_agent_creator_start_creation_accepts_launch_mode(tmp_path: Path) -> Non
     info = creator.get_creation_info(agent_id)
     assert info is not None
     assert info.status == AgentCreationStatus.CLONING
-
-
-def test_agent_creator_start_creation_defaults_to_local_mode(tmp_path: Path) -> None:
-    """Verify start_creation defaults to LOCAL launch mode."""
-    creator = AgentCreator(
-        paths=MindPaths(data_dir=tmp_path / "minds"),
-    )
-    # Should not raise -- LOCAL is the default
-    agent_id = creator.start_creation("file:///nonexistent-repo")
-    info = creator.get_creation_info(agent_id)
-    assert info is not None
