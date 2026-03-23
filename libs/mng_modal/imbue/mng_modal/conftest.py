@@ -458,7 +458,7 @@ def modal_session_cleanup() -> Generator[None, None, None]:
 
 
 # =============================================================================
-# Retry logic for transient Modal sandbox timeout errors
+# Retry logic for transient Modal errors
 # =============================================================================
 
 
