@@ -25,8 +25,9 @@ def test_help_succeeds(e2e: E2eSession) -> None:
     )
     expect(result).to_succeed()
     expect(result.stdout).to_contain("Usage")
-    expect(result.stdout).to_contain("create")
-    expect(result.stdout).to_contain("list")
+    # Verify all commands mentioned in the tutorial comment are present
+    for command in ["create", "list", "destroy", "message", "connect", "push", "pull", "clone"]:
+        expect(result.stdout).to_contain(command)
 
 
 @pytest.mark.release
