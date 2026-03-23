@@ -159,17 +159,48 @@ def test_create_with_json_output(e2e: E2eSession) -> None:
     mng create my-task --no-connect --format json
     # (--quiet suppresses all output)
     """)
-    expect(
-        e2e.run(
-            "mng create my-task --no-connect --command 'sleep 99999' --no-ensure-clean --format json",
-            comment="you can control output format for scripting",
-        )
-    ).to_succeed()
+    create_result = e2e.run(
+        "mng create my-task --no-connect --command 'sleep 99999' --no-ensure-clean --format json",
+        comment="you can control output format for scripting",
+    )
+    expect(create_result).to_succeed()
 
+    # The create command with --format json should output valid JSON with agent_id and host_id
+    create_parsed = json.loads(create_result.stdout)
+    assert "agent_id" in create_parsed
+    assert "host_id" in create_parsed
+
+    # Verify the agent appears in the list with correct details
     list_result = e2e.run("mng list --format json", comment="Verify agent appears in JSON list")
     expect(list_result).to_succeed()
     parsed = json.loads(list_result.stdout)
     assert len(parsed["agents"]) == 1
+    agent = parsed["agents"][0]
+    assert agent["name"] == "my-task"
+    assert agent["state"] in ("RUNNING", "WAITING")
+
+
+@pytest.mark.release
+@pytest.mark.tmux
+def test_create_with_quiet_output(e2e: E2eSession) -> None:
+    e2e.write_tutorial_block("""
+    # you can control output format for scripting:
+    mng create my-task --no-connect --format json
+    # (--quiet suppresses all output)
+    """)
+    create_result = e2e.run(
+        "mng create my-task --no-connect --command 'sleep 99999' --no-ensure-clean --quiet",
+        comment="--quiet suppresses all output",
+    )
+    expect(create_result).to_succeed()
+    expect(create_result.stdout).to_be_empty()
+
+    # Verify the agent was still created despite quiet output
+    list_result = e2e.run("mng list --format json", comment="Verify agent was created")
+    expect(list_result).to_succeed()
+    parsed = json.loads(list_result.stdout)
+    assert len(parsed["agents"]) == 1
+    assert parsed["agents"][0]["name"] == "my-task"
 
 
 @pytest.mark.release
