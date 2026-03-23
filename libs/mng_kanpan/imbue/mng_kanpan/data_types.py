@@ -104,9 +104,7 @@ class GitHubData(FrozenModel):
         default_factory=frozenset,
         description="Set of repo paths (e.g. 'owner/repo') for which PRs were successfully fetched",
     )
-    prs_loaded: bool = Field(
-        default=False, description="Whether PR data was successfully fetched for at least one repo"
-    )
+    prs_loaded: bool = Field(description="Whether PR data was successfully fetched for at least one repo")
     errors: tuple[str, ...] = Field(default=(), description="Errors encountered during remote fetch")
 
 
