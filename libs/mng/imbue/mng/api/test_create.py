@@ -19,6 +19,7 @@ from imbue.mng.api.create import create
 from imbue.mng.api.data_types import CreateAgentResult
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.host import Host
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.agent import AgentInterface
@@ -471,6 +472,40 @@ def test_worktree_with_existing_branch(
                     cwd=temp_git_repo,
                     capture_output=True,
                 )
+
+
+def test_worktree_already_checked_out_gives_helpful_error(
+    temp_mng_ctx: MngContext,
+    temp_git_repo: Path,
+) -> None:
+    """Checking out a branch that's already in use suggests --branch BASE: syntax."""
+    current_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=temp_git_repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    local_host, source_location = _get_local_host_and_location(temp_mng_ctx, temp_git_repo)
+
+    agent_options = CreateAgentOptions(
+        agent_type=AgentTypeName("worktree-test"),
+        name=AgentName("test-already-checked-out"),
+        command=CommandString("sleep 60"),
+        git=AgentGitOptions(
+            copy_mode=WorkDirCopyMode.WORKTREE,
+            base_branch=current_branch,
+        ),
+    )
+
+    with pytest.raises(UserInputError, match=f"Branch '{current_branch}' is already checked out"):
+        create(
+            source_location=source_location,
+            target_host=local_host,
+            agent_options=agent_options,
+            mng_ctx=temp_mng_ctx,
+        )
 
 
 # =============================================================================
