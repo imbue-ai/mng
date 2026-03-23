@@ -74,7 +74,9 @@ Show the user a complete preview of the GitHub issue you would create:
 ```
 ---
 TITLE: <issue title>
-LABELS: <comma-separated list of labels>
+PRIORITY: <priority:critical|high|medium|low>
+SIZE: <size:xs|s|m|l|xl>
+LABELS: <other labels, comma-separated>
 ---
 
 <issue body in markdown>
@@ -85,13 +87,32 @@ Original backlog entry:
 ---
 ```
 
-**Label selection:** Choose from existing repo labels. Common mappings:
-- Bug fixes, things that are broken --> `bug`
-- New capabilities, new features --> `enhancement`
-- Documentation improvements --> `documentation`
-- Code quality, consistency --> `inconsistencies`
+**Label selection:** Every issue MUST have exactly one priority label and one size label. Add category labels as appropriate.
 
-Always consider whether `good first issue` applies (small, self-contained, well-defined).
+*Priority (required -- exactly one):*
+- `priority:critical` -- Blocking other work or actively broken. Drop everything.
+- `priority:high` -- Important and should be done soon. Next up after critical items.
+- `priority:medium` -- Should be done but not urgent. Typical backlog work.
+- `priority:low` -- Nice to have. Do when there's slack or it becomes more important.
+
+*Size (required -- exactly one):*
+- `size:xs` -- Trivial, a few minutes. Config tweak, typo, one-line fix.
+- `size:s` -- Small, under an hour. Well-scoped, minimal risk.
+- `size:m` -- Medium, a few hours. Some design decisions or multi-file changes.
+- `size:l` -- Large, roughly a day. Significant feature or refactor.
+- `size:xl` -- Extra large, multiple days. Major feature, cross-cutting changes, or exploration needed.
+
+*Category (at least one recommended):*
+- `bug` -- Something is broken or behaving incorrectly.
+- `enhancement` -- New capability or feature.
+- `refactor` -- Code restructuring with no behavior change.
+- `documentation` -- Docs improvements.
+- `infrastructure` -- CI/CD, tooling, build system, deployment, dev environment.
+- `inconsistencies` -- Code inconsistencies that should be standardized.
+- `idea` -- Exploratory, needs more thought before it is actionable.
+- `blocked` -- Waiting on an external dependency or decision (add alongside another category).
+
+Also consider whether `good first issue` applies (small, self-contained, well-defined).
 
 **Issue body guidelines:**
 - Write a clear description of what needs to be done and why.
