@@ -1290,6 +1290,22 @@ def test_create_agent_api_passes_launch_mode(tmp_path: Path) -> None:
     assert "agent_id" in data
 
 
+def test_create_agent_api_rejects_invalid_launch_mode(tmp_path: Path) -> None:
+    """POST /api/create-agent returns 400 for an invalid launch_mode."""
+    client, _, _ = _create_test_server_with_agent_creator(tmp_path)
+
+    response = client.post(
+        "/api/create-agent",
+        json={
+            "git_url": "https://github.com/test/repo",
+            "agent_name": "my-agent",
+            "launch_mode": "INVALID_MODE",
+        },
+    )
+    assert response.status_code == 400
+    assert "Invalid launch_mode" in response.json()["error"]
+
+
 def test_create_form_shows_launch_mode_dropdown(tmp_path: Path) -> None:
     """GET /create form includes the launch mode dropdown."""
     client, _, _ = _create_test_server_with_agent_creator(tmp_path)
