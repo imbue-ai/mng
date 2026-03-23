@@ -1595,15 +1595,14 @@ class Host(BaseHost, OnlineHostInterface):
         new_branch_name = options.git.new_branch_name if options.git else None
         base_branch = options.git.base_branch if options.git else None
 
-        # Determine branch for logging
-        branch_label = new_branch_name or base_branch or "HEAD"
+        if not new_branch_name and not base_branch:
+            raise UserInputError("Worktree mode requires a branch. Use --branch BRANCH or --branch BASE:NEW.")
+
+        branch_label = new_branch_name or base_branch
 
         with log_span("Creating git worktree", path=str(work_dir_path), branch=branch_label):
             git_c = f"git -C {shlex.quote(str(source_path))}"
             mkdir_cmd = f"mkdir -p {work_dir_path.parent}"
-
-            if not new_branch_name and not base_branch:
-                raise UserInputError("Worktree mode requires a branch. Use --branch BRANCH or --branch BASE:NEW.")
 
             # git worktree add <path> [-b <new>] [<base>]
             worktree_args = [mkdir_cmd, "&&", git_c, "worktree", "add", shlex.quote(str(work_dir_path))]
