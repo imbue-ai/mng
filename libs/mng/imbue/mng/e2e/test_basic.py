@@ -66,7 +66,16 @@ def test_create_help_succeeds(e2e: E2eSession) -> None:
 def test_list_with_no_agents(e2e: E2eSession) -> None:
     result = e2e.run("mng list", comment="List agents in a fresh environment")
     expect(result).to_succeed()
-    expect(result.stdout).to_contain("No agents found")
+    expect(result.stdout).to_equal("No agents found\n")
+    expect(result.stderr).to_be_empty()
+
+
+@pytest.mark.release
+def test_list_alias_with_no_agents(e2e: E2eSession) -> None:
+    result = e2e.run("mng ls", comment="List agents using the ls alias")
+    expect(result).to_succeed()
+    expect(result.stdout).to_equal("No agents found\n")
+    expect(result.stderr).to_be_empty()
 
 
 @pytest.mark.release
@@ -75,6 +84,7 @@ def test_list_json_with_no_agents(e2e: E2eSession) -> None:
     expect(result).to_succeed()
     parsed = json.loads(result.stdout)
     assert parsed["agents"] == []
+    assert parsed["errors"] == []
 
 
 @pytest.mark.release
