@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from typing import ClassVar
 from typing import Final
 
 from loguru import logger
@@ -24,6 +25,7 @@ from imbue.mng_claude.claude_config import merge_hooks_config
 from imbue.mng_claude.plugin import ClaudeAgent
 from imbue.mng_claude.plugin import ClaudeAgentConfig
 from imbue.mng_claude.plugin import build_claude_json_for_agent
+from imbue.mng_claude_mind.data_types import ClaudeMindSettings
 from imbue.mng_claude_mind.provisioning import build_stop_hook_config
 from imbue.mng_claude_mind.provisioning import create_mind_symlinks
 from imbue.mng_claude_mind.provisioning import provision_claude_settings
@@ -31,7 +33,6 @@ from imbue.mng_claude_mind.provisioning import provision_event_exclude_sources
 from imbue.mng_claude_mind.provisioning import provision_stop_hook_script
 from imbue.mng_claude_mind.provisioning import run_link_skills_script
 from imbue.mng_claude_mind.provisioning import setup_memory_directory
-from imbue.mng_claude_mind.settings import load_settings_from_host
 from imbue.mng_llm.data_types import ProvisioningSettings
 from imbue.mng_llm.plugin import set_llm_model_env_var
 from imbue.mng_llm.plugin import set_uv_tool_env_vars
@@ -46,6 +47,7 @@ from imbue.mng_llm.provisioning import install_llm_toolchain
 from imbue.mng_llm.provisioning import provision_llm_tools
 from imbue.mng_llm.provisioning import provision_supporting_services
 from imbue.mng_llm.provisioning import resolve_work_dir_abs
+from imbue.mng_llm.settings import load_from_host
 from imbue.mng_mind.data_types import SOURCE_COMMON_TRANSCRIPT
 from imbue.mng_mind.provisioning import provision_link_skills_script_file
 from imbue.mng_recursive.provisioning import provision_mng_for_agent
@@ -130,7 +132,18 @@ class ClaudeMindAgent(ClaudeAgent):
     - Observer (runs mng observe writing agent state events to the agent state directory)
     """
 
+    _settings_class: ClassVar[type[ClaudeMindSettings]] = ClaudeMindSettings
+
     agent_config: ClaudeMindConfig = Field(frozen=True, repr=False, description="Agent type config")
+
+    def load_settings_from_host(self, host: OnlineHostInterface) -> ClaudeMindSettings:
+        """Load ClaudeMindSettings from minds.toml on the host.
+
+        Returns settings with defaults for any missing values.
+        Uses ClaudeMindSettings (not LlmSettings) so that mind-specific fields
+        like agent_type, watchers, and vendor are parsed correctly.
+        """
+        return load_from_host(host, self.work_dir, self._settings_class)
 
     def _configure_role_settings(
         self,
@@ -184,7 +197,8 @@ class ClaudeMindAgent(ClaudeAgent):
         """Set UV tool dirs and MNG_LLM_MODEL for per-agent tool isolation and chat."""
         super().modify_env_vars(host, env_vars)
         set_uv_tool_env_vars(env_vars)
-        set_llm_model_env_var(host, self.work_dir, env_vars)
+        settings = self.load_settings_from_host(host)
+        set_llm_model_env_var(settings, env_vars)
 
     def assemble_command(
         self,
@@ -227,7 +241,7 @@ class ClaudeMindAgent(ClaudeAgent):
 
         provision_event_exclude_sources(host, self.work_dir, exclude_sources=(SOURCE_COMMON_TRANSCRIPT,))
 
-        settings = load_settings_from_host(host, self.work_dir)
+        settings = self.load_settings_from_host(host)
         provisioning = settings.provisioning
 
         if config.install_llm:

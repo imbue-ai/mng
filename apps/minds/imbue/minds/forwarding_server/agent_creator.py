@@ -41,8 +41,8 @@ from imbue.minds.primitives import GitBranch
 from imbue.minds.primitives import GitUrl
 from imbue.mng.primitives import AgentId
 from imbue.mng_claude_mind.data_types import ClaudeMindSettings
-from imbue.mng_claude_mind.settings import load_settings_from_path
 from imbue.mng_llm.settings import SETTINGS_FILENAME
+from imbue.mng_llm.settings import load_from_path
 
 OutputCallback = Callable[[str, bool], None]
 
@@ -155,7 +155,7 @@ def load_creation_settings(repo_dir: Path) -> ClaudeMindSettings:
     """
     settings_path = repo_dir / SETTINGS_FILENAME
     try:
-        return load_settings_from_path(settings_path)
+        return load_from_path(settings_path, ClaudeMindSettings)
     except FileNotFoundError:
         return ClaudeMindSettings()
     except (tomllib.TOMLDecodeError, ValidationError, OSError) as e:
