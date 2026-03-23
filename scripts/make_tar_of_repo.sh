@@ -10,6 +10,15 @@ DEST="$2"
 
 mkdir -p "$DEST";
 
+# Validate cached tarball if checkpoint exists; invalidate if corrupted
+if [ -e "$DEST/$HASH.checkpoint" ] && [ -e "$DEST/current.tar.gz" ]; then
+  if gzip -t "$DEST/current.tar.gz" 2>/dev/null; then
+    exit 0
+  fi
+  echo "Cached tarball is corrupted, recreating..." >&2
+  rm -f "$DEST/$HASH.checkpoint" "$DEST/current.tar.gz"
+  rm -rf "$DEST/$HASH"
+fi
 
 [ -e "$DEST/$HASH.checkpoint" ] || ( \
   tmp=$(mktemp -d); \
@@ -20,6 +29,7 @@ mkdir -p "$DEST";
   git -C "$tmp" checkout "$HASH"; \
   mv "$tmp" "$DEST/$HASH"; \
   COPYFILE_DISABLE=1 tar czf "$DEST/current.tar.gz" -C "$DEST/$HASH" .; \
+  gzip -t "$DEST/current.tar.gz"; \
   rm -rf "$DEST/$HASH"; \
   touch "$DEST/$HASH.checkpoint"; \
 )
