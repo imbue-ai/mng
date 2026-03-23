@@ -49,7 +49,7 @@ from imbue.mng_modal.testing import make_testing_modal_interface
 from imbue.mng_modal.testing import make_testing_provider
 from imbue.modal_proxy.testing import TestingModalInterface
 
-MODAL_SANDBOX_TIMEOUT_MAX_RETRIES: int = 3
+_TRANSIENT_MODAL_ERROR_MAX_RETRIES: int = 3
 
 
 def make_modal_provider_real(
@@ -488,7 +488,7 @@ def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None) -> 
     if not is_retryable:
         return None
 
-    for attempt in range(MODAL_SANDBOX_TIMEOUT_MAX_RETRIES):
+    for attempt in range(_TRANSIENT_MODAL_ERROR_MAX_RETRIES):
         reports = runtestprotocol(item, nextitem=nextitem, log=False)
         for report in reports:
             item.ihook.pytest_runtest_logreport(report=report)
@@ -498,10 +498,10 @@ def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None) -> 
             return True
         if not _is_transient_modal_error(call_report.longreprtext):
             return True
-        if attempt == MODAL_SANDBOX_TIMEOUT_MAX_RETRIES - 1:
+        if attempt == _TRANSIENT_MODAL_ERROR_MAX_RETRIES - 1:
             return True
         msg = (
-            f"Transient Modal error on attempt {attempt + 1}/{MODAL_SANDBOX_TIMEOUT_MAX_RETRIES}, "
+            f"Transient Modal error on attempt {attempt + 1}/{_TRANSIENT_MODAL_ERROR_MAX_RETRIES}, "
             f"retrying test {item.nodeid}"
         )
         # Write directly to stderr so the message is visible in CI output,
