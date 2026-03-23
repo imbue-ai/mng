@@ -227,7 +227,7 @@ def mock_subprocess_failure(monkeypatch: pytest.MonkeyPatch, fake_mng_binary: Pa
     return capture
 
 
-def create_executable_script(directory: Path, name: str, content: str) -> str:
+def create_executable_command(directory: Path, name: str, content: str) -> str:
     """Create an executable script file and return its path as a string."""
     script = directory / name
     script.write_text(content)
