@@ -713,7 +713,10 @@ async def _handle_create_form_submit(request: Request, auth_store: AuthStoreDep)
     git_url = str(form.get("git_url", "")).strip()
     agent_name = str(form.get("agent_name", "")).strip()
     branch = str(form.get("branch", "")).strip()
-    launch_mode = LaunchMode(str(form.get("launch_mode", LaunchMode.LOCAL.value)))
+    try:
+        launch_mode = LaunchMode(str(form.get("launch_mode", LaunchMode.LOCAL.value)))
+    except ValueError:
+        launch_mode = LaunchMode.LOCAL
     if not git_url:
         html = render_create_form(git_url="", agent_name=agent_name, branch=branch, launch_mode=launch_mode)
         return HTMLResponse(content=html, status_code=400)
@@ -759,7 +762,14 @@ async def _handle_create_agent_api(request: Request, auth_store: AuthStoreDep) -
     git_url = str(body.get("git_url", "")).strip()
     agent_name = str(body.get("agent_name", "")).strip()
     branch = str(body.get("branch", "")).strip()
-    launch_mode = LaunchMode(str(body.get("launch_mode", LaunchMode.LOCAL.value)))
+    try:
+        launch_mode = LaunchMode(str(body.get("launch_mode", LaunchMode.LOCAL.value)))
+    except ValueError:
+        return Response(
+            status_code=400,
+            content='{"error": "Invalid launch_mode"}',
+            media_type="application/json",
+        )
     if not git_url:
         return Response(
             status_code=400,
