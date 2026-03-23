@@ -26,10 +26,16 @@ from imbue.mng_tmr.api import _sanitize_test_name_for_agent
 from imbue.mng_tmr.api import _short_random_id
 from imbue.mng_tmr.api import build_current_results
 from imbue.mng_tmr.api import collect_tests
+from imbue.mng_tmr.api import display_category_of
 from imbue.mng_tmr.api import generate_html_report
+from imbue.mng_tmr.api import should_pull_changes
+from imbue.mng_tmr.data_types import Change
+from imbue.mng_tmr.data_types import ChangeKind
+from imbue.mng_tmr.data_types import ChangeStatus
+from imbue.mng_tmr.data_types import DisplayCategory
+from imbue.mng_tmr.data_types import IntegratorResult
 from imbue.mng_tmr.data_types import TestAgentInfo
 from imbue.mng_tmr.data_types import TestMapReduceResult
-from imbue.mng_tmr.data_types import TestOutcome
 from imbue.mng_tmr.data_types import TmrLaunchConfig
 
 
@@ -149,8 +155,7 @@ def test_build_agent_options_passes_env_and_labels() -> None:
     assert opts.label_options.labels == {"batch": "1"}
 
 
-def test_build_agent_options_sets_host_name_to_agent_name() -> None:
-    """Verify _build_agent_options sets agent name (used as host name by callers)."""
+def test_build_agent_options_sets_agent_name() -> None:
     opts = _build_agent_options(AgentName("tmr-my-test-abc123"), "mng-tmr/my-test", _make_config())
     assert opts.name == AgentName("tmr-my-test-abc123")
 
@@ -158,11 +163,12 @@ def test_build_agent_options_sets_host_name_to_agent_name() -> None:
 def test_build_agent_prompt_contains_test_id() -> None:
     prompt = _build_agent_prompt("tests/test_foo.py::test_bar", ())
     assert "tests/test_foo.py::test_bar" in prompt
-    assert "RUN_SUCCEEDED" in prompt
-    assert "FIX_TEST_SUCCEEDED" in prompt
-    assert "FIX_IMPL_SUCCEEDED" in prompt
-    assert "FIX_UNCERTAIN" in prompt
     assert "result.json" in prompt
+    assert "IMPROVE_TEST" in prompt
+    assert "FIX_TEST" in prompt
+    assert "FIX_IMPL" in prompt
+    assert "tests_passing_before" in prompt
+    assert "tests_passing_after" in prompt
 
 
 def test_build_agent_prompt_contains_plugin_name() -> None:
@@ -183,11 +189,6 @@ def test_build_agent_prompt_requests_markdown() -> None:
 def test_build_agent_prompt_with_suffix() -> None:
     prompt = _build_agent_prompt("t::t", (), prompt_suffix="Always run with --verbose flag.")
     assert "Always run with --verbose flag." in prompt
-
-
-def test_build_agent_prompt_no_suffix_by_default() -> None:
-    prompt = _build_agent_prompt("t::t", ())
-    assert prompt.endswith("FIX_UNCERTAIN.\n")
 
 
 def test_build_agent_prompt_empty_suffix_ignored() -> None:
@@ -227,37 +228,137 @@ def test_collect_tests_bad_file_raises(tmp_path: Path, cg: ConcurrencyGroup) -> 
         collect_tests(pytest_args=("non_existent_test_file.py",), source_dir=tmp_path, cg=cg)
 
 
+# --- should_pull_changes tests ---
+
+
+def _result(
+    changes: tuple[Change, ...] = (),
+    errored: bool = False,
+    before: bool | None = None,
+    after: bool | None = None,
+) -> TestMapReduceResult:
+    """Build a minimal TestMapReduceResult for testing pull/display logic."""
+    return TestMapReduceResult(
+        test_node_id="t::t",
+        agent_name=AgentName("a"),
+        changes=changes,
+        errored=errored,
+        tests_passing_before=before,
+        tests_passing_after=after,
+    )
+
+
+_SUCCEEDED_FIX = (Change(kind=ChangeKind.FIX_TEST, status=ChangeStatus.SUCCEEDED, summary="fixed"),)
+_FAILED_FIX = (Change(kind=ChangeKind.FIX_TEST, status=ChangeStatus.FAILED, summary="failed"),)
+_BLOCKED_FIX = (Change(kind=ChangeKind.FIX_IMPL, status=ChangeStatus.BLOCKED, summary="blocked"),)
+
+
+def test_should_pull_succeeded_fix_with_tests_passing() -> None:
+    assert should_pull_changes(_result(changes=_SUCCEEDED_FIX, before=False, after=True)) is True
+
+
+def test_should_pull_succeeded_fix_tests_were_failing_still_failing() -> None:
+    assert should_pull_changes(_result(changes=_SUCCEEDED_FIX, before=False, after=False)) is True
+
+
+def test_should_not_pull_when_errored() -> None:
+    assert should_pull_changes(_result(changes=_SUCCEEDED_FIX, errored=True, before=False, after=True)) is False
+
+
+def test_should_not_pull_when_no_succeeded_changes() -> None:
+    assert should_pull_changes(_result(changes=_FAILED_FIX, before=False, after=False)) is False
+    assert should_pull_changes(_result(changes=_BLOCKED_FIX, before=False, after=False)) is False
+
+
+def test_should_not_pull_when_no_changes() -> None:
+    assert should_pull_changes(_result(before=True, after=True)) is False
+
+
+def test_should_not_pull_when_regression() -> None:
+    assert should_pull_changes(_result(changes=_SUCCEEDED_FIX, before=True, after=False)) is False
+
+
+def test_should_pull_improvement_tests_still_passing() -> None:
+    improved = (Change(kind=ChangeKind.IMPROVE_TEST, status=ChangeStatus.SUCCEEDED, summary="improved"),)
+    assert should_pull_changes(_result(changes=improved, before=True, after=True)) is True
+
+
+def test_should_not_pull_improvement_that_breaks_tests() -> None:
+    improved = (Change(kind=ChangeKind.IMPROVE_TEST, status=ChangeStatus.SUCCEEDED, summary="improved"),)
+    assert should_pull_changes(_result(changes=improved, before=True, after=False)) is False
+
+
+# --- display_category_of tests ---
+
+
+def test_display_category_errored() -> None:
+    assert display_category_of(_result(errored=True)) == DisplayCategory.ERRORED
+
+
+def test_display_category_pending() -> None:
+    assert display_category_of(_result()) == DisplayCategory.PENDING
+
+
+def test_display_category_clean_pass() -> None:
+    assert display_category_of(_result(before=True, after=True)) == DisplayCategory.CLEAN_PASS
+
+
+def test_display_category_fixed() -> None:
+    assert display_category_of(_result(changes=_SUCCEEDED_FIX, before=False, after=True)) == DisplayCategory.FIXED
+
+
+def test_display_category_regressed() -> None:
+    assert display_category_of(_result(changes=_SUCCEEDED_FIX, before=True, after=False)) == DisplayCategory.REGRESSED
+
+
+def test_display_category_stuck_failed_changes() -> None:
+    assert display_category_of(_result(changes=_FAILED_FIX, before=False, after=False)) == DisplayCategory.STUCK
+
+
+def test_display_category_stuck_no_changes_tests_failing() -> None:
+    assert display_category_of(_result(before=False, after=False)) == DisplayCategory.STUCK
+
+
+# --- HTML report tests ---
+
+
 def test_build_stacked_bar_empty() -> None:
     assert _build_stacked_bar({}, 0) == ""
 
 
-def test_build_stacked_bar_single_outcome() -> None:
-    bar_html = _build_stacked_bar({TestOutcome.RUN_SUCCEEDED: 5}, 5)
+def test_build_stacked_bar_single_category() -> None:
+    bar_html = _build_stacked_bar({DisplayCategory.CLEAN_PASS: 5}, 5)
     assert "width: 100.0%" in bar_html
-    assert "RUN_SUCCEEDED: 5" in bar_html
+    assert "CLEAN_PASS: 5" in bar_html
 
 
-def test_build_stacked_bar_multiple_outcomes() -> None:
-    bar_html = _build_stacked_bar({TestOutcome.RUN_SUCCEEDED: 3, TestOutcome.FIX_IMPL_FAILED: 2}, 5)
-    assert "RUN_SUCCEEDED: 3" in bar_html
-    assert "FIX_IMPL_FAILED: 2" in bar_html
+def test_build_stacked_bar_multiple_categories() -> None:
+    bar_html = _build_stacked_bar({DisplayCategory.CLEAN_PASS: 3, DisplayCategory.STUCK: 2}, 5)
+    assert "CLEAN_PASS: 3" in bar_html
+    assert "STUCK: 2" in bar_html
 
 
-def test_build_grouped_tables_groups_by_outcome() -> None:
+def test_build_grouped_tables_groups_by_category() -> None:
     results = [
         TestMapReduceResult(
-            test_node_id="t::a", agent_name=AgentName("a"), outcome=TestOutcome.RUN_SUCCEEDED, summary="ok"
+            test_node_id="t::a",
+            agent_name=AgentName("a"),
+            tests_passing_before=True,
+            tests_passing_after=True,
+            summary="ok",
         ),
         TestMapReduceResult(
             test_node_id="t::b",
             agent_name=AgentName("b"),
-            outcome=TestOutcome.FIX_IMPL_SUCCEEDED,
+            changes=_SUCCEEDED_FIX,
+            tests_passing_before=False,
+            tests_passing_after=True,
             summary="fixed",
             branch_name="mng-tmr/b",
         ),
     ]
     tables_html = _build_grouped_tables(results)
-    assert tables_html.index("FIX_IMPL_SUCCEEDED") < tables_html.index("RUN_SUCCEEDED")
+    assert tables_html.index("FIXED") < tables_html.index("CLEAN_PASS")
 
 
 def test_build_grouped_tables_shows_branch() -> None:
@@ -265,7 +366,9 @@ def test_build_grouped_tables_shows_branch() -> None:
         TestMapReduceResult(
             test_node_id="t::c",
             agent_name=AgentName("c"),
-            outcome=TestOutcome.FIX_TEST_SUCCEEDED,
+            changes=_SUCCEEDED_FIX,
+            tests_passing_before=False,
+            tests_passing_after=True,
             summary="fixed",
             branch_name="mng-tmr/c-abc123",
         ),
@@ -273,12 +376,32 @@ def test_build_grouped_tables_shows_branch() -> None:
     assert "mng-tmr/c-abc123" in _build_grouped_tables(results)
 
 
+def test_build_grouped_tables_shows_changes_column() -> None:
+    results = [
+        TestMapReduceResult(
+            test_node_id="t::d",
+            agent_name=AgentName("d"),
+            changes=(
+                Change(kind=ChangeKind.FIX_TEST, status=ChangeStatus.SUCCEEDED, summary="fixed"),
+                Change(kind=ChangeKind.IMPROVE_TEST, status=ChangeStatus.BLOCKED, summary="blocked"),
+            ),
+            tests_passing_before=False,
+            tests_passing_after=True,
+            summary="Fixed test",
+        ),
+    ]
+    tables_html = _build_grouped_tables(results)
+    assert "FIX_TEST/SUCCEEDED" in tables_html
+    assert "IMPROVE_TEST/BLOCKED" in tables_html
+
+
 def test_build_grouped_tables_renders_markdown_summary() -> None:
     results = [
         TestMapReduceResult(
             test_node_id="t::d",
             agent_name=AgentName("d"),
-            outcome=TestOutcome.RUN_SUCCEEDED,
+            tests_passing_before=True,
+            tests_passing_after=True,
             summary="Test **passed** with `no issues`.",
         ),
     ]
@@ -292,13 +415,16 @@ def test_generate_html_report(tmp_path: Path) -> None:
         TestMapReduceResult(
             test_node_id="tests/test_a.py::test_pass",
             agent_name=AgentName("tmr-test-pass"),
-            outcome=TestOutcome.RUN_SUCCEEDED,
+            tests_passing_before=True,
+            tests_passing_after=True,
             summary="Passed immediately",
         ),
         TestMapReduceResult(
             test_node_id="tests/test_b.py::test_fixed",
             agent_name=AgentName("tmr-test-fixed"),
-            outcome=TestOutcome.FIX_IMPL_SUCCEEDED,
+            changes=_SUCCEEDED_FIX,
+            tests_passing_before=False,
+            tests_passing_after=True,
             summary="Fixed missing import",
             branch_name="mng-tmr/test-fixed",
         ),
@@ -309,24 +435,33 @@ def test_generate_html_report(tmp_path: Path) -> None:
     assert output_path.exists()
     content = output_path.read_text()
     assert "Test Map-Reduce Report" in content
-    assert "RUN_SUCCEEDED" in content
-    assert "FIX_IMPL_SUCCEEDED" in content
+    assert "CLEAN_PASS" in content
+    assert "FIXED" in content
     assert 'class="bar"' in content
 
 
-def test_generate_html_report_groups_run_succeeded_last(tmp_path: Path) -> None:
+def test_generate_html_report_groups_clean_pass_last(tmp_path: Path) -> None:
     results = [
         TestMapReduceResult(
-            test_node_id="t::pass1", agent_name=AgentName("a1"), outcome=TestOutcome.RUN_SUCCEEDED, summary="ok"
+            test_node_id="t::pass1",
+            agent_name=AgentName("a1"),
+            tests_passing_before=True,
+            tests_passing_after=True,
+            summary="ok",
         ),
         TestMapReduceResult(
-            test_node_id="t::fail1", agent_name=AgentName("a2"), outcome=TestOutcome.FIX_IMPL_FAILED, summary="failed"
+            test_node_id="t::fail1",
+            agent_name=AgentName("a2"),
+            changes=_FAILED_FIX,
+            tests_passing_before=False,
+            tests_passing_after=False,
+            summary="failed",
         ),
     ]
     output_path = tmp_path / "grouped.html"
     generate_html_report(results, output_path)
-    content = output_path.read_text()
-    assert content.index("FIX_IMPL_FAILED") < content.index("RUN_SUCCEEDED")
+    tables_html = _build_grouped_tables(results)
+    assert tables_html.index("STUCK") < tables_html.index("CLEAN_PASS")
 
 
 def test_generate_html_report_creates_parent_dirs(tmp_path: Path) -> None:
@@ -335,7 +470,8 @@ def test_generate_html_report_creates_parent_dirs(tmp_path: Path) -> None:
         TestMapReduceResult(
             test_node_id="tests/test.py::test_x",
             agent_name=AgentName("tmr-test-x"),
-            outcome=TestOutcome.RUN_SUCCEEDED,
+            tests_passing_before=True,
+            tests_passing_after=True,
             summary="ok",
         ),
     ]
@@ -343,21 +479,20 @@ def test_generate_html_report_creates_parent_dirs(tmp_path: Path) -> None:
     assert output_path.exists()
 
 
-def test_generate_html_report_all_outcomes(tmp_path: Path) -> None:
+def test_generate_html_report_all_display_categories(tmp_path: Path) -> None:
     results = [
-        TestMapReduceResult(
-            test_node_id=f"t::test_{outcome.name.lower()}",
-            agent_name=AgentName(f"tmr-{outcome.name.lower()}"),
-            outcome=outcome,
-            summary=f"Summary for {outcome.value}",
-        )
-        for outcome in TestOutcome
+        _result(),
+        _result(changes=_SUCCEEDED_FIX, before=False, after=True),
+        _result(changes=_SUCCEEDED_FIX, before=True, after=False),
+        _result(changes=_FAILED_FIX, before=False, after=False),
+        _result(errored=True),
+        _result(before=True, after=True),
     ]
-    output_path = tmp_path / "all_outcomes.html"
+    output_path = tmp_path / "all_categories.html"
     generate_html_report(results, output_path)
     content = output_path.read_text()
-    for outcome in TestOutcome:
-        assert outcome.value in content
+    for cat in DisplayCategory:
+        assert cat.value in content
 
 
 def test_generate_html_report_empty_results(tmp_path: Path) -> None:
@@ -366,27 +501,54 @@ def test_generate_html_report_empty_results(tmp_path: Path) -> None:
     assert "0 test(s)" in output_path.read_text()
 
 
-def test_generate_html_report_with_integrator_branch(tmp_path: Path) -> None:
+def test_generate_html_report_with_integrator(tmp_path: Path) -> None:
     results = [
         TestMapReduceResult(
             test_node_id="t::a",
             agent_name=AgentName("a"),
-            outcome=TestOutcome.FIX_IMPL_SUCCEEDED,
+            changes=_SUCCEEDED_FIX,
+            tests_passing_before=False,
+            tests_passing_after=True,
             summary="fixed",
             branch_name="mng-tmr/a",
         ),
     ]
+    integrator = IntegratorResult(
+        merged=("mng-tmr/a",),
+        branch_name="mng-tmr/integrated-abc123",
+        summary="Merged 1 branch",
+    )
     output_path = tmp_path / "integrator.html"
-    generate_html_report(results, output_path, integrator_branch="mng-tmr/integrated-abc123")
+    generate_html_report(results, output_path, integrator=integrator)
     content = output_path.read_text()
-    assert "integrator" in content
+    assert "Integrator" in content
     assert "mng-tmr/integrated-abc123" in content
+    assert "mng-tmr/a" in content
 
 
-def test_generate_html_report_without_integrator_branch(tmp_path: Path) -> None:
+def test_generate_html_report_integrator_with_failures(tmp_path: Path) -> None:
+    results = [_result(before=True, after=True)]
+    integrator = IntegratorResult(
+        merged=("mng-tmr/a",),
+        failed=("mng-tmr/b",),
+        branch_name="mng-tmr/integrated-abc123",
+        summary="Partial merge",
+    )
+    output_path = tmp_path / "integrator_partial.html"
+    generate_html_report(results, output_path, integrator=integrator)
+    content = output_path.read_text()
+    assert "Failed to merge" in content
+    assert "mng-tmr/b" in content
+
+
+def test_generate_html_report_without_integrator(tmp_path: Path) -> None:
     results = [
         TestMapReduceResult(
-            test_node_id="t::a", agent_name=AgentName("a"), outcome=TestOutcome.RUN_SUCCEEDED, summary="ok"
+            test_node_id="t::a",
+            agent_name=AgentName("a"),
+            tests_passing_before=True,
+            tests_passing_after=True,
+            summary="ok",
         ),
     ]
     output_path = tmp_path / "no_integrator.html"
@@ -395,40 +557,36 @@ def test_generate_html_report_without_integrator_branch(tmp_path: Path) -> None:
     assert "Integrated branch:" not in content
 
 
-def test_generate_html_report_integrator_branch_html_escaped(tmp_path: Path) -> None:
-    results = [
-        TestMapReduceResult(
-            test_node_id="t::a", agent_name=AgentName("a"), outcome=TestOutcome.RUN_SUCCEEDED, summary="ok"
-        ),
-    ]
+def test_generate_html_report_integrator_html_escaped(tmp_path: Path) -> None:
+    results = [_result(before=True, after=True)]
+    integrator = IntegratorResult(
+        branch_name="<script>alert('xss')</script>",
+        summary="test",
+    )
     output_path = tmp_path / "escape.html"
-    generate_html_report(results, output_path, integrator_branch="<script>alert('xss')</script>")
+    generate_html_report(results, output_path, integrator=integrator)
     content = output_path.read_text()
     assert "<script>" not in content
     assert "&lt;script&gt;" in content
 
 
-def test_build_stacked_bar_pending_outcome() -> None:
-    bar_html = _build_stacked_bar({TestOutcome.PENDING: 3}, 3)
+def test_build_stacked_bar_pending_category() -> None:
+    bar_html = _build_stacked_bar({DisplayCategory.PENDING: 3}, 3)
     assert "PENDING: 3" in bar_html
     assert "rgb(3, 169, 244)" in bar_html
 
 
 def test_build_grouped_tables_pending_first() -> None:
     results = [
-        TestMapReduceResult(
-            test_node_id="t::a", agent_name=AgentName("a"), outcome=TestOutcome.PENDING, summary="running"
-        ),
-        TestMapReduceResult(
-            test_node_id="t::b", agent_name=AgentName("b"), outcome=TestOutcome.RUN_SUCCEEDED, summary="ok"
-        ),
+        _result(),
+        _result(before=True, after=True),
     ]
     tables_html = _build_grouped_tables(results)
-    assert tables_html.index("PENDING") < tables_html.index("RUN_SUCCEEDED")
+    assert tables_html.index("PENDING") < tables_html.index("CLEAN_PASS")
 
 
 def test_build_current_results_pending_agents() -> None:
-    """Agents not in final_details should get PENDING outcome."""
+    """Agents not in final_details should appear as PENDING."""
     agents = [
         TestAgentInfo(
             test_node_id="tests/test_a.py::test_one",
@@ -448,13 +606,13 @@ def test_build_current_results_pending_agents() -> None:
         hosts={},
     )
     assert len(results) == 2
-    assert results[0].outcome == TestOutcome.PENDING
-    assert results[1].outcome == TestOutcome.PENDING
+    assert display_category_of(results[0]) == DisplayCategory.PENDING
+    assert display_category_of(results[1]) == DisplayCategory.PENDING
     assert "still running" in results[0].summary
 
 
 def test_build_current_results_timed_out_agents() -> None:
-    """Timed-out agents should get TIMED_OUT outcome."""
+    """Timed-out agents should appear as ERRORED."""
     agent_id = AgentId.generate()
     agents = [
         TestAgentInfo(
@@ -470,4 +628,5 @@ def test_build_current_results_timed_out_agents() -> None:
         hosts={},
     )
     assert len(results) == 1
-    assert results[0].outcome == TestOutcome.TIMED_OUT
+    assert results[0].errored is True
+    assert display_category_of(results[0]) == DisplayCategory.ERRORED
