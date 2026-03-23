@@ -224,13 +224,22 @@ new_conversation() {
     tags=$(build_tags_json "$name")
 
     if [ "$as_agent" = true ]; then
-        local conversation_id
-        conversation_id=$(generate_conversation_id)
-        insert_conversation_record "$conversation_id" "$tags"
         if [ -n "$message" ]; then
-            log "Injecting agent message into new conversation $conversation_id"
-            llm inject --cid "$conversation_id" -m "$model" "$message"
-            log "Agent message injected successfully"
+            log "Creating new conversation via llm inject (no --cid)"
+            local inject_output
+            inject_output=$(llm inject -m "$model" "$message")
+            log "llm inject output: $inject_output"
+
+            # Parse conversation ID from "Injected message into conversation <id>"
+            local conversation_id
+            conversation_id=$(echo "$inject_output" | awk '{print $NF}')
+            if [ -z "$conversation_id" ]; then
+                echo "ERROR: Could not parse conversation ID from llm inject output: $inject_output" >&2
+                exit 1
+            fi
+
+            insert_conversation_record "$conversation_id" "$tags"
+            log "Agent message injected into new conversation $conversation_id"
             local message_id
             message_id=$(get_last_response_id "$conversation_id")
             echo "conversation_id=$conversation_id"
@@ -238,6 +247,21 @@ new_conversation() {
                 echo "message_id=$message_id"
             fi
         else
+            # No message -- create conversation via llm inject with empty
+            # content so the llm conversations table has the entry.
+            log "Creating empty new conversation via llm inject"
+            local inject_output
+            inject_output=$(LLM_MATCHED_RESPONSE="" llm inject -m matched-responses --prompt "" "")
+            log "llm inject output: $inject_output"
+
+            local conversation_id
+            conversation_id=$(echo "$inject_output" | awk '{print $NF}')
+            if [ -z "$conversation_id" ]; then
+                echo "ERROR: Could not parse conversation ID from llm inject output: $inject_output" >&2
+                exit 1
+            fi
+
+            insert_conversation_record "$conversation_id" "$tags"
             echo "conversation_id=$conversation_id"
         fi
     else

@@ -1,4 +1,5 @@
 import secrets
+import webbrowser
 from pathlib import Path
 from typing import Final
 
@@ -39,6 +40,8 @@ def start_forwarding_server(
     code = OneTimeCode(secrets.token_urlsafe(_ONE_TIME_CODE_LENGTH))
     auth_store.add_one_time_code(code=code)
     login_url = "http://{}:{}/login?one_time_code={}".format(host, port, code)
+
+    webbrowser.open(login_url)
 
     logger.info("")
     logger.info("Login URL (one-time use):")
