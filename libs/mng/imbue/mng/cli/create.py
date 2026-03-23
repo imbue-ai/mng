@@ -1055,7 +1055,6 @@ def _parse_agent_opts(
 
     # For worktree mode without an explicit new branch (e.g. --branch foo with no colon),
     # the branch is treated as an existing branch to check out in the worktree.
-    # No error needed -- git worktree add supports checking out existing branches.
 
     # if the user didn't specify whether to include unclean, then infer from ensure_clean
     if opts.include_unclean is None:
