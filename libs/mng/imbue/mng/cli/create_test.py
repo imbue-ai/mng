@@ -15,6 +15,7 @@ from imbue.imbue_common.model_update import to_update
 from imbue.mng.cli.agent_addr import AgentAddress
 from imbue.mng.cli.agent_addr import parse_agent_address
 from imbue.mng.cli.create import _CreateCommand
+from imbue.mng.cli.create import _SourceMetadata
 from imbue.mng.cli.create import _is_creating_new_host
 from imbue.mng.cli.create import _parse_agent_opts
 from imbue.mng.cli.create import _parse_branch_flag
@@ -674,6 +675,28 @@ def test_parse_remote_url_returns_none_when_no_git(
     result = _parse_remote_url(source_location, cg)
 
     assert result is None
+
+
+# =============================================================================
+# Tests for _SourceMetadata
+# =============================================================================
+
+
+def test_source_metadata_dump_includes_remote_when_set() -> None:
+    """model_dump includes both project and remote when remote is set."""
+    meta = _SourceMetadata(project="my-project", remote="https://github.com/owner/my-project.git")
+
+    assert meta.model_dump(exclude_none=True) == {
+        "project": "my-project",
+        "remote": "https://github.com/owner/my-project.git",
+    }
+
+
+def test_source_metadata_dump_excludes_remote_when_none() -> None:
+    """model_dump omits remote when it is None."""
+    meta = _SourceMetadata(project="my-project")
+
+    assert meta.model_dump(exclude_none=True) == {"project": "my-project"}
 
 
 # =============================================================================
