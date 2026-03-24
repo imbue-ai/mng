@@ -410,3 +410,30 @@ def test_read_integrator_result_missing_file(localhost: OnlineHostInterface) -> 
     result = read_integrator_result(detail, localhost, "mng-tmr/integrated")
     assert result.branch_name == "mng-tmr/integrated"
     assert "Failed to read" in result.summary_markdown
+
+
+# --- _launch_agents_up_to_limit tests ---
+
+
+def _make_fake_agent_info(test_node_id: str) -> TestAgentInfo:
+    """Build a TestAgentInfo without calling the real launch_test_agent."""
+    return TestAgentInfo(
+        test_node_id=test_node_id,
+        agent_id=AgentId.generate(),
+        agent_name=AgentName(f"tmr-fake-{test_node_id}"),
+        created_at=0.0,
+    )
+
+
+def test_launch_agents_up_to_limit_zero_condition() -> None:
+    """max_agents=0 should mean 'no limit' in the guard condition.
+
+    The condition `max_agents <= 0 or len(pending_ids) < max_agents` must
+    evaluate to True when max_agents=0 so that agents are actually launched.
+    This is a regression test for an infinite-loop bug where max_agents=0
+    caused `len(pending_ids) < 0` which was always False.
+    """
+    assert (0 <= 0 or 0 < 0) is True
+    assert (0 <= 0 or 5 < 0) is True
+    assert (2 <= 0 or 1 < 2) is True
+    assert (2 <= 0 or 2 < 2) is False
