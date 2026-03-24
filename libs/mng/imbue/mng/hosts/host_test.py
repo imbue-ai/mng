@@ -2201,15 +2201,11 @@ def test_host_get_certified_data_raises_on_invalid_json(
 
 def test_apply_work_dir_extra_paths_share_same_host_creates_symlink(
     local_host: Host,
-    tmp_path: Path,
+    source_and_work_dirs: tuple[Path, Path],
 ) -> None:
     """Share mode on same host should create a symlink."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
+    source_dir, work_dir = source_and_work_dirs
     (source_dir / ".venv").mkdir()
-
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
 
     local_host._apply_work_dir_extra_paths(local_host, source_dir, work_dir, {".venv": WorkDirExtraPathMode.SHARE})
 
@@ -2220,15 +2216,11 @@ def test_apply_work_dir_extra_paths_share_same_host_creates_symlink(
 
 def test_apply_work_dir_extra_paths_share_same_host_source_missing_warns(
     local_host: Host,
-    tmp_path: Path,
+    source_and_work_dirs: tuple[Path, Path],
 ) -> None:
     """Share mode should warn and skip when source path does not exist."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
+    source_dir, work_dir = source_and_work_dirs
     # Do NOT create .venv
-
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
 
     local_host._apply_work_dir_extra_paths(local_host, source_dir, work_dir, {".venv": WorkDirExtraPathMode.SHARE})
 
@@ -2238,15 +2230,11 @@ def test_apply_work_dir_extra_paths_share_same_host_source_missing_warns(
 
 def test_apply_work_dir_extra_paths_share_same_host_idempotent(
     local_host: Host,
-    tmp_path: Path,
+    source_and_work_dirs: tuple[Path, Path],
 ) -> None:
     """Share mode should skip if correct symlink already exists."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
+    source_dir, work_dir = source_and_work_dirs
     (source_dir / ".venv").mkdir()
-
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
 
     # Create correct symlink first
     (work_dir / ".venv").symlink_to(source_dir / ".venv")
@@ -2259,15 +2247,11 @@ def test_apply_work_dir_extra_paths_share_same_host_idempotent(
 
 def test_apply_work_dir_extra_paths_share_same_host_existing_non_symlink_raises(
     local_host: Host,
-    tmp_path: Path,
+    source_and_work_dirs: tuple[Path, Path],
 ) -> None:
     """Share mode should raise if a non-symlink target already exists."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
+    source_dir, work_dir = source_and_work_dirs
     (source_dir / ".venv").mkdir()
-
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
     # Create a real directory (not a symlink) at the target location
     (work_dir / ".venv").mkdir()
 
@@ -2278,17 +2262,13 @@ def test_apply_work_dir_extra_paths_share_same_host_existing_non_symlink_raises(
 @pytest.mark.rsync
 def test_apply_work_dir_extra_paths_copy_mode_copies_files(
     local_host: Host,
-    tmp_path: Path,
+    source_and_work_dirs: tuple[Path, Path],
 ) -> None:
     """Copy mode should copy files (not symlink) even on same host."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
+    source_dir, work_dir = source_and_work_dirs
     test_output = source_dir / ".test_output"
     test_output.mkdir()
     (test_output / "results.txt").write_text("test results")
-
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
 
     local_host._apply_work_dir_extra_paths(
         local_host, source_dir, work_dir, {".test_output": WorkDirExtraPathMode.COPY}
@@ -2302,14 +2282,10 @@ def test_apply_work_dir_extra_paths_copy_mode_copies_files(
 
 def test_apply_work_dir_extra_paths_rejects_absolute_path(
     local_host: Host,
-    tmp_path: Path,
+    source_and_work_dirs: tuple[Path, Path],
 ) -> None:
     """Absolute paths should be rejected."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
-
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
+    source_dir, work_dir = source_and_work_dirs
 
     with pytest.raises(UserInputError, match="absolute paths"):
         local_host._apply_work_dir_extra_paths(
@@ -2319,14 +2295,10 @@ def test_apply_work_dir_extra_paths_rejects_absolute_path(
 
 def test_apply_work_dir_extra_paths_rejects_dotdot_traversal(
     local_host: Host,
-    tmp_path: Path,
+    source_and_work_dirs: tuple[Path, Path],
 ) -> None:
     """Paths with '..' components should be rejected."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
-
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
+    source_dir, work_dir = source_and_work_dirs
 
     with pytest.raises(UserInputError, match="'\\.\\.'"):
         local_host._apply_work_dir_extra_paths(
@@ -2336,17 +2308,13 @@ def test_apply_work_dir_extra_paths_rejects_dotdot_traversal(
 
 def test_apply_work_dir_extra_paths_nested_path_creates_parents(
     local_host: Host,
-    tmp_path: Path,
+    source_and_work_dirs: tuple[Path, Path],
 ) -> None:
     """Nested paths should have parent directories created."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
+    source_dir, work_dir = source_and_work_dirs
     nested = source_dir / "deep" / "nested"
     nested.mkdir(parents=True)
     (nested / "file.txt").write_text("content")
-
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
 
     local_host._apply_work_dir_extra_paths(
         local_host, source_dir, work_dir, {"deep/nested": WorkDirExtraPathMode.SHARE}
