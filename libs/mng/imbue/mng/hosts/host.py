@@ -1619,7 +1619,8 @@ class Host(BaseHost, OnlineHostInterface):
                 if "already checked out" in stderr or "already used by worktree" in stderr:
                     raise UserInputError(
                         f"{stderr.strip()}\n"
-                        f"To create a new branch instead, use --branch BASE: or --branch BASE:new-name"
+                        f"To create a new branch instead, use --branch BASE: or --branch BASE:new-name\n"
+                        f"To work directly in the existing worktree, use --in-place from that directory"
                     )
                 raise MngError(f"Failed to create git worktree: {stderr}")
 
