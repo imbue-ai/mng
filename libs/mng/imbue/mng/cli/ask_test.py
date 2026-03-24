@@ -249,8 +249,5 @@ def test_check_headless_claude_available_raises_when_plugin_missing() -> None:
     """When the headless_claude plugin is not registered, raises with an actionable error."""
     reset_agent_registry()
     set_default_agent_class(BaseAgent)
-    try:
-        with pytest.raises(MngError, match="headless_claude.*not available"):
-            _check_headless_claude_available()
-    finally:
-        reset_agent_registry()
+    with pytest.raises(MngError, match="headless_claude.*not available"):
+        _check_headless_claude_available()
