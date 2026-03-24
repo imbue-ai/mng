@@ -8,6 +8,7 @@ set -euo pipefail
 # Usage:
 #   source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config_utils.sh"
 #   val=$(read_json_config "path/to/config.json" "key_name" "default_value")
+#   val=$(read_json_config "path/to/config.json" "nested.key" "default_value")
 #
 # For each config file, a .local.json sibling is checked first. For example,
 # if the config path is "foo/bar.json", the function first checks "foo/bar.local.json".
@@ -24,16 +25,21 @@ read_json_config() {
     # Derive .local.json path: foo/bar.json -> foo/bar.local.json
     local local_path="${config_path%.json}.local.json"
 
+    # Build a jq path expression from the key. Dotted keys like "ci.is_enabled"
+    # become the jq path .ci.is_enabled; simple keys like "enabled" become .enabled.
+    local jq_path
+    jq_path=$(echo "$key" | sed 's/\././g; s/^/./')
+
     # Local overrides take precedence
     if [ -f "$local_path" ]; then
-        val=$(jq -r --arg k "$key" '.[$k] // empty' "$local_path" 2>/dev/null)
+        val=$(jq -r "$jq_path // empty" "$local_path" 2>/dev/null)
         if [ -n "$val" ]; then
             echo "$val"
             return
         fi
     fi
     if [ -f "$config_path" ]; then
-        val=$(jq -r --arg k "$key" '.[$k] // empty' "$config_path" 2>/dev/null)
+        val=$(jq -r "$jq_path // empty" "$config_path" 2>/dev/null)
         if [ -n "$val" ]; then
             echo "$val"
             return

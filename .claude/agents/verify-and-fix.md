@@ -36,7 +36,7 @@ If there are no issues, stop here. There is nothing to fix.
 
 ## Record Issues
 
-After finalizing the issue list, use the Write tool (without checking if the directory exists) to write all issues to `.reviewer/issues/{hash}.jsonl` (where `{hash}` is the HEAD hash you were given). Write one JSON object per line with these fields (in order):
+After finalizing the issue list, use the Write tool (without checking if the directory exists) to write all issues to `.reviewer/outputs/autofix/issues/{hash}.jsonl` (where `{hash}` is the HEAD hash you were given). Write one JSON object per line with these fields (in order):
 
 - `issue_type`: the issue type code (e.g., "logic_error", "poor_naming")
 - `file`: the file path
@@ -56,7 +56,7 @@ For each issue, do the following in order:
 1. Read the relevant source files thoroughly.
 2. Understand the surrounding code, architecture, and any related abstractions.
 3. Determine the correct fix.
-4. Get the current HEAD hash: `git rev-parse --short HEAD`. Use the Write tool, without checking if the directory exists, to create `.reviewer/plans/<hash>_<issue_number>.md` describing:
+4. Get the current HEAD hash: `git rev-parse --short HEAD`. Use the Write tool, without checking if the directory exists, to create `.reviewer/autofix/plans/<hash>_<issue_number>.md` describing:
    - What the issue is and where it is
    - Why it is a problem
    - The planned fix (specific changes to specific files)

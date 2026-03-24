@@ -4,9 +4,9 @@
 # where source is one of: mng_tracked, current, mng_agent_dir,
 # or a subagent variant like mng_tracked:subagent, current:subagent, etc.
 #
-# Discovery is controlled by .reviews/config/verify-conversation.json,
-# with optional local overrides from verify-conversation.local.json.
-# If neither config file is present, all toggles default to true.
+# Discovery is controlled by .reviewer/settings.json (under verify_conversation),
+# with optional local overrides from .reviewer/settings.local.json.
+# If the config file is not present, all toggles default to true.
 #
 # Session IDs are read from $MNG_AGENT_STATE_DIR/claude_session_id_history.
 # If $MNG_CLAUDE_SESSION_ID is set and not already in the history, it is
@@ -18,13 +18,13 @@ set -euo pipefail
 # shellcheck source=config_utils.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config_utils.sh"
 
-CONFIG_FILE=".reviews/config/verify-conversation.json"
+SETTINGS=".reviewer/settings.json"
 
 # Env vars override config file (allows the skill to narrow scope per-invocation)
-INCLUDE_TRACKED="${INCLUDE_TRACKED:-$(read_json_config "$CONFIG_FILE" "include_tracked_sessions" "true")}"
-INCLUDE_CURRENT="${INCLUDE_CURRENT:-$(read_json_config "$CONFIG_FILE" "include_current_session" "true")}"
-INCLUDE_AGENT_DIR="${INCLUDE_AGENT_DIR:-$(read_json_config "$CONFIG_FILE" "include_all_agent_sessions" "true")}"
-INCLUDE_SUBAGENTS="${INCLUDE_SUBAGENTS:-$(read_json_config "$CONFIG_FILE" "include_subagents" "true")}"
+INCLUDE_TRACKED="${INCLUDE_TRACKED:-$(read_json_config "$SETTINGS" "verify_conversation.include_tracked_sessions" "true")}"
+INCLUDE_CURRENT="${INCLUDE_CURRENT:-$(read_json_config "$SETTINGS" "verify_conversation.include_current_session" "true")}"
+INCLUDE_AGENT_DIR="${INCLUDE_AGENT_DIR:-$(read_json_config "$SETTINGS" "verify_conversation.include_all_agent_sessions" "true")}"
+INCLUDE_SUBAGENTS="${INCLUDE_SUBAGENTS:-$(read_json_config "$SETTINGS" "verify_conversation.include_subagents" "true")}"
 
 # ---------------------------------------------------------------------------
 # Track emitted paths to avoid duplicates

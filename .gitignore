@@ -218,8 +218,7 @@ node_modules/
 frontend-dist/
 
 # Conversation review artifacts (but keep config)
-.reviews/conversation/
-.reviews/config/verify-conversation.local.json
+.reviewer/outputs/
 
 # Claude Code local settings (session-specific permissions)
 .claude/settings.local.json
@@ -258,10 +257,8 @@ current.tar.gz
 # Minds deploy-time build artifacts
 .minds/
 
-# Autofix session artifacts (plans, verification markers, issue logs)
-.reviewer/plans/
-.reviewer/issues/
-.reviewer/config/stop-hook.local.json
+# Autofix session artifacts (plans, verification markers)
+.reviewer/autofix/plans/
 .reviewer/settings.local.json
 
 # Stuck agent tracking (stop hook escape valve)

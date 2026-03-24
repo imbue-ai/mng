@@ -48,7 +48,7 @@ This outputs a single number (total bytes).
 - If total size exceeds 3MB (3000000 bytes), STOP and warn the user. The transcripts are too large for even the 1M context window. Suggest narrowing scope, for example:
   - `/verify-conversation only review tracked sessions`
   - `/verify-conversation skip subagents`
-  - Disabling some sources in `.reviews/config/verify-conversation.json` (or `.local.json` for local-only overrides)
+  - Disabling some sources in `.reviewer/settings.json` under `verify_conversation` (or `.reviewer/settings.local.json` for local-only overrides)
 
   Do NOT proceed unless the user confirms they want to try anyway.
 
@@ -57,7 +57,7 @@ This outputs a single number (total bytes).
 
 ### Step 3: Gather Progress Data
 
-Use the Read tool to read `.reviews/conversation/progress.jsonl`. This file tracks which parts of the transcript have already been reviewed. If it exists, for each session file from Step 1, compare the current line count (`wc -l <path>`, not `wc -l < <path>`) against the line count recorded in the progress file.
+Use the Read tool to read `.reviewer/outputs/conversation/progress.jsonl`. This file tracks which parts of the transcript have already been reviewed. If it exists, for each session file from Step 1, compare the current line count (`wc -l <path>`, not `wc -l < <path>`) against the line count recorded in the progress file.
 
 ### Step 4: Spawn Agent
 
@@ -75,7 +75,7 @@ Also provide the agent with:
    - `current` files: label as "The current session"
    - `mng_agent_dir` files: label as "All sessions found in this agent's directory"
    - Any source ending in `:subagent`: label as "Subagent transcripts" (grouped under their parent source)
-5. The output file path: `.reviews/conversation/{hash}.json`
+5. The output file path: `.reviewer/outputs/conversation/{hash}.json`
 
 If the progress file exists:
 - Include the progress data in the prompt
@@ -87,9 +87,9 @@ If there is no progress file, tell the agent to review all session files in full
 
 ### Step 5: Update Progress
 
-After the agent finishes, update the progress file (`.reviews/conversation/progress.jsonl`).
+After the agent finishes, update the progress file (`.reviewer/outputs/conversation/progress.jsonl`).
 
-For each session file that was part of this review, get its current line count (`wc -l`). Then use the Write tool, without checking if the directory exists, to update `.reviews/conversation/progress.jsonl`, appending a JSONL line per file:
+For each session file that was part of this review, get its current line count (`wc -l`). Then use the Write tool, without checking if the directory exists, to update `.reviewer/outputs/conversation/progress.jsonl`, appending a JSONL line per file:
 
 ```json
 {"file": "<session_file_path>", "lines": <total_line_count>, "reviewed_at": "<ISO 8601 timestamp>"}
@@ -99,7 +99,7 @@ This ensures the next invocation knows which portions have already been covered.
 
 ### Step 6: Save Results
 
-If the agent found no issues or no transcript was available, use the Write tool (without checking if the directory exists) to ensure the output file `.reviews/conversation/{hash}.json` exists (even if empty) -- it serves as the verification marker.
+If the agent found no issues or no transcript was available, use the Write tool (without checking if the directory exists) to ensure the output file `.reviewer/outputs/conversation/{hash}.json` exists (even if empty) -- it serves as the verification marker.
 
 ### Step 7: Report
 

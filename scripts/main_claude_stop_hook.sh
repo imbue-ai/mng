@@ -207,19 +207,19 @@ AUTOFIX_NEEDED=false
 CONVO_NEEDED=false
 
 # Autofix gate (inlined from check_autofix_ran.sh)
-AUTOFIX_CONFIG=".reviewer/config/stop-hook.json"
-AUTOFIX_ENABLED=$(read_json_config "$AUTOFIX_CONFIG" "enabled" "true")
-if [[ "$AUTOFIX_ENABLED" == "true" ]] && [[ ! -f ".reviewer/plans/${HASH}_verified.md" ]]; then
+REVIEWER_SETTINGS=".reviewer/settings.json"
+AUTOFIX_ENABLED=$(read_json_config "$REVIEWER_SETTINGS" "autofix.is_enabled" "true")
+if [[ "$AUTOFIX_ENABLED" == "true" ]] && [[ ! -f ".reviewer/autofix/plans/${HASH}_verified.md" ]]; then
     AUTOFIX_NEEDED=true
 fi
 
 # Conversation review gate (inlined from check_conversation_reviewed.sh)
-if [[ ! -f ".reviews/conversation/${HASH}.json" ]]; then
+if [[ ! -f ".reviewer/outputs/conversation/${HASH}.json" ]]; then
     CONVO_NEEDED=true
 fi
 
 # Build the autofix command string (may include extra args from config)
-AUTOFIX_EXTRA_ARGS=$(read_json_config "$AUTOFIX_CONFIG" "append_to_autofix_prompt" "")
+AUTOFIX_EXTRA_ARGS=$(read_json_config "$REVIEWER_SETTINGS" "autofix.append_to_autofix_prompt" "")
 if [[ -n "$AUTOFIX_EXTRA_ARGS" ]]; then
     AUTOFIX_CMD="/autofix ${AUTOFIX_EXTRA_ARGS}"
 else
@@ -244,11 +244,11 @@ fi
 _log_to_file "INFO" "Autofix and conversation review gates passed"
 
 # PR/CI gate (can be disabled via .reviewer/settings.json)
-CI_ENABLED=$(read_json_config ".reviewer/settings.json" "is_ci_required" "true")
+CI_ENABLED=$(read_json_config "$REVIEWER_SETTINGS" "ci.is_enabled" "true")
 
 if [[ "$CI_ENABLED" != "true" ]]; then
     _log_to_file "INFO" "PR/CI check disabled via .reviewer/settings.json, skipping"
-    log_info "PR/CI check disabled (is_ci_required=false in .reviewer/settings.json), skipping."
+    log_info "PR/CI check disabled (ci.is_enabled=false in .reviewer/settings.json), skipping."
 else
     _log_to_file "INFO" "Launching CI check..."
 
@@ -262,7 +262,7 @@ else
 
     if [[ $PR_CI_EXIT -eq 2 ]]; then
         log_error "PR/CI hook failed -- go fix the CI failures first."
-        log_error "If autofix has run, check .reviewer/issues/*.jsonl for identified issues."
+        log_error "If autofix has run, check .reviewer/outputs/autofix/issues/*.jsonl for identified issues."
         _log_to_file "INFO" "main_stop_hook exiting with code 2 (PR/CI failure)"
         exit 2
     elif [[ $PR_CI_EXIT -ne 0 ]]; then
@@ -278,7 +278,7 @@ rm -f "$STUCK_FILE"
 
 # Upload autofix issue data to Modal volume for data collection (best-effort).
 _upload_autofix_issues() {
-    local issues_dir=".reviewer/issues"
+    local issues_dir=".reviewer/outputs/autofix/issues"
     if [[ ! -d "$issues_dir" ]] || ! ls "$issues_dir"/*.jsonl >/dev/null 2>&1; then
         _log_to_file "INFO" "No autofix issue files to upload"
         return
