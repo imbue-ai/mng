@@ -108,7 +108,7 @@ def claude_agent(claude_test_env: dict[str, str], temp_git_repo: Path) -> Genera
     with mng_agent_cleanup(agent_name, env=claude_test_env, disable_plugins=["modal"]):
         result = _create_agent(agent_name, env=claude_test_env, cwd=temp_git_repo)
         if result.returncode != 0:
-            pytest.fail(f"Failed to create agent: {result.stderr}")
+            pytest.fail(f"Failed to create agent: {result.stderr}")  # ty: ignore[invalid-argument-type]
 
         yield agent_name
 

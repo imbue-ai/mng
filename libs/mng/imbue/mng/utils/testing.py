@@ -912,7 +912,7 @@ def local_sshd(
     # Check if sshd is available
     sshd_path = shutil.which("sshd")
     if sshd_path is None:
-        pytest.skip("sshd not found - install openssh-server")
+        pytest.skip("sshd not found - install openssh-server")  # ty: ignore[invalid-argument-type, too-many-positional-arguments]
     # Assert needed for type narrowing since pytest.skip is typed as NoReturn
     assert sshd_path is not None
 

@@ -213,7 +213,7 @@ def test_modify_env_vars_sets_uv_tool_dirs() -> None:
         work_dir=Path("/home/user/work"),
     )
     env_vars = {"MNG_AGENT_STATE_DIR": "/home/user/.mng/agents/abc"}
-    agent.modify_env_vars(cast(Any, host_stub), env_vars)
+    agent.modify_env_vars(host_stub, env_vars)
     assert env_vars["UV_TOOL_DIR"] == "/home/user/.mng/agents/abc/tools"
     assert env_vars["UV_TOOL_BIN_DIR"] == "/home/user/.mng/agents/abc/bin"
     assert env_vars["MNG_LLM_MODEL"] == "claude-opus-4.6"
@@ -229,7 +229,7 @@ def test_modify_env_vars_noop_without_state_dir() -> None:
         work_dir=Path("/home/user/work"),
     )
     env_vars: dict[str, str] = {}
-    agent.modify_env_vars(cast(Any, host_stub), env_vars)
+    agent.modify_env_vars(host_stub, env_vars)
     assert "UV_TOOL_DIR" not in env_vars
     assert "UV_TOOL_BIN_DIR" not in env_vars
     # MNG_LLM_MODEL should still be set even without state dir

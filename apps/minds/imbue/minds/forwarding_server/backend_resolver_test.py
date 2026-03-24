@@ -288,7 +288,7 @@ def test_parse_agents_from_json_extracts_agent_ids() -> None:
 
 
 def test_parse_agents_from_json_extracts_ssh_info() -> None:
-    ssh_data = {
+    ssh_data: dict[str, object] = {
         "user": "root",
         "host": "remote.example.com",
         "port": 12345,
@@ -313,7 +313,7 @@ def test_parse_agents_from_json_returns_none_ssh_for_local_agents() -> None:
 
 
 def test_parse_agents_from_json_handles_mixed_local_and_remote() -> None:
-    ssh_data = {
+    ssh_data: dict[str, object] = {
         "user": "root",
         "host": "remote.example.com",
         "port": 12345,
@@ -361,7 +361,7 @@ def test_parse_agents_from_json_skips_agents_with_invalid_ssh() -> None:
 
 
 def test_mng_cli_resolver_get_ssh_info_returns_info_for_remote_agent() -> None:
-    ssh_data = {
+    ssh_data: dict[str, object] = {
         "user": "root",
         "host": "remote.example.com",
         "port": 12345,
@@ -580,7 +580,7 @@ def test_stream_manager_host_ssh_info_populates_resolver() -> None:
     """HOST_SSH_INFO events followed by agent mappings populate SSH info."""
     manager = _make_stream_manager()
     host_id = "host-00000000000000000000000000000001"
-    ssh_data = {
+    ssh_data: dict[str, object] = {
         "user": "root",
         "host": "remote.example.com",
         "port": 2222,
@@ -628,7 +628,7 @@ def test_stream_manager_mixed_local_and_remote() -> None:
     manager = _make_stream_manager()
     local_host_id = "host-00000000000000000000000000000001"
     remote_host_id = "host-00000000000000000000000000000002"
-    ssh_data = {
+    ssh_data: dict[str, object] = {
         "user": "root",
         "host": "remote.example.com",
         "port": 2222,
@@ -656,7 +656,7 @@ def test_stream_manager_ssh_info_before_full_snapshot() -> None:
     """SSH info received before DISCOVERY_FULL is retained and used."""
     manager = _make_stream_manager()
     host_id = "host-00000000000000000000000000000001"
-    ssh_data = {
+    ssh_data: dict[str, object] = {
         "user": "root",
         "host": "remote.example.com",
         "port": 2222,

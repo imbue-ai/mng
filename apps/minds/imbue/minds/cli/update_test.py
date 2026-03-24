@@ -19,7 +19,7 @@ def test_mind_agent_record_stores_fields() -> None:
 def test_parse_mind_agent_record_extracts_fields() -> None:
     """Verify parse_mind_agent_record extracts id and work_dir from raw dict."""
     valid_id = "agent-" + "a" * 32
-    raw = {"id": valid_id, "name": "selene", "work_dir": "/tmp/minds/selene"}
+    raw: dict[str, object] = {"id": valid_id, "name": "selene", "work_dir": "/tmp/minds/selene"}
     record = parse_mind_agent_record(raw, "selene")
     assert str(record.agent_id) == valid_id
     assert record.work_dir == Path("/tmp/minds/selene")

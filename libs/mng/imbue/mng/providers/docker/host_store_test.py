@@ -124,7 +124,7 @@ def test_list_all_host_records_skips_corrupt_files(store: DockerHostStore, tmp_p
 
 def test_persist_agent_data(store: DockerHostStore) -> None:
     host_id = HostId(HOST_ID_A)
-    agent_data = {"id": AGENT_ID_A, "name": "test-agent", "type": "echo"}
+    agent_data: dict[str, object] = {"id": AGENT_ID_A, "name": "test-agent", "type": "echo"}
 
     store.persist_agent_data(host_id, agent_data)
 
@@ -152,7 +152,7 @@ def test_list_persisted_agent_data_for_host_empty(store: DockerHostStore) -> Non
 def test_remove_persisted_agent_data(store: DockerHostStore) -> None:
     host_id = HostId(HOST_ID_A)
     agent_id = AgentId(AGENT_ID_A)
-    agent_data = {"id": str(agent_id), "name": "test-agent"}
+    agent_data: dict[str, object] = {"id": str(agent_id), "name": "test-agent"}
 
     store.persist_agent_data(host_id, agent_data)
     assert len(store.list_persisted_agent_data_for_host(host_id)) == 1
