@@ -811,7 +811,9 @@ def _parse_project_name(
 def _parse_remote_url(source_location: HostLocation, cg: ConcurrencyGroup) -> str | None:
     """Get the git remote origin URL from the source location, if available."""
     if not source_location.host.is_local:
-        return None
+        raise NotImplementedError(
+            "Have to re-implement the below function so that it works via HostInterface calls instead!"
+        )
     return get_git_remote_url(source_location.path, "origin", cg)
 
 
