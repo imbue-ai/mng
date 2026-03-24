@@ -1541,8 +1541,16 @@ class Host(BaseHost, OnlineHostInterface):
             if is_non_symlink_target:
                 raise UserInputError(f"work_dir_extra_paths: target already exists and is not a symlink: {target_abs}")
 
-            self.execute_command(f"mkdir -p {shlex.quote(str(target_abs.parent))}")
-            self.execute_command(f"ln -snf {shlex.quote(str(source_abs))} {shlex.quote(str(target_abs))}")
+            result = self.execute_command(f"mkdir -p {shlex.quote(str(target_abs.parent))}")
+            if not result.success:
+                raise MngError(
+                    f"work_dir_extra_paths: failed to create parent directory {target_abs.parent}: {result.stderr}"
+                )
+            result = self.execute_command(f"ln -snf {shlex.quote(str(source_abs))} {shlex.quote(str(target_abs))}")
+            if not result.success:
+                raise MngError(
+                    f"work_dir_extra_paths: failed to create symlink {target_abs} -> {source_abs}: {result.stderr}"
+                )
             logger.debug("work_dir_extra_paths: created symlink {} -> {}", target_abs, source_abs)
 
         # Rsync all copy paths in a single batch
