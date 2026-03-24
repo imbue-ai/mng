@@ -1,4 +1,3 @@
-import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -88,34 +87,28 @@ def test_build_pr_branch_index_merged_wins_over_closed() -> None:
 # === fetch_github_data ===
 
 
-def _init_repo_with_remote(path: Path, remote_url: str = "git@github.com:org/repo.git") -> None:
-    """Initialize a git repo and add a GitHub remote."""
-    init_git_repo_with_config(path)
-    subprocess.run(["git", "remote", "add", "origin", remote_url], cwd=path, check=True, capture_output=True)
+def test_fetch_github_data_skips_agents_without_remote_label(tmp_path: Path) -> None:
+    """Agents without a 'remote' label are skipped; agents with one get PRs."""
+    no_label_dir = tmp_path / "no-label"
+    no_label_dir.mkdir()
+    with_label_dir = tmp_path / "with-label"
+    with_label_dir.mkdir()
 
-
-def test_fetch_github_data_skips_agents_without_remotes(tmp_path: Path) -> None:
-    """Agents without git remotes are skipped; agents with remotes still get PRs."""
-    no_remote_dir = tmp_path / "no-remote"
-    init_git_repo_with_config(no_remote_dir)
-
-    with_remote_dir = tmp_path / "with-remote"
-    _init_repo_with_remote(with_remote_dir)
-
-    agent_no_remote = make_agent_details(name="no-remote", work_dir=no_remote_dir, provider_name="local")
-    agent_with_remote = make_agent_details(name="with-remote", work_dir=with_remote_dir, provider_name="local")
+    agent_no_label = make_agent_details(name="no-label", work_dir=no_label_dir, provider_name="local")
+    agent_with_label = make_agent_details(
+        name="with-label",
+        work_dir=with_label_dir,
+        provider_name="local",
+        labels={"remote": "git@github.com:org/repo.git"},
+    )
 
     pr = make_pr_info(number=1, head_branch="mng/feature")
     pr_result = FetchPrsResult(prs=(pr,), error=None)
 
     mng_ctx = MagicMock()
 
-    with (
-        ConcurrencyGroup(name="test") as cg,
-        patch("imbue.mng_kanpan.fetcher.fetch_all_prs", return_value=pr_result),
-    ):
-        mng_ctx.concurrency_group = cg
-        result = fetch_github_data(mng_ctx, [agent_no_remote, agent_with_remote])
+    with patch("imbue.mng_kanpan.fetcher.fetch_all_prs", return_value=pr_result):
+        result = fetch_github_data(mng_ctx, [agent_no_label, agent_with_label])
 
     assert result.prs_loaded is True
     assert result.pr_by_repo_branch["org/repo"]["mng/feature"] == pr
@@ -123,14 +116,23 @@ def test_fetch_github_data_skips_agents_without_remotes(tmp_path: Path) -> None:
 
 def test_fetch_github_data_fetches_per_repo(tmp_path: Path) -> None:
     """Agents in different repos trigger separate PR fetches."""
-    repo_a_dir = tmp_path / "repo-a"
-    _init_repo_with_remote(repo_a_dir, "git@github.com:org/repo-a.git")
+    dir_a = tmp_path / "repo-a"
+    dir_a.mkdir()
+    dir_b = tmp_path / "repo-b"
+    dir_b.mkdir()
 
-    repo_b_dir = tmp_path / "repo-b"
-    _init_repo_with_remote(repo_b_dir, "git@github.com:org/repo-b.git")
-
-    agent_a = make_agent_details(name="agent-a", work_dir=repo_a_dir, provider_name="local")
-    agent_b = make_agent_details(name="agent-b", work_dir=repo_b_dir, provider_name="local")
+    agent_a = make_agent_details(
+        name="agent-a",
+        work_dir=dir_a,
+        provider_name="local",
+        labels={"remote": "git@github.com:org/repo-a.git"},
+    )
+    agent_b = make_agent_details(
+        name="agent-b",
+        work_dir=dir_b,
+        provider_name="local",
+        labels={"remote": "git@github.com:org/repo-b.git"},
+    )
 
     pr_a = make_pr_info(number=1, head_branch="mng/feature-a")
     pr_b = make_pr_info(number=2, head_branch="mng/feature-b")
@@ -140,19 +142,15 @@ def test_fetch_github_data_fetches_per_repo(tmp_path: Path) -> None:
     def mock_fetch_prs(cg: object, cwd: Path | None = None) -> FetchPrsResult:
         nonlocal call_count
         call_count += 1
-        if cwd == repo_a_dir:
+        if cwd == dir_a:
             return FetchPrsResult(prs=(pr_a,), error=None)
-        if cwd == repo_b_dir:
+        if cwd == dir_b:
             return FetchPrsResult(prs=(pr_b,), error=None)
         return FetchPrsResult(prs=(), error="unexpected cwd")
 
     mng_ctx = MagicMock()
 
-    with (
-        ConcurrencyGroup(name="test") as cg,
-        patch("imbue.mng_kanpan.fetcher.fetch_all_prs", side_effect=mock_fetch_prs),
-    ):
-        mng_ctx.concurrency_group = cg
+    with patch("imbue.mng_kanpan.fetcher.fetch_all_prs", side_effect=mock_fetch_prs):
         result = fetch_github_data(mng_ctx, [agent_a, agent_b])
 
     assert call_count == 2
@@ -164,14 +162,14 @@ def test_fetch_github_data_fetches_per_repo(tmp_path: Path) -> None:
 
 def test_fetch_github_data_deduplicates_repos(tmp_path: Path) -> None:
     """Multiple agents in the same repo trigger only one PR fetch."""
-    # Simulate two agents with worktrees pointing to the same GitHub repo
     wt1 = tmp_path / "wt1"
+    wt1.mkdir()
     wt2 = tmp_path / "wt2"
-    _init_repo_with_remote(wt1, "git@github.com:org/repo.git")
-    _init_repo_with_remote(wt2, "git@github.com:org/repo.git")
+    wt2.mkdir()
 
-    agent1 = make_agent_details(name="a1", work_dir=wt1, provider_name="local")
-    agent2 = make_agent_details(name="a2", work_dir=wt2, provider_name="local")
+    remote_url = "git@github.com:org/repo.git"
+    agent1 = make_agent_details(name="a1", work_dir=wt1, provider_name="local", labels={"remote": remote_url})
+    agent2 = make_agent_details(name="a2", work_dir=wt2, provider_name="local", labels={"remote": remote_url})
 
     call_count = 0
 
@@ -182,11 +180,7 @@ def test_fetch_github_data_deduplicates_repos(tmp_path: Path) -> None:
 
     mng_ctx = MagicMock()
 
-    with (
-        ConcurrencyGroup(name="test") as cg,
-        patch("imbue.mng_kanpan.fetcher.fetch_all_prs", side_effect=mock_fetch_prs),
-    ):
-        mng_ctx.concurrency_group = cg
+    with patch("imbue.mng_kanpan.fetcher.fetch_all_prs", side_effect=mock_fetch_prs):
         result = fetch_github_data(mng_ctx, [agent1, agent2])
 
     assert call_count == 1
@@ -196,13 +190,22 @@ def test_fetch_github_data_deduplicates_repos(tmp_path: Path) -> None:
 def test_fetch_github_data_partial_failure(tmp_path: Path) -> None:
     """If one repo fails to fetch PRs, others still succeed."""
     good_dir = tmp_path / "good"
-    _init_repo_with_remote(good_dir, "git@github.com:org/good.git")
-
+    good_dir.mkdir()
     bad_dir = tmp_path / "bad"
-    _init_repo_with_remote(bad_dir, "git@github.com:org/bad.git")
+    bad_dir.mkdir()
 
-    agent_good = make_agent_details(name="good", work_dir=good_dir, provider_name="local")
-    agent_bad = make_agent_details(name="bad", work_dir=bad_dir, provider_name="local")
+    agent_good = make_agent_details(
+        name="good",
+        work_dir=good_dir,
+        provider_name="local",
+        labels={"remote": "git@github.com:org/good.git"},
+    )
+    agent_bad = make_agent_details(
+        name="bad",
+        work_dir=bad_dir,
+        provider_name="local",
+        labels={"remote": "git@github.com:org/bad.git"},
+    )
 
     pr = make_pr_info(number=1, head_branch="mng/feature")
 
@@ -213,11 +216,7 @@ def test_fetch_github_data_partial_failure(tmp_path: Path) -> None:
 
     mng_ctx = MagicMock()
 
-    with (
-        ConcurrencyGroup(name="test") as cg,
-        patch("imbue.mng_kanpan.fetcher.fetch_all_prs", side_effect=mock_fetch_prs),
-    ):
-        mng_ctx.concurrency_group = cg
+    with patch("imbue.mng_kanpan.fetcher.fetch_all_prs", side_effect=mock_fetch_prs):
         result = fetch_github_data(mng_ctx, [agent_good, agent_bad])
 
     assert result.prs_loaded is True
@@ -229,13 +228,17 @@ def test_fetch_github_data_partial_failure(tmp_path: Path) -> None:
 
 
 def test_fetch_github_data_no_local_agents() -> None:
-    """Remote-only agents produce an empty GitHubData."""
-    agent = make_agent_details(name="remote", work_dir=Path("/remote"), provider_name="modal")
+    """Remote-only agents (even with remote label) produce empty GitHubData since gh needs a local cwd."""
+    agent = make_agent_details(
+        name="remote",
+        work_dir=Path("/remote"),
+        provider_name="modal",
+        labels={"remote": "git@github.com:org/repo.git"},
+    )
     mng_ctx = MagicMock()
     result = fetch_github_data(mng_ctx, [agent])
     assert result.prs_loaded is False
     assert result.pr_by_repo_branch == {}
-
     assert result.errors == ()
 
 

@@ -90,30 +90,21 @@ def fetch_agent_snapshot(
 def fetch_github_data(mng_ctx: MngContext, agents: list[AgentDetails]) -> GitHubData:
     """Fetch GitHub PR data from all unique repos and build the PR-to-branch index.
 
-    Discovers repos from each agent's 'remote' label (set at creation time),
-    falling back to `git remote get-url origin` for local agents without the
-    label. Fetches PRs once per unique repo. Agents without GitHub remotes
-    are skipped and do not block other agents.
+    Discovers repos from each agent's 'remote' label (set at creation time).
+    Fetches PRs once per unique repo using a local agent's work_dir as cwd.
+    Agents without the 'remote' label or without a GitHub remote are skipped.
     """
     cg = mng_ctx.concurrency_group
     errors: list[str] = []
 
     # Collect one local work_dir per unique repo for the gh CLI call.
-    # Repos are discovered from the 'remote' label (all agents) or by
-    # querying git directly (local agents without the label).
     cwd_by_repo: dict[str, Path] = {}
-    seen_work_dirs: set[str] = set()
 
     for agent in agents:
         is_local = agent.host.provider_name == LOCAL_PROVIDER_NAME and agent.work_dir.exists()
         repo_path = _get_agent_repo_path(agent)
-        if repo_path is None and is_local:
-            repo_path = _get_github_repo_path(agent.work_dir, cg)
         if repo_path is not None and is_local and repo_path not in cwd_by_repo:
-            work_dir_key = str(agent.work_dir)
-            if work_dir_key not in seen_work_dirs:
-                seen_work_dirs.add(work_dir_key)
-                cwd_by_repo[repo_path] = agent.work_dir
+            cwd_by_repo[repo_path] = agent.work_dir
 
     # Fetch PRs once per unique repo.
     pr_by_repo_branch: dict[str, dict[str, PrInfo]] = {}
@@ -355,22 +346,6 @@ def _get_commits_ahead(work_dir: Path | None, cg: ConcurrencyGroup) -> int | Non
         )
         return int(result.stdout.strip())
     except (ProcessError, ValueError):
-        return None
-
-
-def _get_github_repo_path(work_dir: Path, cg: ConcurrencyGroup) -> str | None:
-    """Get the GitHub owner/repo path from a git repository's remote URL.
-
-    Returns a string like "owner/repo", or None if the remote is not GitHub
-    or cannot be determined.
-    """
-    try:
-        result = cg.run_process_to_completion(
-            ["git", "remote", "get-url", "origin"],
-            cwd=work_dir,
-        )
-        return _parse_github_repo_path(result.stdout.strip())
-    except ProcessError:
         return None
 
 
