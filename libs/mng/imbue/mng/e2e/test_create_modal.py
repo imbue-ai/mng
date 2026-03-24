@@ -360,7 +360,7 @@ def test_create_modal_pass_host_env(e2e: E2eSession) -> None:
 @pytest.mark.release
 @pytest.mark.modal
 @pytest.mark.rsync
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(240)
 def test_create_modal_reuse(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # another handy trick is to make the create command "idempotent" so that you don't need to worry about remembering whether you created an agent yet or not:
@@ -373,6 +373,28 @@ def test_create_modal_reuse(e2e: E2eSession) -> None:
         timeout=_REMOTE_TIMEOUT,
     )
     expect(result).to_succeed()
+
+    # Verify the agent was created
+    list_result = e2e.run("mng list --format json", comment="Verify sisyphus agent exists")
+    expect(list_result).to_succeed()
+    agents = json.loads(list_result.stdout)["agents"]
+    sisyphus_agents = [a for a in agents if a["name"] == "sisyphus"]
+    assert len(sisyphus_agents) == 1, f"Expected 1 sisyphus agent, found {len(sisyphus_agents)}"
+
+    # Run the same command again: --reuse should reuse the existing agent, not create a duplicate
+    result2 = e2e.run(
+        "mng create sisyphus --reuse --provider modal --no-connect --no-ensure-clean",
+        comment="reuse should succeed when agent already exists",
+        timeout=_REMOTE_TIMEOUT,
+    )
+    expect(result2).to_succeed()
+
+    # Verify there is still exactly one sisyphus agent (no duplicates)
+    list_result2 = e2e.run("mng list --format json", comment="Verify no duplicate agents after reuse")
+    expect(list_result2).to_succeed()
+    agents2 = json.loads(list_result2.stdout)["agents"]
+    sisyphus_agents2 = [a for a in agents2 if a["name"] == "sisyphus"]
+    assert len(sisyphus_agents2) == 1, f"Expected 1 sisyphus agent after reuse, found {len(sisyphus_agents2)}"
 
 
 @pytest.mark.release
