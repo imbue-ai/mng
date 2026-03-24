@@ -464,9 +464,10 @@ def create(ctx: click.Context, **kwargs) -> None:
 
 
 class _SourceMetadata(FrozenModel):
-    """Metadata derived from the source location, used for auto-labeling agents."""
+    """Auto-derived agent labels from the source location. Field names are the label keys."""
 
-    labels: dict[str, str] = Field(description="Auto-derived agent labels (project, remote, etc.)")
+    project: str = Field(description="Project name (from git remote or folder name)")
+    remote: str | None = Field(default=None, description="Git remote origin URL")
 
 
 class _CreateSetup(FrozenModel):
@@ -537,11 +538,10 @@ def _setup_create(
     )
 
     # derive metadata from the source location for auto-labeling
-    auto_labels: dict[str, str] = {"project": _parse_project_name(source_location, opts, address, mng_ctx)}
-    remote_url = _parse_remote_url(source_location, mng_ctx.concurrency_group)
-    if remote_url is not None:
-        auto_labels["remote"] = remote_url
-    source_metadata = _SourceMetadata(labels=auto_labels)
+    source_metadata = _SourceMetadata(
+        project=_parse_project_name(source_location, opts, address, mng_ctx),
+        remote=_parse_remote_url(source_location, mng_ctx.concurrency_group),
+    )
 
     # Parse host lifecycle options (these go on the host, not the agent)
     host_lifecycle = _parse_host_lifecycle_options(opts)
@@ -655,11 +655,12 @@ def _create_agent(
         _apply_host_labels(resolved_target_host, opts.host_label)
 
     # Set auto-derived labels (project, remote) on the agent (labels are agent-level, not host-level)
-    if setup.source_metadata.labels:
+    auto_labels = setup.source_metadata.model_dump(exclude_none=True)
+    if auto_labels:
         agent_opts = agent_opts.model_copy_update(
             to_update(
                 agent_opts.field_ref().label_options,
-                AgentLabelOptions(labels={**agent_opts.label_options.labels, **setup.source_metadata.labels}),
+                AgentLabelOptions(labels={**agent_opts.label_options.labels, **auto_labels}),
             ),
         )
 

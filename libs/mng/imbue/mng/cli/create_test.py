@@ -678,22 +678,25 @@ def test_parse_remote_url_returns_none_when_no_git(
 
 
 # =============================================================================
-# Tests for _SourceMetadata.to_labels
+# Tests for _SourceMetadata
 # =============================================================================
 
 
-def test_source_metadata_labels_with_both() -> None:
-    """labels contains both project and remote when both are provided."""
-    meta = _SourceMetadata(labels={"project": "my-project", "remote": "https://github.com/owner/my-project.git"})
+def test_source_metadata_dump_includes_remote_when_set() -> None:
+    """model_dump includes both project and remote when remote is set."""
+    meta = _SourceMetadata(project="my-project", remote="https://github.com/owner/my-project.git")
 
-    assert meta.labels == {"project": "my-project", "remote": "https://github.com/owner/my-project.git"}
+    assert meta.model_dump(exclude_none=True) == {
+        "project": "my-project",
+        "remote": "https://github.com/owner/my-project.git",
+    }
 
 
-def test_source_metadata_labels_without_remote() -> None:
-    """labels contains only project when remote is absent."""
-    meta = _SourceMetadata(labels={"project": "my-project"})
+def test_source_metadata_dump_excludes_remote_when_none() -> None:
+    """model_dump omits remote when it is None."""
+    meta = _SourceMetadata(project="my-project")
 
-    assert meta.labels == {"project": "my-project"}
+    assert meta.model_dump(exclude_none=True) == {"project": "my-project"}
 
 
 # =============================================================================
