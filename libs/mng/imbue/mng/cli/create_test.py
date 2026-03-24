@@ -14,8 +14,8 @@ from imbue.imbue_common.model_update import to_update
 from imbue.mng.api.find import ResolvedSource
 from imbue.mng.cli.agent_addr import AgentAddress
 from imbue.mng.cli.agent_addr import parse_agent_address
+from imbue.mng.cli.create import _AutoLabels
 from imbue.mng.cli.create import _CreateCommand
-from imbue.mng.cli.create import _SourceMetadata
 from imbue.mng.cli.create import _get_source_remote_url
 from imbue.mng.cli.create import _is_creating_new_host
 from imbue.mng.cli.create import _parse_agent_opts
@@ -458,7 +458,7 @@ def test_resolve_source_location_with_auto_start_enabled(
 
     assert isinstance(result.location.host, OnlineHostInterface)
     assert result.location.path == temp_work_dir
-    assert result.agent_id is None
+    assert result.agent is None
 
 
 def test_resolve_target_host_with_auto_start_enabled(
@@ -502,7 +502,6 @@ def test_resolve_target_host_with_host_reference(
 def test_parse_project_name_returns_explicit_project(
     default_create_cli_opts: CreateCliOptions,
     local_provider: LocalProviderInstance,
-    temp_mng_ctx: MngContext,
     temp_work_dir: Path,
 ) -> None:
     """When --project is specified, return it directly."""
@@ -512,7 +511,7 @@ def test_parse_project_name_returns_explicit_project(
         to_update(default_create_cli_opts.field_ref().project, "explicit-project"),
     )
 
-    result = _parse_project_name(resolved, opts, temp_mng_ctx)
+    result = _parse_project_name(resolved, opts, remote_url=None)
 
     assert result == "explicit-project"
 
@@ -520,7 +519,6 @@ def test_parse_project_name_returns_explicit_project(
 def test_parse_project_name_inherits_from_source_agent(
     default_create_cli_opts: CreateCliOptions,
     local_provider: LocalProviderInstance,
-    temp_mng_ctx: MngContext,
     tmp_path: Path,
 ) -> None:
     """When source agent has a project label, inherit it."""
@@ -529,28 +527,48 @@ def test_parse_project_name_inherits_from_source_agent(
     local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     resolved = ResolvedSource(
         location=HostLocation(host=local_host, path=some_dir),
-        agent_id=AgentId("agent-00000000000000000000000000000001"),
-        agent_labels={"project": "inherited-project"},
+        agent=DiscoveredAgent(
+            host_id=local_host.id,
+            agent_id=AgentId("agent-00000000000000000000000000000001"),
+            agent_name=AgentName("source-agent"),
+            provider_name=ProviderInstanceName("local"),
+            certified_data={"labels": {"project": "inherited-project"}},
+        ),
     )
 
-    result = _parse_project_name(resolved, default_create_cli_opts, temp_mng_ctx)
+    result = _parse_project_name(resolved, default_create_cli_opts, remote_url=None)
 
     assert result == "inherited-project"
 
 
-def test_parse_project_name_falls_back_to_derive(
+def test_parse_project_name_derives_from_remote_url(
     default_create_cli_opts: CreateCliOptions,
     local_provider: LocalProviderInstance,
-    temp_mng_ctx: MngContext,
     tmp_path: Path,
 ) -> None:
-    """When no explicit project and no source agent, derive from path."""
+    """When remote URL is available, derive project name from it."""
+    some_dir = tmp_path / "local-folder"
+    some_dir.mkdir()
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
+    resolved = ResolvedSource(location=HostLocation(host=local_host, path=some_dir))
+
+    result = _parse_project_name(resolved, default_create_cli_opts, remote_url="https://github.com/owner/my-repo.git")
+
+    assert result == "my-repo"
+
+
+def test_parse_project_name_falls_back_to_folder_name(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+) -> None:
+    """When no remote URL, fall back to the source directory name."""
     some_dir = tmp_path / "some-project"
     some_dir.mkdir()
     local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     resolved = ResolvedSource(location=HostLocation(host=local_host, path=some_dir))
 
-    result = _parse_project_name(resolved, default_create_cli_opts, temp_mng_ctx)
+    result = _parse_project_name(resolved, default_create_cli_opts, remote_url=None)
 
     assert result == "some-project"
 
@@ -617,13 +635,13 @@ def test_get_source_remote_url_returns_none_when_no_git(
 
 
 # =============================================================================
-# Tests for _SourceMetadata
+# Tests for _AutoLabels
 # =============================================================================
 
 
-def test_source_metadata_dump_includes_remote_when_set() -> None:
+def test_auto_labels_dump_includes_remote_when_set() -> None:
     """model_dump includes both project and remote when remote is set."""
-    meta = _SourceMetadata(project="my-project", remote="https://github.com/owner/my-project.git")
+    meta = _AutoLabels(project="my-project", remote="https://github.com/owner/my-project.git")
 
     assert meta.model_dump(exclude_none=True) == {
         "project": "my-project",
@@ -631,9 +649,9 @@ def test_source_metadata_dump_includes_remote_when_set() -> None:
     }
 
 
-def test_source_metadata_dump_excludes_remote_when_none() -> None:
+def test_auto_labels_dump_excludes_remote_when_none() -> None:
     """model_dump omits remote when it is None."""
-    meta = _SourceMetadata(project="my-project")
+    meta = _AutoLabels(project="my-project")
 
     assert meta.model_dump(exclude_none=True) == {"project": "my-project"}
 
