@@ -44,7 +44,8 @@ class E2eSession(Session):
 
 _E2E_DIR = Path(__file__).resolve().parent
 _BIN_DIR = _E2E_DIR / "bin"
-_TEST_OUTPUT_DIR = _E2E_DIR / ".test_output"
+_REPO_ROOT = next(p for p in [_E2E_DIR, *_E2E_DIR.parents] if (p / ".git").exists())
+_TEST_OUTPUT_DIR = _REPO_ROOT / ".test_output" / "e2e"
 _DEBUGGING_DOC = "libs/mng/imbue/mng/e2e/DEBUGGING.md"
 
 _ASCIINEMA_SHUTDOWN_TIMEOUT_SECONDS = 5.0
@@ -226,7 +227,7 @@ def e2e(
     - Disabled remote providers (Modal, Docker) via settings.local.toml
     - A custom connect_command that records tmux sessions via asciinema
 
-    Output is saved to .test_output/<timestamp>/<test_name>/.
+    Output is saved to .test_output/e2e/<timestamp>/<test_name>/ (relative to repo root).
     """
     # Create a separate tmux tmpdir for subprocess-spawned tmux sessions.
     # The parent autouse fixture isolates the in-process tmux server, but
@@ -252,7 +253,8 @@ def e2e(
     # Add the e2e bin directory to PATH so the connect script is available
     env["PATH"] = f"{_BIN_DIR}:{env.get('PATH', '')}"
 
-    # Configure connect_command for create/start and disable remote providers
+    # Configure connect_command for create/start and disable Docker provider
+    # (Modal is left enabled so that remote-provider e2e tests actually exercise it)
     settings_path = project_config_dir / "settings.local.toml"
     settings_path.write_text(
         "[commands.create]\n"
@@ -260,9 +262,6 @@ def e2e(
         "\n"
         "[commands.start]\n"
         'connect_command = "mng-e2e-connect"\n'
-        "\n"
-        "[providers.modal]\n"
-        "is_enabled = false\n"
         "\n"
         "[providers.docker]\n"
         "is_enabled = false\n"

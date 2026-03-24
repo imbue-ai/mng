@@ -15,7 +15,9 @@ from http.server import HTTPServer
 from http.server import SimpleHTTPRequestHandler
 from pathlib import Path
 
-_TEST_OUTPUT_DIR = Path(__file__).resolve().parent / ".test_output"
+_E2E_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = next(p for p in [_E2E_DIR, *_E2E_DIR.parents] if (p / ".git").exists())
+_TEST_OUTPUT_DIR = _REPO_ROOT / ".test_output" / "e2e"
 
 _ASCIINEMA_PLAYER_CSS = "https://cdn.jsdelivr.net/npm/asciinema-player@3.15.1/dist/bundle/asciinema-player.css"
 _ASCIINEMA_PLAYER_JS = "https://cdn.jsdelivr.net/npm/asciinema-player@3.15.1/dist/bundle/asciinema-player.min.js"

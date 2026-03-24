@@ -1,8 +1,8 @@
 """Tests for remote agent creation (Modal/Docker) from the tutorial.
 
-These tests verify the CLI accepts remote-provider flags. Since Modal and Docker
-are disabled in the test environment, commands fail with provider-disabled errors
-rather than unknown-flag errors.
+These tests verify that agents can be created on remote providers. Modal tests
+actually exercise the Modal provider; Docker tests assert that the provider is
+disabled (Docker remains disabled in the test fixture).
 
 The tests are intentionally kept as separate functions (not parametrized) so that
 each one has a 1:1 correspondence with a tutorial script block. This makes it
@@ -15,14 +15,14 @@ import pytest
 from imbue.mng.e2e.conftest import E2eSession
 from imbue.skitwright.expect import expect
 
-_PROVIDER_ERROR_PATTERN = r"(?i)(modal|docker).*(not authorized|not enabled|disabled|not available|not installed)"
+_DOCKER_DISABLED_PATTERN = r"(?i)docker.*(not authorized|not enabled|disabled|not available|not installed)"
 
 
-def _assert_provider_disabled(result) -> None:
-    """Assert a command failed because a remote provider is disabled."""
+def _assert_docker_disabled(result) -> None:
+    """Assert a command failed because the Docker provider is disabled."""
     expect(result).to_fail()
     combined = result.stdout + result.stderr
-    expect(combined).to_match(_PROVIDER_ERROR_PATTERN)
+    expect(combined).to_match(_DOCKER_DISABLED_PATTERN)
 
 
 @pytest.mark.release
@@ -32,12 +32,11 @@ def test_create_provider_modal(e2e: E2eSession) -> None:
     mng create my-task --provider modal
     # see more details below in "CREATING AGENTS REMOTELY" for relevant options
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task --provider modal --no-ensure-clean",
-            comment="you can also launch claude remotely in Modal",
-        )
+    result = e2e.run(
+        "mng create my-task --provider modal --no-connect --no-ensure-clean",
+        comment="you can also launch claude remotely in Modal",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -49,12 +48,11 @@ def test_create_modal_no_connect_message(e2e: E2eSession) -> None:
     # and then we also pass in an explicit message for the agent to start working on immediately
     # the message can also be specified as the contents of a file (by using --message-file instead of --message)
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            'mng create my-task --provider modal --no-connect --message "Speed up one of my tests and make a PR on github" --no-ensure-clean',
-            comment="you can send an initial message (so you don't have to wait around)",
-        )
+    result = e2e.run(
+        'mng create my-task --provider modal --no-connect --message "Speed up one of my tests and make a PR on github" --no-ensure-clean',
+        comment="you can send an initial message (so you don't have to wait around)",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -63,12 +61,11 @@ def test_create_modal_edit_message(e2e: E2eSession) -> None:
     # you can also edit the message *while the agent is starting up*, which is very handy for making it "feel" instant:
     mng create my-task --provider modal --edit-message
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task --provider modal --edit-message --no-ensure-clean",
-            comment="you can also edit the message *while the agent is starting up*",
-        )
+    result = e2e.run(
+        "mng create my-task --provider modal --edit-message --no-connect --no-ensure-clean",
+        comment="you can also edit the message *while the agent is starting up*",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -77,12 +74,11 @@ def test_create_modal_rsync(e2e: E2eSession) -> None:
     # you can use rsync to transfer extra data as well, beyond just the git data:
     mng create my-task --provider modal --rsync --rsync-args "--exclude=node_modules"
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            'mng create my-task --provider modal --rsync --rsync-args "--exclude=node_modules" --no-ensure-clean',
-            comment="you can use rsync to transfer extra data as well",
-        )
+    result = e2e.run(
+        'mng create my-task --provider modal --rsync --rsync-args "--exclude=node_modules" --no-connect --no-ensure-clean',
+        comment="you can use rsync to transfer extra data as well",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -94,12 +90,11 @@ def test_create_modal_passthrough_agent_args(e2e: E2eSession) -> None:
     # agents running remotely are running in a sandboxed environment where they can't really mess anything up on their local machine (or if they do, it doesn't matter)
     # because it's running remotely, you might also want something like that system prompt (to tell it not to get blocked on you)
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            'mng create my-task --provider modal --no-ensure-clean -- --dangerously-skip-permissions --append-system-prompt "Don\'t ask me any questions!"',
-            comment="one of the coolest features of mng is the ability to create agents on remote hosts",
-        )
+    result = e2e.run(
+        'mng create my-task --provider modal --no-connect --no-ensure-clean -- --dangerously-skip-permissions --append-system-prompt "Don\'t ask me any questions!"',
+        comment="one of the coolest features of mng is the ability to create agents on remote hosts",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -111,12 +106,11 @@ def test_create_modal_idle_timeout(e2e: E2eSession) -> None:
     mng create my-task --provider modal --idle-timeout 60
     # that command shuts down the Modal host (and agent) after 1 minute of inactivity.
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task --provider modal --idle-timeout 60 --no-ensure-clean",
-            comment="mng makes it really easy to deal with this by automatically shutting down hosts when their agents are idle",
-        )
+    result = e2e.run(
+        "mng create my-task --provider modal --idle-timeout 60 --no-connect --no-ensure-clean",
+        comment="mng makes it really easy to deal with this by automatically shutting down hosts when their agents are idle",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -127,12 +121,11 @@ def test_create_modal_idle_mode_ssh(e2e: E2eSession) -> None:
     # that command will only consider agents as "idle" when you are not connected to them
     # see the idle_detection.md file for more details on idle detection and timeouts
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            'mng create my-task --provider modal --idle-mode "ssh" --no-ensure-clean',
-            comment="You can customize what inactivity means by using the --idle-mode flag",
-        )
+    result = e2e.run(
+        'mng create my-task --provider modal --idle-mode "ssh" --no-connect --no-ensure-clean',
+        comment="You can customize what inactivity means by using the --idle-mode flag",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -160,12 +153,11 @@ def test_create_modal_build_args(e2e: E2eSession) -> None:
     # see "mng create --help" for all provider-specific build args
     # some other useful Modal build args: --region, --timeout, --offline (blocks network), --secret, --cidr-allowlist, --context-dir
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task --provider modal -b cpu=4 -b memory=16 -b image=python:3.12 --no-ensure-clean",
-            comment="build arguments let you customize that new remote host",
-        )
+    result = e2e.run(
+        "mng create my-task --provider modal -b cpu=4 -b memory=16 -b image=python:3.12 --no-connect --no-ensure-clean",
+        comment="build arguments let you customize that new remote host",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -178,12 +170,11 @@ def test_create_modal_dockerfile_and_context(e2e: E2eSession) -> None:
     # that command builds a Modal host using the Dockerfile at ./Dockerfile.agent and the build context at ./agent-context
     # (which is where the Dockerfile can COPY files from, and also where build args are evaluated from)
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task --provider modal -b file=./Dockerfile.agent -b context-dir=./agent-context --no-ensure-clean",
-            comment="the most important build args for Modal are --file and --context-dir",
-        )
+    result = e2e.run(
+        "mng create my-task --provider modal -b file=./Dockerfile.agent -b context-dir=./agent-context --no-connect --no-ensure-clean",
+        comment="the most important build args for Modal are --file and --context-dir",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -193,12 +184,11 @@ def test_create_named_host_new_host(e2e: E2eSession) -> None:
     mng create my-task@my-modal-box.modal --new-host
     # (--host-name-style and --name-style control auto-generated name styles for hosts and agents respectively)
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task@my-modal-box.modal --new-host --no-ensure-clean",
-            comment="you can name the host using the address syntax",
-        )
+    result = e2e.run(
+        "mng create my-task@my-modal-box.modal --new-host --no-connect --no-ensure-clean",
+        comment="you can name the host using the address syntax",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -207,12 +197,11 @@ def test_create_modal_volume(e2e: E2eSession) -> None:
     # you can mount persistent Modal volumes in order to share data between hosts, or have it be available even when they are offline (or after they are destroyed):
     mng create my-task --provider modal -b volume=my-data:/data
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task --provider modal -b volume=my-data:/data --no-ensure-clean",
-            comment="you can mount persistent Modal volumes",
-        )
+    result = e2e.run(
+        "mng create my-task --provider modal -b volume=my-data:/data --no-connect --no-ensure-clean",
+        comment="you can mount persistent Modal volumes",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -221,12 +210,11 @@ def test_create_modal_snapshot(e2e: E2eSession) -> None:
     # you can use an existing snapshot instead of building a new host from scratch:
     mng create my-task --provider modal --snapshot snap-123abc
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task --provider modal --snapshot snap-123abc --no-ensure-clean",
-            comment="you can use an existing snapshot instead of building a new host from scratch",
-        )
+    result = e2e.run(
+        "mng create my-task --provider modal --snapshot snap-123abc --no-connect --no-ensure-clean",
+        comment="you can use an existing snapshot instead of building a new host from scratch",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -237,7 +225,7 @@ def test_create_docker_start_args(e2e: E2eSession) -> None:
     mng create my-task --provider docker -s "--gpus all"
     # these args are passed to "docker run", whereas the build args are passed to "docker build".
     """)
-    _assert_provider_disabled(
+    _assert_docker_disabled(
         e2e.run(
             'mng create my-task --provider docker -s "--gpus all" --no-ensure-clean',
             comment="some providers (like docker), take start args as well as build args",
@@ -251,12 +239,11 @@ def test_create_modal_target_path(e2e: E2eSession) -> None:
     # you can specify the target path where the agent's work directory will be mounted:
     mng create my-task --provider modal --target-path /workspace
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task --provider modal --target-path /workspace --no-ensure-clean",
-            comment="you can specify the target path where the agent's work directory will be mounted",
-        )
+    result = e2e.run(
+        "mng create my-task --provider modal --target-path /workspace --no-connect --no-ensure-clean",
+        comment="you can specify the target path where the agent's work directory will be mounted",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -266,12 +253,11 @@ def test_create_modal_upload_and_user_command(e2e: E2eSession) -> None:
     mng create my-task --provider modal --upload-file ~/.ssh/config:/root/.ssh/config --user-command "pip install foo"
     # (--sudo-command runs as root; --append-to-file and --prepend-to-file are also available)
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            'mng create my-task --provider modal --upload-file ~/.ssh/config:/root/.ssh/config --user-command "pip install foo" --no-ensure-clean',
-            comment="you can upload files and run custom commands during host provisioning",
-        )
+    result = e2e.run(
+        'mng create my-task --provider modal --upload-file ~/.ssh/config:/root/.ssh/config --user-command "pip install foo" --no-connect --no-ensure-clean',
+        comment="you can upload files and run custom commands during host provisioning",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -282,12 +268,11 @@ def test_create_modal_no_start_on_boot(e2e: E2eSession) -> None:
     # but it only makes sense to do this if you are running multiple agents on the same host
     # that's because hosts are automatically stopped when they have no more running agents, so you have to have at least one.
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task --provider modal --no-start-on-boot --no-ensure-clean",
-            comment="by default, agents are started when a host is booted; this can be disabled",
-        )
+    result = e2e.run(
+        "mng create my-task --provider modal --no-start-on-boot --no-connect --no-ensure-clean",
+        comment="by default, agents are started when a host is booted; this can be disabled",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -297,12 +282,11 @@ def test_create_modal_pass_host_env(e2e: E2eSession) -> None:
     mng create my-task --provider modal --pass-host-env MY_VAR
     # --host-env-file and --pass-host-env work the same as their agent counterparts, and again, you should generally prefer those forms (but if you really need to you can use --host-env to specify host env vars directly)
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "MY_VAR=hello mng create my-task --provider modal --pass-host-env MY_VAR --no-ensure-clean",
-            comment="you can also set host-level environment variables",
-        )
+    result = e2e.run(
+        "MY_VAR=hello mng create my-task --provider modal --pass-host-env MY_VAR --no-connect --no-ensure-clean",
+        comment="you can also set host-level environment variables",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -312,12 +296,11 @@ def test_create_modal_reuse(e2e: E2eSession) -> None:
     mng create sisyphus --reuse --provider modal
     # if that agent already exists, it will be reused (and started) instead of creating a new one. If it doesn't exist, it will be created.
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create sisyphus --reuse --provider modal --no-ensure-clean",
-            comment="another handy trick is to make the create command idempotent",
-        )
+    result = e2e.run(
+        "mng create sisyphus --reuse --provider modal --no-connect --no-ensure-clean",
+        comment="another handy trick is to make the create command idempotent",
     )
+    expect(result).to_succeed()
 
 
 @pytest.mark.release
@@ -327,9 +310,8 @@ def test_create_modal_retry(e2e: E2eSession) -> None:
     mng create my-task --provider modal --retry 5 --retry-delay 10s
     # (--reconnect / --no-reconnect controls auto-reconnect on disconnect)
     """)
-    _assert_provider_disabled(
-        e2e.run(
-            "mng create my-task --provider modal --retry 5 --retry-delay 10s --no-ensure-clean",
-            comment="you can control connection retries and timeouts",
-        )
+    result = e2e.run(
+        "mng create my-task --provider modal --retry 5 --retry-delay 10s --no-connect --no-ensure-clean",
+        comment="you can control connection retries and timeouts",
     )
+    expect(result).to_succeed()
