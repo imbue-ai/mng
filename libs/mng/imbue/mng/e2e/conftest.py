@@ -224,7 +224,7 @@ def e2e(
     - Isolated TMUX_TMPDIR (own tmux server, separate from the one the parent
       autouse fixture creates for the in-process test environment)
     - A temporary git repo as the working directory
-    - Disabled remote providers (Modal, Docker) via settings.local.toml
+    - Disabled Docker provider via settings.local.toml (Modal is left enabled)
     - A custom connect_command that records tmux sessions via asciinema
 
     Output is saved to .test_output/e2e/<timestamp>/<test_name>/ (relative to repo root).
