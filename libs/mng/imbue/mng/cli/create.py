@@ -796,11 +796,9 @@ def _parse_project_name(
         return opts.project
 
     # Derive project name from the remote URL, falling back to the folder name
-    source_project: str | None = None
-    if remote_url is not None:
-        source_project = parse_project_name_from_url(remote_url)
-    if source_project is None:
-        source_project = source_location.path.resolve().name
+    source_project = (
+        parse_project_name_from_url(remote_url) if remote_url is not None else None
+    ) or source_location.path.resolve().name
 
     # When creating a new host from an external source (--source-agent or --source-host),
     # validate that the project inferred from the source matches the project inferred from
