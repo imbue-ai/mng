@@ -1715,11 +1715,18 @@ def get_files_for_deploy(
     claude_json_data = build_claude_json_for_agent(False, repo_root, None, current_time=FIXED_TIME)
     # also inject our API key here, since deployed versions need it
     user_claude_json_data = build_claude_json_for_agent(True, Path("."), None)
-    api_key = user_claude_json_data.get("primaryApiKey", os.environ.get("ANTHROPIC_API_KEY", ""))
-    if api_key:
-        approved_keys = claude_json_data.setdefault("customApiKeyResponses", {})
-        approved_keys["approved"] = approved_keys.get("approved", []) + [api_key[-20:]]
-        approved_keys["rejected"] = []
+    env_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    conf_key = user_claude_json_data.get("primaryApiKey", "")
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if env_key or conf_key:
+        approved_section = user_claude_json_data.setdefault("customApiKeyResponses", {})
+        approved_list = approved_section.get("approved", [])
+        if api_key[-20:] not in approved_list:
+            approved_list.append(api_key[-20:])
+        if conf_key[-20:] not in approved_list:
+            approved_list.append(conf_key[-20:])
+        approved_section["approved"] = approved_list
+        approved_section["rejected"] = []
     files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
 
     if include_user_settings:
