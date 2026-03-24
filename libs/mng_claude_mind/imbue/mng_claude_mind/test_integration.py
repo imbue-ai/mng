@@ -982,7 +982,7 @@ def test_chat_script_reply_outputs_message_id(chat_env: ChatScriptEnv) -> None:
     Requires llm to be installed (skipped in CI where it is not available).
     """
     if shutil.which("llm") is None:
-        pytest.skip("llm CLI not installed")  # ty: ignore[invalid-argument-type, too-many-positional-arguments]
+        pytest.skip("llm CLI not installed")
 
     chat_env.env["LLM_MATCHED_RESPONSE"] = ""
 

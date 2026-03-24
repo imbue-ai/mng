@@ -395,13 +395,13 @@ def test_plugin_add_path_and_remove_lifecycle() -> None:
     """
     mng_bin = shutil.which("mng")
     if mng_bin is None:
-        pytest.skip("mng not installed via uv tool (no mng binary on PATH)")  # ty: ignore[invalid-argument-type, too-many-positional-arguments]
+        pytest.skip("mng not installed via uv tool (no mng binary on PATH)")
         return
 
     # Check that mng is installed via uv tool by looking for the receipt
     mng_venv = Path(mng_bin).resolve().parent.parent
     if not (mng_venv / "uv-receipt.toml").exists():
-        pytest.skip("mng not installed via uv tool (no uv-receipt.toml)")  # ty: ignore[invalid-argument-type, too-many-positional-arguments]
+        pytest.skip("mng not installed via uv tool (no uv-receipt.toml)")
 
     def run_mng(*args: str) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(

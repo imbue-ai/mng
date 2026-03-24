@@ -361,9 +361,9 @@ def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 max_duration = 300.0
 
         if duration > max_duration:
-            pytest.exit(  # ty: ignore[invalid-argument-type]
-                f"Test suite took {duration:.2f}s, exceeding the {max_duration}s limit",  # ty: ignore[invalid-argument-type]
-                returncode=1,  # ty: ignore[parameter-already-assigned]
+            pytest.exit(
+                f"Test suite took {duration:.2f}s, exceeding the {max_duration}s limit",
+                returncode=1,
             )
 
 
