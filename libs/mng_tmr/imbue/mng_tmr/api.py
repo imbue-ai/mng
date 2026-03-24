@@ -15,7 +15,6 @@ from loguru import logger
 from markdown_it import MarkdownIt
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.concurrency_group.errors import ConcurrencyGroupError
 from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.model_update import to_update
@@ -28,7 +27,6 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import HostError
 from imbue.mng.errors import MngError
-from imbue.mng.errors import SendMessageError
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import AgentDetails
@@ -48,9 +46,13 @@ from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotName
 from imbue.mng.primitives import UncommittedChangesMode
 from imbue.mng.primitives import WorkDirCopyMode
+from imbue.mng_tmr.data_types import Change
+from imbue.mng_tmr.data_types import ChangeKind
+from imbue.mng_tmr.data_types import ChangeStatus
+from imbue.mng_tmr.data_types import DisplayCategory
+from imbue.mng_tmr.data_types import IntegratorResult
 from imbue.mng_tmr.data_types import TestAgentInfo
 from imbue.mng_tmr.data_types import TestMapReduceResult
-from imbue.mng_tmr.data_types import TestOutcome
 from imbue.mng_tmr.data_types import TestResult
 from imbue.mng_tmr.data_types import TmrLaunchConfig
 
@@ -64,30 +66,22 @@ _TERMINAL_STATES = frozenset(
     }
 )
 
-_OUTCOME_COLORS: dict[TestOutcome, str] = {
-    TestOutcome.PENDING: "rgb(3, 169, 244)",
-    TestOutcome.FIX_TEST_SUCCEEDED: "rgb(33, 150, 243)",
-    TestOutcome.FIX_IMPL_SUCCEEDED: "rgb(33, 150, 243)",
-    TestOutcome.FIX_TEST_FAILED: "rgb(244, 67, 54)",
-    TestOutcome.FIX_IMPL_FAILED: "rgb(244, 67, 54)",
-    TestOutcome.FIX_UNCERTAIN: "rgb(255, 152, 0)",
-    TestOutcome.TIMED_OUT: "rgb(121, 85, 72)",
-    TestOutcome.RUN_SUCCEEDED: "rgb(76, 175, 80)",
-    TestOutcome.AGENT_ERROR: "rgb(158, 158, 158)",
-    TestOutcome.REMOTE_AGENT_ERROR: "rgb(189, 147, 249)",
+_DISPLAY_COLORS: dict[DisplayCategory, str] = {
+    DisplayCategory.PENDING: "rgb(3, 169, 244)",
+    DisplayCategory.FIXED: "rgb(33, 150, 243)",
+    DisplayCategory.REGRESSED: "rgb(255, 152, 0)",
+    DisplayCategory.STUCK: "rgb(244, 67, 54)",
+    DisplayCategory.ERRORED: "rgb(158, 158, 158)",
+    DisplayCategory.CLEAN_PASS: "rgb(76, 175, 80)",
 }
 
-_OUTCOME_GROUP_ORDER: list[TestOutcome] = [
-    TestOutcome.PENDING,
-    TestOutcome.FIX_IMPL_SUCCEEDED,
-    TestOutcome.FIX_TEST_SUCCEEDED,
-    TestOutcome.FIX_IMPL_FAILED,
-    TestOutcome.FIX_TEST_FAILED,
-    TestOutcome.FIX_UNCERTAIN,
-    TestOutcome.TIMED_OUT,
-    TestOutcome.AGENT_ERROR,
-    TestOutcome.REMOTE_AGENT_ERROR,
-    TestOutcome.RUN_SUCCEEDED,
+_DISPLAY_GROUP_ORDER: list[DisplayCategory] = [
+    DisplayCategory.PENDING,
+    DisplayCategory.FIXED,
+    DisplayCategory.REGRESSED,
+    DisplayCategory.STUCK,
+    DisplayCategory.ERRORED,
+    DisplayCategory.CLEAN_PASS,
 ]
 
 _SHORT_ID_LENGTH = 6
@@ -95,6 +89,37 @@ _SHORT_ID_LENGTH = 6
 _MISSING_AGENT_MAX_ROUNDS = 30
 
 _md = MarkdownIt()
+
+
+def should_pull_changes(result: TestMapReduceResult) -> bool:
+    """Determine whether an agent's changes should be pulled.
+
+    Pull when: not errored, at least one succeeded change, and tests are at
+    least as good as before (if they were passing, they must still be passing).
+    """
+    if result.errored:
+        return False
+    if not any(c.status == ChangeStatus.SUCCEEDED for c in result.changes.values()):
+        return False
+    if result.tests_passing_before is True and result.tests_passing_after is not True:
+        return False
+    return True
+
+
+def display_category_of(result: TestMapReduceResult) -> DisplayCategory:
+    """Derive a display category from a result for report grouping/coloring."""
+    if result.errored:
+        return DisplayCategory.ERRORED
+    if result.tests_passing_before is None and result.tests_passing_after is None and not result.changes:
+        return DisplayCategory.PENDING
+    has_succeeded = any(c.status == ChangeStatus.SUCCEEDED for c in result.changes.values())
+    if has_succeeded:
+        if result.tests_passing_before is True and result.tests_passing_after is not True:
+            return DisplayCategory.REGRESSED
+        return DisplayCategory.FIXED
+    if not result.changes and result.tests_passing_after is True:
+        return DisplayCategory.CLEAN_PASS
+    return DisplayCategory.STUCK
 
 
 class CollectTestsError(MngError, RuntimeError):
@@ -144,7 +169,11 @@ def _build_agent_prompt(
     pytest_flags: tuple[str, ...],
     prompt_suffix: str = "",
 ) -> str:
-    """Build the prompt/initial message for a test-running agent."""
+    """Build the prompt/initial message for a test-running agent.
+
+    Human-sanctioned: prompt is currently specific to mng's E2E tutorial tests.
+    This should be made generic in the future, but is acceptable for now.
+    """
     flags_str = " ".join(pytest_flags)
     run_cmd = f"pytest {test_node_id}"
     if flags_str:
@@ -152,28 +181,71 @@ def _build_agent_prompt(
 
     prompt = f"""Run the test with: {run_cmd}
 
-If the test succeeds, there is nothing more to do (outcome = RUN_SUCCEEDED).
+# If the test fails
 
-If the test fails:
+You can record multiple kinds of changes -- they are not mutually exclusive (one
+entry per kind, not per individual edit):
 
-- If you are certain that the test code itself has issues (including test fixture
-  code), fix the test code itself. Depending on whether the fix was successful,
-  the outcome should be FIX_TEST_SUCCEEDED or FIX_TEST_FAILED.
+- "FIX_TEST": fix the test code (including fixtures).
+- "FIX_IMPL": fix the program being tested.
 
-- If you are certain that the program being tested has issues, fix the program
-  itself. Depending on whether the fix was successful, the outcome should be
-  FIX_IMPL_SUCCEEDED or FIX_IMPL_FAILED.
+Each change has a status: "SUCCEEDED" if the fix worked, "FAILED" if you tried
+but could not complete it, or "BLOCKED" if the issue needs larger intervention
+beyond this task. If you cannot determine what is wrong, report no changes.
 
-- If you are not certain which one is the case, do not try to fix anything. The
-  outcome is FIX_UNCERTAIN.
+# If the test succeeds - or after you fixed a failing test
 
-In all cases, also generate a short summary in **markdown** format, and write the
-result to a JSON file at $MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json,
-with content like:
-{{"outcome": "RUN_SUCCEEDED", "summary": "Test passed on first run."}}
+Consider whether the test can be improved:
 
-Valid outcome values: RUN_SUCCEEDED, FIX_TEST_SUCCEEDED, FIX_TEST_FAILED,
-FIX_IMPL_SUCCEEDED, FIX_IMPL_FAILED, FIX_UNCERTAIN.
+- Are the assertions good enough? Try to test by observing the actual effect of
+  commands, like how a human would do when debugging interactively, by looking at
+  e.g. files, git status, and so on. Avoid having too many specific assertions,
+  because this can make the tests very brittle.
+
+- Are there interesting edge cases worth covering?
+
+- Is the code run in the pytest function close enough to the tutorial block?
+
+If you make improvements, record a change under the key "IMPROVE_TEST". If you
+identify an improvement that needs a larger-scale intervention, use status
+"BLOCKED". If no improvements are needed, leave the changes object empty.
+
+# Inspecting tutorial blocks
+
+Each of those tests are also associated with a tutorial block in
+libs/mng/tutorials/mega_tutorial.sh; we divide the file into blocks by splitting
+around empty lines. You'll find a reproduction of a tutorial block using the API
+e2e.write_tutorial_block. When modifying the test, you should normally keep the
+tutorial block unchanged: they should match exactly with the block in the tutorial
+file (modulo leading whitespaces).
+
+However, try to think if tutorial itself could be wrong or outdated. This should be
+a rare case - often the tutorial block is a bit too concise to be run as-is, and
+that may be intentional.
+
+If you do think that the tutorial block is wrong or outdated, update both the
+tutorial block in the mega_tutorial.sh file and the test code itself, and record
+a change under the key "FIX_TUTORIAL".
+
+# Writing the result
+
+In all cases, write the result to a JSON file at
+$MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json with this schema:
+
+{{"changes": {{"FIX_TEST": {{"status": "SUCCEEDED", "summary_markdown": "Fixed assertion"}}}},
+ "errored": false,
+ "tests_passing_before": false,
+ "tests_passing_after": true,
+ "summary_markdown": "Fixed test assertion and verified it passes."}}
+
+Fields:
+- changes: object keyed by change kind (IMPROVE_TEST, FIX_TEST, FIX_IMPL,
+  FIX_TUTORIAL). Each value has status (SUCCEEDED, FAILED, BLOCKED) and
+  summary_markdown. One entry per kind -- do not duplicate kinds.
+- errored: true only for infrastructure errors that prevented you from working.
+- tests_passing_before: were tests passing before you made any changes?
+- tests_passing_after: are tests passing now, after all your changes?
+- summary_markdown: overall markdown summary of what happened.
 """
     if prompt_suffix:
         prompt += f"\n{prompt_suffix}\n"
@@ -217,6 +289,7 @@ def _build_agent_options(
     agent_name: AgentName,
     branch_name: str,
     config: TmrLaunchConfig,
+    initial_message: str | None = None,
 ) -> CreateAgentOptions:
     """Build CreateAgentOptions for a tmr agent."""
     copy_mode = _copy_mode_for_provider(config.provider_name)
@@ -224,6 +297,7 @@ def _build_agent_options(
     return CreateAgentOptions(
         agent_type=config.agent_type,
         name=agent_name,
+        initial_message=initial_message,
         git=AgentGitOptions(
             copy_mode=copy_mode,
             new_branch_name=branch_name,
@@ -240,37 +314,28 @@ def _create_tmr_agent(
     branch_name: str,
     config: TmrLaunchConfig,
     mng_ctx: MngContext,
-    message: str | None = None,
+    initial_message: str | None = None,
 ) -> CreateAgentResult:
-    """Create an agent on the configured provider and optionally send a message.
+    """Create an agent on the configured provider with an optional initial message.
 
-    If message is provided, it is sent after agent creation. SendMessageError
-    is caught and logged (the signal detection can fail on remote hosts even
-    when the message is actually delivered).
+    The initial_message is passed via CreateAgentOptions so it is delivered
+    during agent creation (more reliable than sending after creation).
     """
-    agent_options = _build_agent_options(agent_name, branch_name, config)
+    agent_options = _build_agent_options(agent_name, branch_name, config, initial_message=initial_message)
 
     source_location = HostLocation(host=config.source_host, path=config.source_dir)
     snapshot = config.snapshot
     build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
-    target_host = NewHostOptions(provider=config.provider_name, name=HostName(str(agent_name)), build=build)
+    is_local = config.provider_name.lower() == LOCAL_PROVIDER_NAME
+    host_name = None if is_local else HostName(str(agent_name))
+    target_host = NewHostOptions(provider=config.provider_name, name=host_name, build=build)
 
-    result = api_create(
+    return api_create(
         source_location=source_location,
         target_host=target_host,
         agent_options=agent_options,
         mng_ctx=mng_ctx,
     )
-
-    if message is not None:
-        try:
-            result.agent.send_message(message)
-        except (SendMessageError, HostError, TimeoutError) as exc:
-            logger.warning(
-                "Failed to confirm message delivery to '{}' (message likely delivered): {}", agent_name, exc
-            )
-
-    return result
 
 
 def launch_test_agent(
@@ -291,7 +356,7 @@ def launch_test_agent(
         branch_name=f"mng-tmr/{agent_name_suffix}-{short_id}",
         config=config,
         mng_ctx=mng_ctx,
-        message=_build_agent_prompt(test_node_id, pytest_flags, prompt_suffix),
+        initial_message=_build_agent_prompt(test_node_id, pytest_flags, prompt_suffix),
     )
 
     return (
@@ -453,7 +518,8 @@ def poll_until_all_done(
                 is_streaming=False,
                 error_behavior=ErrorBehavior.CONTINUE,
             )
-        except (MngError, HostError, ConcurrencyGroupError, OSError) as exc:
+        # Human-sanctioned broad catch: polling must survive transient provider errors
+        except Exception as exc:
             logger.warning("Polling failed (will retry next cycle): {}", exc)
             time.sleep(poll_interval_seconds)
             continue
@@ -520,21 +586,79 @@ def read_agent_result(
     try:
         raw = host.read_text_file(result_path)
         data = json.loads(raw)
+        raw_changes = data.get("changes", {})
+        changes: dict[ChangeKind, Change] = {
+            ChangeKind(kind_str): Change(
+                status=ChangeStatus(entry["status"]),
+                summary_markdown=entry.get("summary_markdown", entry.get("summary", "")),
+            )
+            for kind_str, entry in raw_changes.items()
+        }
         return TestResult(
-            outcome=TestOutcome(data["outcome"]),
-            summary=data.get("summary", ""),
+            changes=changes,
+            errored=data.get("errored", False),
+            tests_passing_before=data.get("tests_passing_before"),
+            tests_passing_after=data.get("tests_passing_after"),
+            summary_markdown=data.get("summary_markdown", ""),
         )
     except HostError as exc:
         logger.warning("Lost connection to agent {} while fetching result file: {}", agent_detail.name, exc)
         return TestResult(
-            outcome=TestOutcome.REMOTE_AGENT_ERROR,
-            summary=f"Connection lost while fetching result file from agent host: {exc}",
+            errored=True,
+            summary_markdown=f"Connection lost while fetching result file from agent host: {exc}",
         )
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         logger.warning("Failed to read result from agent {}: {}", agent_detail.name, exc)
         return TestResult(
-            outcome=TestOutcome.AGENT_ERROR,
-            summary=f"Failed to read agent result: {exc}",
+            errored=True,
+            summary_markdown=f"Failed to read agent result: {exc}",
+        )
+
+
+def pull_test_outputs(
+    agent_detail: AgentDetails,
+    host: OnlineHostInterface,
+    local_host: OnlineHostInterface,
+    destination_dir: Path,
+) -> None:
+    """Pull the .test_output directory from an agent's work_dir to a local directory."""
+    remote_test_output = agent_detail.work_dir / ".test_output"
+    local_dest = destination_dir / str(agent_detail.name)
+    local_dest.mkdir(parents=True, exist_ok=True)
+    try:
+        local_host.copy_directory(
+            source_host=host,
+            source_path=remote_test_output,
+            target_path=local_dest,
+        )
+        logger.info("Pulled .test_output from agent '{}' to {}", agent_detail.name, local_dest)
+    except (MngError, HostError, OSError) as exc:
+        logger.warning("Failed to pull .test_output from agent '{}': {}", agent_detail.name, exc)
+
+
+def read_integrator_result(
+    agent_detail: AgentDetails,
+    host: OnlineHostInterface,
+    branch_name: str | None,
+) -> IntegratorResult:
+    """Read the integrator agent's result.json and build an IntegratorResult."""
+    agent_state_dir = host.host_dir / "agents" / str(agent_detail.id)
+    result_path = agent_state_dir / "plugin" / PLUGIN_NAME / "result.json"
+
+    try:
+        raw = host.read_text_file(result_path)
+        data = json.loads(raw)
+        return IntegratorResult(
+            merged=tuple(data.get("merged", ())),
+            failed=tuple(data.get("failed", ())),
+            branch_name=branch_name,
+            summary_markdown=data.get("summary_markdown", data.get("summary", "")),
+        )
+    except (HostError, OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        logger.warning("Failed to read integrator result: {}", exc)
+        return IntegratorResult(
+            branch_name=branch_name,
+            summary_markdown=f"Failed to read integrator result: {exc}",
         )
 
 
@@ -619,14 +743,14 @@ def _collect_agent_results(
     final_details: dict[str, AgentDetails],
     timed_out_ids: set[str],
     hosts: dict[str, OnlineHostInterface],
-    missing_detail_outcome: TestOutcome,
+    missing_detail_errored: bool,
     missing_detail_summary: str,
 ) -> list[TestMapReduceResult]:
     """Shared iteration over agents to build result list.
 
     Each agent is classified as timed-out, missing (with the caller-specified
-    outcome), or finished (result read from the agent's state directory).
-    The hosts dict maps agent_id strings to their respective hosts.
+    errored flag and summary), or finished (result read from the agent's state
+    directory). The hosts dict maps agent_id strings to their respective hosts.
     """
     results: list[TestMapReduceResult] = []
 
@@ -638,8 +762,8 @@ def _collect_agent_results(
                 TestMapReduceResult(
                     test_node_id=agent_info.test_node_id,
                     agent_name=agent_info.agent_name,
-                    outcome=TestOutcome.TIMED_OUT,
-                    summary="Agent was stopped because the timeout was reached.",
+                    errored=True,
+                    summary_markdown="Agent was stopped because the timeout was reached.",
                 )
             )
             continue
@@ -651,8 +775,8 @@ def _collect_agent_results(
                 TestMapReduceResult(
                     test_node_id=agent_info.test_node_id,
                     agent_name=agent_info.agent_name,
-                    outcome=missing_detail_outcome,
-                    summary=missing_detail_summary,
+                    errored=missing_detail_errored,
+                    summary_markdown=missing_detail_summary,
                 )
             )
             continue
@@ -662,8 +786,11 @@ def _collect_agent_results(
             TestMapReduceResult(
                 test_node_id=agent_info.test_node_id,
                 agent_name=agent_info.agent_name,
-                outcome=test_result.outcome,
-                summary=test_result.summary,
+                changes=test_result.changes,
+                errored=test_result.errored,
+                tests_passing_before=test_result.tests_passing_before,
+                tests_passing_after=test_result.tests_passing_after,
+                summary_markdown=test_result.summary_markdown,
                 branch_name=detail.initial_branch,
             )
         )
@@ -682,26 +809,29 @@ def gather_results(
 ) -> list[TestMapReduceResult]:
     """Gather results from all finished agents, pulling branches where appropriate.
 
-    If base_commit is provided, a local branch is created from that commit before
-    pulling each agent's changes. This is needed for remote agents whose branches
-    don't exist locally.
+    If base_commit is provided (remote providers), a local branch is created from
+    that commit before pulling each agent's changes. For local providers,
+    base_commit should be None and branches are not pulled (they already exist
+    as git worktrees).
     """
     results = _collect_agent_results(
         agents=agents,
         final_details=final_details,
         timed_out_ids=timed_out_ids,
         hosts=hosts,
-        missing_detail_outcome=TestOutcome.AGENT_ERROR,
+        missing_detail_errored=True,
         missing_detail_summary="Agent details not found after polling",
     )
 
-    # Pull branches for successful fixes
-    for result in results:
-        if result.outcome in (TestOutcome.FIX_TEST_SUCCEEDED, TestOutcome.FIX_IMPL_SUCCEEDED):
-            agent_id_str = next(str(info.agent_id) for info in agents if info.test_node_id == result.test_node_id)
-            detail = final_details.get(agent_id_str)
-            if detail is not None:
-                pull_agent_branch(detail, hosts[agent_id_str], source_dir, cg, base_commit=base_commit)
+    # Pull branches from remote agents whose changes should be kept.
+    # For local agents (base_commit is None), branches already exist as worktrees.
+    if base_commit is not None:
+        for result in results:
+            if should_pull_changes(result):
+                agent_id_str = next(str(info.agent_id) for info in agents if info.test_node_id == result.test_node_id)
+                detail = final_details.get(agent_id_str)
+                if detail is not None:
+                    pull_agent_branch(detail, hosts[agent_id_str], source_dir, cg, base_commit=base_commit)
 
     return results
 
@@ -718,7 +848,7 @@ def build_current_results(
         final_details=final_details,
         timed_out_ids=timed_out_ids,
         hosts=hosts,
-        missing_detail_outcome=TestOutcome.PENDING,
+        missing_detail_errored=False,
         missing_detail_summary="Agent is still running...",
     )
 
@@ -726,25 +856,20 @@ def build_current_results(
 def generate_html_report(
     results: list[TestMapReduceResult],
     output_path: Path,
-    integrator_branch: str | None = None,
+    integrator: IntegratorResult | None = None,
 ) -> Path:
     """Generate an HTML report summarizing test-mapreduce results."""
-    counts: dict[TestOutcome, int] = {}
+    counts: dict[DisplayCategory, int] = {}
     for r in results:
-        counts[r.outcome] = counts.get(r.outcome, 0) + 1
+        cat = display_category_of(r)
+        counts[cat] = counts.get(cat, 0) + 1
 
-    summary_parts = [
-        f"{outcome.value}: {count}" for outcome, count in sorted(counts.items(), key=lambda x: x[0].value)
-    ]
+    summary_parts = [f"{cat.value}: {count}" for cat, count in sorted(counts.items(), key=lambda x: x[0].value)]
     summary_text = ", ".join(summary_parts)
 
     bar_html = _build_stacked_bar(counts, len(results))
     tables_html = _build_grouped_tables(results)
-
-    integrator_html = ""
-    if integrator_branch is not None:
-        escaped_branch = html.escape(integrator_branch)
-        integrator_html = f'  <p class="integrator">Integrated branch: <code>{escaped_branch}</code></p>\n'
+    integrator_html = _build_integrator_section(integrator)
 
     css = _html_report_css()
     report_html = f"""<!DOCTYPE html>
@@ -759,8 +884,9 @@ def generate_html_report(
 <body>
   <h1>Test Map-Reduce Report</h1>
   <p class="summary">{len(results)} test(s) -- {summary_text}</p>
-{integrator_html}{bar_html}
+{bar_html}
 {tables_html}
+{integrator_html}
 </body>
 </html>
 """
@@ -770,21 +896,42 @@ def generate_html_report(
     return output_path
 
 
-def _build_stacked_bar(counts: dict[TestOutcome, int], total: int) -> str:
-    """Build an HTML stacked bar showing outcome distribution."""
+def _build_stacked_bar(counts: dict[DisplayCategory, int], total: int) -> str:
+    """Build an HTML stacked bar showing display category distribution."""
     if total == 0:
         return ""
     segments = ""
-    for outcome in _OUTCOME_GROUP_ORDER:
-        count = counts.get(outcome, 0)
+    for cat in _DISPLAY_GROUP_ORDER:
+        count = counts.get(cat, 0)
         if count == 0:
             continue
         pct = count / total * 100
-        color = _OUTCOME_COLORS.get(outcome, "rgb(158, 158, 158)")
-        segments += (
-            f'    <div style="width: {pct:.1f}%; background: {color};" title="{outcome.value}: {count}"></div>\n'
-        )
+        color = _DISPLAY_COLORS.get(cat, "rgb(158, 158, 158)")
+        segments += f'    <div style="width: {pct:.1f}%; background: {color};" title="{cat.value}: {count}"></div>\n'
     return f'  <div class="bar">\n{segments}  </div>'
+
+
+def _build_integrator_section(integrator: IntegratorResult | None) -> str:
+    """Build the HTML section for the integrator agent results."""
+    if integrator is None:
+        return ""
+    section = '  <h2 class="integrator-header">Integrator</h2>\n'
+    if integrator.branch_name is not None:
+        escaped = html.escape(integrator.branch_name)
+        section += f'  <p class="integrator">Integrated branch: <code>{escaped}</code></p>\n'
+    if integrator.merged:
+        section += "  <p>Merged:</p>\n  <ul>\n"
+        for b in integrator.merged:
+            section += f"    <li><code>{html.escape(b)}</code></li>\n"
+        section += "  </ul>\n"
+    if integrator.failed:
+        section += '  <p style="color: rgb(244, 67, 54);">Failed to merge:</p>\n  <ul>\n'
+        for b in integrator.failed:
+            section += f"    <li><code>{html.escape(b)}</code></li>\n"
+        section += "  </ul>\n"
+    if integrator.summary_markdown:
+        section += f'  <div class="md">{_render_markdown(integrator.summary_markdown)}</div>\n'
+    return section
 
 
 def _render_markdown(text: str) -> str:
@@ -793,26 +940,33 @@ def _render_markdown(text: str) -> str:
 
 
 def _build_grouped_tables(results: list[TestMapReduceResult]) -> str:
-    """Build HTML tables grouped by outcome, with RUN_SUCCEEDED last."""
-    grouped: dict[TestOutcome, list[TestMapReduceResult]] = {}
+    """Build HTML tables grouped by display category, with CLEAN_PASS last."""
+    grouped: dict[DisplayCategory, list[TestMapReduceResult]] = {}
     for r in results:
-        grouped.setdefault(r.outcome, []).append(r)
+        cat = display_category_of(r)
+        grouped.setdefault(cat, []).append(r)
 
     sections = ""
-    for outcome in _OUTCOME_GROUP_ORDER:
-        group = grouped.get(outcome)
+    for cat in _DISPLAY_GROUP_ORDER:
+        group = grouped.get(cat)
         if not group:
             continue
-        color = _OUTCOME_COLORS.get(outcome, "rgb(158, 158, 158)")
-        sections += f'  <h2 style="color: {color};">{outcome.value} ({len(group)})</h2>\n'
+        color = _DISPLAY_COLORS.get(cat, "rgb(158, 158, 158)")
+        sections += f'  <h2 style="color: {color};">{cat.value} ({len(group)})</h2>\n'
         sections += "  <table>\n    <thead>\n      <tr>"
-        sections += "<th>Test</th><th>Summary</th><th>Agent</th><th>Branch</th>"
+        sections += "<th>Test</th><th>Changes</th><th>Summary</th><th>Agent</th><th>Branch</th>"
         sections += "</tr>\n    </thead>\n    <tbody>\n"
         for r in group:
             branch_cell = r.branch_name if r.branch_name else "-"
-            summary_html = _render_markdown(r.summary)
+            summary_html = _render_markdown(r.summary_markdown)
+            changes_cell = (
+                ", ".join(f"{kind.value}/{change.status.value}" for kind, change in r.changes.items())
+                if r.changes
+                else "-"
+            )
             sections += f"""      <tr>
         <td>{html.escape(r.test_node_id)}</td>
+        <td>{html.escape(changes_cell)}</td>
         <td class="md">{summary_html}</td>
         <td><code>{html.escape(str(r.agent_name))}</code></td>
         <td><code>{html.escape(branch_cell)}</code></td>
@@ -864,8 +1018,11 @@ def launch_integrator_agent(
 For each branch, run `git merge <branch>` (resolve conflicts if needed).
 After merging all branches, verify that the code still compiles/passes basic checks.
 Write the result to $MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json with:
-{{"outcome": "FIX_IMPL_SUCCEEDED", "summary": "Merged {len(fix_branches)} branches successfully."}}
-If merging fails, use outcome FIX_IMPL_FAILED.
+{{"merged": ["branch1", "branch2"], "failed": ["branch3"], "summary_markdown": "Merged 2 of 3 branches."}}
+
+- merged: list of branch names that were successfully merged
+- failed: list of branch names that could not be merged
+- summary_markdown: overall markdown summary
 """
 
     logger.info("Launching integrator agent '{}' to merge {} branches", agent_name, len(fix_branches))
@@ -874,7 +1031,7 @@ If merging fails, use outcome FIX_IMPL_FAILED.
         branch_name=f"mng-tmr/integrated-{short_id}",
         config=config,
         mng_ctx=mng_ctx,
-        message=prompt,
+        initial_message=prompt,
     )
 
     return (
@@ -908,7 +1065,8 @@ def wait_for_integrator(
                 is_streaming=False,
                 error_behavior=ErrorBehavior.CONTINUE,
             )
-        except (MngError, HostError, ConcurrencyGroupError, OSError) as exc:
+        # Human-sanctioned broad catch: polling must survive transient provider errors
+        except Exception as exc:
             logger.warning("Integrator polling failed (will retry next cycle): {}", exc)
             time.sleep(poll_interval_seconds)
             continue

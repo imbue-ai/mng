@@ -239,9 +239,15 @@ fi
 info "Installing mng..."
 uv tool install mng
 
+MNG_BIN="$(uv tool dir --bin)/mng"
+
 if ! command -v mng &>/dev/null; then
     DEFERRED_WARNINGS="${DEFERRED_WARNINGS}mng was installed but is not on PATH.\nYou may need to add ~/.local/bin to your PATH:\n  export PATH=\"\$HOME/.local/bin:\$PATH\"\n"
 fi
+
+# ── Plugin install wizard ─────────────────────────────────────────────────────
+
+"$MNG_BIN" plugin install-wizard || warn "Plugin install wizard failed. You can run 'mng plugin install-wizard' later."
 
 # ── Shell completion ───────────────────────────────────────────────────────────
 

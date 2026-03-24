@@ -219,6 +219,7 @@ frontend-dist/
 
 # Conversation review artifacts (but keep config)
 .reviews/conversation/
+.reviews/config/verify-conversation.local.json
 
 # Claude Code local settings (session-specific permissions)
 .claude/settings.local.json
@@ -239,8 +240,8 @@ scripts/notify_user.local.sh
 # Test output files (slow tests, coverage summaries)
 .test_output/
 
-# TMR HTML reports
-tmr_reports/
+# TMR output directories (reports + test outputs)
+tmr_*/
 
 # Active session marker file (used to detect interrupted sessions)
 .claude/active
@@ -260,6 +261,7 @@ current.tar.gz
 # Autofix session artifacts (plans, verification markers, issue logs)
 .autofix/plans/
 .autofix/issues/
+.autofix/config/stop-hook.local.json
 
 # Stuck agent tracking (stop hook escape valve)
 .claude/blocked_stop_commits

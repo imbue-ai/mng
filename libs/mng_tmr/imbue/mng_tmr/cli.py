@@ -39,9 +39,12 @@ from imbue.mng_tmr.api import launch_all_test_agents
 from imbue.mng_tmr.api import launch_integrator_agent
 from imbue.mng_tmr.api import poll_until_all_done
 from imbue.mng_tmr.api import pull_agent_branch
+from imbue.mng_tmr.api import pull_test_outputs
+from imbue.mng_tmr.api import read_integrator_result
+from imbue.mng_tmr.api import should_pull_changes
 from imbue.mng_tmr.api import wait_for_integrator
+from imbue.mng_tmr.data_types import IntegratorResult
 from imbue.mng_tmr.data_types import TestMapReduceResult
-from imbue.mng_tmr.data_types import TestOutcome
 from imbue.mng_tmr.data_types import TmrLaunchConfig
 
 _DEFAULT_TIMEOUT_SECONDS = 3600.0
@@ -131,13 +134,9 @@ def _run_integrator_phase(
     mng_ctx: MngContext,
     opts: TmrCliOptions,
     base_commit: str | None = None,
-) -> str | None:
+) -> IntegratorResult | None:
     """Launch an integrator agent to merge fix branches, if any exist."""
-    fix_branches = [
-        r.branch_name
-        for r in results
-        if r.outcome in (TestOutcome.FIX_TEST_SUCCEEDED, TestOutcome.FIX_IMPL_SUCCEEDED) and r.branch_name is not None
-    ]
+    fix_branches = [r.branch_name for r in results if should_pull_changes(r) and r.branch_name is not None]
     if not fix_branches:
         return None
 
@@ -156,6 +155,7 @@ def _run_integrator_phase(
         deadline=integrator_deadline,
     )
 
+    integrator_result: IntegratorResult | None = None
     if integrator_branch is not None:
         is_remote = config.provider_name.lower() != LOCAL_PROVIDER_NAME
         list_result = list_agents(
@@ -165,31 +165,25 @@ def _run_integrator_phase(
         )
         for agent_detail in list_result.agents:
             if str(agent_detail.id) == str(integrator.agent_id):
-                pull_agent_branch(
-                    agent_detail,
-                    integrator_host,
-                    config.source_dir,
-                    mng_ctx.concurrency_group,
-                    base_commit=base_commit if is_remote else None,
-                )
+                integrator_result = read_integrator_result(agent_detail, integrator_host, integrator_branch)
+                # Only pull branches from remote providers; local worktree branches already exist
+                if is_remote:
+                    pull_agent_branch(
+                        agent_detail,
+                        integrator_host,
+                        config.source_dir,
+                        mng_ctx.concurrency_group,
+                        base_commit=base_commit,
+                    )
                 break
 
-    return integrator_branch
-
-
-def _emit_summary(results: list[TestMapReduceResult], output_opts: OutputOptions) -> None:
-    """Print per-test outcome summary in human mode."""
-    if output_opts.output_format != OutputFormat.HUMAN:
-        return
-    for r in results:
-        branch_info = f" -> {r.branch_name}" if r.branch_name else ""
-        write_human_line(
-            "  {} [{}] {}{}",
-            r.outcome.value,
-            r.agent_name,
-            r.summary,
-            branch_info,
+    if integrator_result is None:
+        integrator_result = IntegratorResult(
+            branch_name=integrator_branch,
+            summary_markdown="Integrator timed out or could not be reached",
         )
+
+    return integrator_result
 
 
 @click.command("tmr", cls=_TmrCommand, context_settings={"ignore_unknown_options": True})
@@ -277,7 +271,7 @@ def _emit_summary(results: list[TestMapReduceResult], output_opts: OutputOptions
     "--output-html",
     default=None,
     type=click.Path(),
-    help="Path for the HTML report [default: tmr_reports/tmr-report-<timestamp>.html]",
+    help="Path for the HTML report [default: tmr_<timestamp>/index.html]",
 )
 @click.option(
     "--source",
@@ -339,12 +333,15 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
     )
     _emit_agents_launched(len(agent_infos), output_opts)
 
-    # Step 5: Compute html_path before polling
+    # Step 5: Compute output directory and html_path before polling
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     if opts.output_html is not None:
         html_path = Path(opts.output_html)
+        output_dir = html_path.parent
     else:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        html_path = Path("tmr_reports") / f"tmr-report-{timestamp}.html"
+        output_dir = Path(f"tmr_{timestamp}")
+        html_path = output_dir / "index.html"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Step 6: Write initial report (all PENDING)
     initial_results = build_current_results(agent_infos, {}, set(), agent_hosts)
@@ -374,10 +371,17 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         base_commit=base_commit if is_remote_provider else None,
     )
 
-    # Step 9: Write report with final results
+    # Step 9: Pull .test_output from each finished agent
+    for agent_info in agent_infos:
+        agent_id_str = str(agent_info.agent_id)
+        detail = final_details.get(agent_id_str)
+        if detail is not None and agent_id_str in agent_hosts:
+            pull_test_outputs(detail, agent_hosts[agent_id_str], source_host, output_dir)
+
+    # Step 10: Write report with final results
     generate_html_report(results, html_path)
 
-    # Step 10: Build integrator config (defaults to local provider) and integrate
+    # Step 11: Build integrator config (defaults to local provider) and integrate
     integrator_config = TmrLaunchConfig(
         source_dir=source_dir,
         source_host=source_host,
@@ -386,10 +390,9 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         env_options=env_options,
         label_options=label_options,
     )
-    integrator_branch = _run_integrator_phase(results, integrator_config, mng_ctx, opts, base_commit=base_commit)
-    generate_html_report(results, html_path, integrator_branch=integrator_branch)
+    integrator_result = _run_integrator_phase(results, integrator_config, mng_ctx, opts, base_commit=base_commit)
+    generate_html_report(results, html_path, integrator=integrator_result)
     _emit_report_path(html_path, output_opts)
-    _emit_summary(results, output_opts)
 
 
 CommandHelpMetadata(
@@ -425,7 +428,8 @@ Use --env to pass environment variables and --label to tag all agents.
 Use --prompt-suffix to append custom instructions to the agent prompt.
 
 Each agent writes its result to $MNG_AGENT_STATE_DIR/plugin/test-map-reduce/result.json
-with an outcome enum and a markdown summary.""",
+with a structured JSON containing: changes (list of kind/status/summary), errored flag,
+tests_passing_before/after booleans, and a markdown summary.""",
     examples=(
         ("Run all tests in current directory", "mng tmr"),
         ("Run tests in a specific file", "mng tmr tests/test_foo.py"),
