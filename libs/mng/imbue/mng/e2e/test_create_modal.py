@@ -156,9 +156,10 @@ def test_create_address_syntax_existing_host(e2e: E2eSession) -> None:
         comment="you can specify which existing host to run on using the address syntax",
     )
     expect(result).to_fail()
-    # The error should mention the host not being found
+    # The error should mention that the specific host was not found
     combined = result.stdout + result.stderr
-    expect(combined).to_match(r"(?i)host.*not found|no.*host|unknown.*host|could not find.*host|not.*registered")
+    expect(combined).to_contain("Could not find host")
+    expect(combined).to_contain("my-dev-box")
 
 
 @pytest.mark.release
