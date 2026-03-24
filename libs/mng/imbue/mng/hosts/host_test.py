@@ -2221,7 +2221,6 @@ def test_apply_work_dir_extra_paths_share_same_host_creates_symlink(
 def test_apply_work_dir_extra_paths_share_same_host_source_missing_warns(
     local_host: Host,
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Share mode should warn and skip when source path does not exist."""
     source_dir = tmp_path / "source"
