@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 from typing import Any
 from typing import ClassVar
 from typing import Final
@@ -24,7 +22,6 @@ from imbue.mng_claude.claude_config import build_readiness_hooks_config
 from imbue.mng_claude.claude_config import merge_hooks_config
 from imbue.mng_claude.plugin import ClaudeAgent
 from imbue.mng_claude.plugin import ClaudeAgentConfig
-from imbue.mng_claude.plugin import build_claude_json_for_agent
 from imbue.mng_claude_mind.data_types import ClaudeMindSettings
 from imbue.mng_claude_mind.provisioning import build_stop_hook_config
 from imbue.mng_claude_mind.provisioning import create_mind_symlinks
@@ -278,21 +275,6 @@ class ClaudeMindAgent(ClaudeAgent):
         data = super()._build_per_agent_claude_json(options, config)
         # FOLLOWUP: we can remove this eventually (once the agents are started inside VMs, it will be set properly anyway)
         data["bypassPermissionsModeAccepted"] = True
-        # approve the API key so that the agent doesnt get blocked
-        user_claude_json_data = build_claude_json_for_agent(True, Path("."), None)
-        env_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        conf_key = user_claude_json_data.get("primaryApiKey", "")
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if env_key or conf_key:
-            approved_section = data.setdefault("customApiKeyResponses", {})
-            approved_list = approved_section.get("approved", [])
-            if api_key[-20:] not in approved_list:
-                approved_list.append(api_key[-20:])
-            if conf_key[-20:] not in approved_list:
-                approved_list.append(conf_key[-20:])
-            approved_section["approved"] = approved_list
-            approved_section["rejected"] = []
-
         return data
 
 

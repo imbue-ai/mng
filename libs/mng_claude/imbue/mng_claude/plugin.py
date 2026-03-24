@@ -1230,6 +1230,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
     ) -> None:
         """Set up the per-agent config dir on a local host."""
         claude_json_data = self._build_per_agent_claude_json(options, config)
+        approve_api_key_for_claude(claude_json_data)
         host.write_text_file(config_dir / ".claude.json", json.dumps(claude_json_data, indent=2) + "\n")
 
         if config.convert_macos_credentials and is_macos():
@@ -1277,6 +1278,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
         if realpath_result.success and realpath_result.stdout.strip():
             resolved_work_dir = Path(realpath_result.stdout.strip())
         claude_json_data = build_claude_json_for_agent(config.sync_claude_json, resolved_work_dir, config.version)
+        approve_api_key_for_claude(claude_json_data)
         file_transfers.append(
             (config_dir / ".claude.json", (json.dumps(claude_json_data, indent=2) + "\n").encode("utf-8"))
         )
@@ -1714,19 +1716,7 @@ def get_files_for_deploy(
     # it's a little silly to pass in repo_root here, but whatever, it will also get reset when we're provisioning
     claude_json_data = build_claude_json_for_agent(False, repo_root, None, current_time=FIXED_TIME)
     # also inject our API key here, since deployed versions need it
-    user_claude_json_data = build_claude_json_for_agent(True, Path("."), None)
-    env_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    conf_key = user_claude_json_data.get("primaryApiKey", "")
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if env_key or conf_key:
-        approved_section = user_claude_json_data.setdefault("customApiKeyResponses", {})
-        approved_list = approved_section.get("approved", [])
-        if api_key[-20:] not in approved_list:
-            approved_list.append(api_key[-20:])
-        if conf_key[-20:] not in approved_list:
-            approved_list.append(conf_key[-20:])
-        approved_section["approved"] = approved_list
-        approved_section["rejected"] = []
+    approve_api_key_for_claude(claude_json_data)
     files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
 
     if include_user_settings:
@@ -1770,3 +1760,19 @@ def modify_env_vars_for_deploy(
             )
         env_vars["ANTHROPIC_API_KEY"] = token
     env_vars["IS_SANDBOX"] = "1"
+
+
+def approve_api_key_for_claude(data: dict[str, Any]):
+    # approve the API key so that the agent doesnt get blocked
+    user_claude_json_data = build_claude_json_for_agent(True, Path("."), None)
+    conf_key = user_claude_json_data.get("primaryApiKey", "")
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if api_key or conf_key:
+        approved_section = data.setdefault("customApiKeyResponses", {})
+        approved_list = approved_section.get("approved", [])
+        if api_key[-20:] not in approved_list:
+            approved_list.append(api_key[-20:])
+        if conf_key[-20:] not in approved_list:
+            approved_list.append(conf_key[-20:])
+        approved_section["approved"] = approved_list
+        approved_section["rejected"] = []
