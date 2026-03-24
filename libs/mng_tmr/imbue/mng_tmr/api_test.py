@@ -31,6 +31,7 @@ from imbue.mng_tmr.api import build_current_results
 from imbue.mng_tmr.api import collect_tests
 from imbue.mng_tmr.api import read_agent_result
 from imbue.mng_tmr.api import read_integrator_result
+from imbue.mng_tmr.api import should_auto_merge
 from imbue.mng_tmr.api import should_pull_changes
 from imbue.mng_tmr.data_types import Change
 from imbue.mng_tmr.data_types import ChangeKind
@@ -269,6 +270,40 @@ def test_should_pull_improvement_tests_still_passing() -> None:
 def test_should_not_pull_improvement_that_breaks_tests() -> None:
     improved = {ChangeKind.IMPROVE_TEST: Change(status=ChangeStatus.SUCCEEDED, summary_markdown="improved")}
     assert should_pull_changes(make_test_result(changes=improved, before=True, after=False)) is False
+
+
+# --- should_auto_merge tests ---
+
+
+def test_should_auto_merge_test_fix() -> None:
+    assert should_auto_merge(make_test_result(changes=SUCCEEDED_FIX, before=False, after=True)) is True
+
+
+def test_should_auto_merge_improvement() -> None:
+    improved = {ChangeKind.IMPROVE_TEST: Change(status=ChangeStatus.SUCCEEDED, summary_markdown="improved")}
+    assert should_auto_merge(make_test_result(changes=improved, before=True, after=True)) is True
+
+
+def test_should_auto_merge_tutorial_fix() -> None:
+    tutorial = {ChangeKind.FIX_TUTORIAL: Change(status=ChangeStatus.SUCCEEDED, summary_markdown="fixed tutorial")}
+    assert should_auto_merge(make_test_result(changes=tutorial, before=True, after=True)) is True
+
+
+def test_should_not_auto_merge_impl_fix() -> None:
+    impl = {ChangeKind.FIX_IMPL: Change(status=ChangeStatus.SUCCEEDED, summary_markdown="fixed impl")}
+    assert should_auto_merge(make_test_result(changes=impl, before=False, after=True)) is False
+
+
+def test_should_not_auto_merge_mixed_impl_and_test() -> None:
+    mixed = {
+        ChangeKind.FIX_TEST: Change(status=ChangeStatus.SUCCEEDED, summary_markdown="fixed test"),
+        ChangeKind.FIX_IMPL: Change(status=ChangeStatus.SUCCEEDED, summary_markdown="fixed impl"),
+    }
+    assert should_auto_merge(make_test_result(changes=mixed, before=False, after=True)) is False
+
+
+def test_should_not_auto_merge_when_not_pullable() -> None:
+    assert should_auto_merge(make_test_result(changes=SUCCEEDED_FIX, errored=True, before=False, after=True)) is False
 
 
 def test_build_current_results_pending_agents() -> None:

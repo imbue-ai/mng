@@ -85,6 +85,21 @@ def _try_list_agents(mng_ctx: MngContext) -> ListResult | None:
         return None
 
 
+_AUTO_MERGE_KINDS = frozenset({ChangeKind.FIX_TEST, ChangeKind.IMPROVE_TEST, ChangeKind.FIX_TUTORIAL})
+
+
+def should_auto_merge(result: TestMapReduceResult) -> bool:
+    """Determine whether an agent's changes can be auto-merged by the integrator.
+
+    Auto-merge when the result is pullable AND all changes are limited to
+    test/doc/tutorial fixes (no implementation fixes). Results with FIX_IMPL
+    are left unmerged for manual review.
+    """
+    if not should_pull_changes(result):
+        return False
+    return all(kind in _AUTO_MERGE_KINDS for kind in result.changes)
+
+
 def should_pull_changes(result: TestMapReduceResult) -> bool:
     """Determine whether an agent's changes should be pulled.
 
