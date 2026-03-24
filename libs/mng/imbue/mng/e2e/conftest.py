@@ -250,6 +250,13 @@ def e2e(
     env["MNG_TEST_ASCIINEMA_DIR"] = str(test_output_dir)
     env.pop("TMUX", None)
 
+    # Transform the inherited prefix from mng_{uuid}- to mng_test-{uuid}-
+    # so that Modal environment names (which are {prefix}{user_id}) pass the
+    # mng_test- guard in the Modal backend. This only affects subprocess
+    # commands; the in-process prefix remains unchanged for tmux cleanup.
+    inherited_prefix = env.get("MNG_PREFIX", "mng_")
+    env["MNG_PREFIX"] = inherited_prefix.replace("mng_", "mng_test-", 1)
+
     # Add the e2e bin directory to PATH so the connect script is available
     env["PATH"] = f"{_BIN_DIR}:{env.get('PATH', '')}"
 
@@ -263,6 +270,14 @@ def e2e(
         "[commands.start]\n"
         'connect_command = "mng-e2e-connect"\n'
     )
+
+    # Ensure .claude/settings.local.json is gitignored. Remote providers
+    # (Modal, Docker) need to write Claude hooks to this file, and the
+    # gitignore check fails if it would appear as an unstaged change.
+    gitignore_path = temp_git_repo / ".gitignore"
+    if not gitignore_path.exists():
+        gitignore_path.write_text(".claude/settings.local.json\n")
+        run_command("git add .gitignore && git commit -m 'Add .gitignore'", env=env, cwd=temp_git_repo, timeout=10.0)
 
     session = E2eSession.create(env=env, cwd=temp_git_repo, output_dir=test_output_dir)
 
