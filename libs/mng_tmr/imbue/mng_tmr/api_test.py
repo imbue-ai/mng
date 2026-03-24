@@ -37,9 +37,12 @@ from imbue.mng_tmr.data_types import ChangeKind
 from imbue.mng_tmr.data_types import ChangeStatus
 from imbue.mng_tmr.data_types import DisplayCategory
 from imbue.mng_tmr.data_types import TestAgentInfo
-from imbue.mng_tmr.data_types import TestMapReduceResult
 from imbue.mng_tmr.data_types import TmrLaunchConfig
 from imbue.mng_tmr.report import display_category_of
+from imbue.mng_tmr.testing import BLOCKED_FIX
+from imbue.mng_tmr.testing import FAILED_FIX
+from imbue.mng_tmr.testing import SUCCEEDED_FIX
+from imbue.mng_tmr.testing import make_test_result
 
 
 def test_short_random_id_length() -> None:
@@ -227,66 +230,45 @@ def test_collect_tests_bad_file_raises(tmp_path: Path, cg: ConcurrencyGroup) -> 
         collect_tests(pytest_args=("non_existent_test_file.py",), source_dir=tmp_path, cg=cg)
 
 
-# --- Helpers for should_pull_changes / display_category_of tests ---
-
-_SUCCEEDED_FIX = {ChangeKind.FIX_TEST: Change(status=ChangeStatus.SUCCEEDED, summary_markdown="fixed")}
-_FAILED_FIX = {ChangeKind.FIX_TEST: Change(status=ChangeStatus.FAILED, summary_markdown="failed")}
-_BLOCKED_FIX = {ChangeKind.FIX_IMPL: Change(status=ChangeStatus.BLOCKED, summary_markdown="blocked")}
-
-
-def _result(
-    changes: dict[ChangeKind, Change] | None = None,
-    errored: bool = False,
-    before: bool | None = None,
-    after: bool | None = None,
-) -> TestMapReduceResult:
-    """Build a minimal TestMapReduceResult for testing pull/display logic."""
-    return TestMapReduceResult(
-        test_node_id="t::t",
-        agent_name=AgentName("a"),
-        changes=changes if changes is not None else {},
-        errored=errored,
-        tests_passing_before=before,
-        tests_passing_after=after,
-    )
-
-
 # --- should_pull_changes tests ---
+# Uses shared helpers from conftest: make_test_result, SUCCEEDED_FIX, FAILED_FIX, BLOCKED_FIX
 
 
 def test_should_pull_succeeded_fix_with_tests_passing() -> None:
-    assert should_pull_changes(_result(changes=_SUCCEEDED_FIX, before=False, after=True)) is True
+    assert should_pull_changes(make_test_result(changes=SUCCEEDED_FIX, before=False, after=True)) is True
 
 
 def test_should_pull_succeeded_fix_tests_were_failing_still_failing() -> None:
-    assert should_pull_changes(_result(changes=_SUCCEEDED_FIX, before=False, after=False)) is True
+    assert should_pull_changes(make_test_result(changes=SUCCEEDED_FIX, before=False, after=False)) is True
 
 
 def test_should_not_pull_when_errored() -> None:
-    assert should_pull_changes(_result(changes=_SUCCEEDED_FIX, errored=True, before=False, after=True)) is False
+    assert (
+        should_pull_changes(make_test_result(changes=SUCCEEDED_FIX, errored=True, before=False, after=True)) is False
+    )
 
 
 def test_should_not_pull_when_no_succeeded_changes() -> None:
-    assert should_pull_changes(_result(changes=_FAILED_FIX, before=False, after=False)) is False
-    assert should_pull_changes(_result(changes=_BLOCKED_FIX, before=False, after=False)) is False
+    assert should_pull_changes(make_test_result(changes=FAILED_FIX, before=False, after=False)) is False
+    assert should_pull_changes(make_test_result(changes=BLOCKED_FIX, before=False, after=False)) is False
 
 
 def test_should_not_pull_when_no_changes() -> None:
-    assert should_pull_changes(_result(before=True, after=True)) is False
+    assert should_pull_changes(make_test_result(before=True, after=True)) is False
 
 
 def test_should_not_pull_when_regression() -> None:
-    assert should_pull_changes(_result(changes=_SUCCEEDED_FIX, before=True, after=False)) is False
+    assert should_pull_changes(make_test_result(changes=SUCCEEDED_FIX, before=True, after=False)) is False
 
 
 def test_should_pull_improvement_tests_still_passing() -> None:
     improved = {ChangeKind.IMPROVE_TEST: Change(status=ChangeStatus.SUCCEEDED, summary_markdown="improved")}
-    assert should_pull_changes(_result(changes=improved, before=True, after=True)) is True
+    assert should_pull_changes(make_test_result(changes=improved, before=True, after=True)) is True
 
 
 def test_should_not_pull_improvement_that_breaks_tests() -> None:
     improved = {ChangeKind.IMPROVE_TEST: Change(status=ChangeStatus.SUCCEEDED, summary_markdown="improved")}
-    assert should_pull_changes(_result(changes=improved, before=True, after=False)) is False
+    assert should_pull_changes(make_test_result(changes=improved, before=True, after=False)) is False
 
 
 def test_build_current_results_pending_agents() -> None:

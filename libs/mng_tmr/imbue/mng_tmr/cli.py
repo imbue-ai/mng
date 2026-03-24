@@ -347,6 +347,8 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
     use_batched = opts.max_agents > 0 and opts.max_agents < len(test_node_ids)
 
     if use_batched:
+        if opts.use_snapshot:
+            write_human_line("WARNING: --use-snapshot is not supported with --max-agents and will be ignored")
         agent_infos: list[TestAgentInfo] = []
         agent_hosts: dict[str, OnlineHostInterface] = {}
         remaining_node_ids = test_node_ids
@@ -362,6 +364,7 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
             max_parallel=opts.max_parallel,
             launch_delay_seconds=opts.launch_delay,
         )
+        _emit_agents_launched(len(agent_infos), output_opts)
         remaining_node_ids = []
 
     final_details, timed_out_ids = launch_and_poll_agents(
@@ -378,7 +381,8 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         all_hosts=agent_hosts,
     )
 
-    _emit_agents_launched(len(agent_infos), output_opts)
+    if use_batched:
+        _emit_agents_launched(len(agent_infos), output_opts)
 
     # Step 8: Gather final results (read result.json, pull branches for fixes)
     # Only pass base_commit for remote providers -- local worktree branches already exist

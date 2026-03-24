@@ -465,7 +465,7 @@ def _launch_agents_up_to_limit(
     Mutates remaining_tests (pops from front), pending_ids, all_agents,
     all_hosts, and agent_id_to_info in place.
     """
-    while remaining_tests and len(pending_ids) < max_agents:
+    while remaining_tests and (max_agents <= 0 or len(pending_ids) < max_agents):
         test_node_id = remaining_tests.pop(0)
         info, host = launch_test_agent(test_node_id, config, mng_ctx, pytest_flags, prompt_suffix)
         all_agents.append(info)
