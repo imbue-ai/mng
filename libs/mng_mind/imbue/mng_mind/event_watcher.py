@@ -630,12 +630,7 @@ class _IdleWaitTracker:
         delivered to the agent yet. Call maybe_start_after_delivery()
         once delivery is confirmed to start the next wait.
         """
-        self._idle_since = None
-        self._awaiting_delivery = True
-        if self._process is not None:
-            _terminate_process_gracefully(self._process)
-            self._process = None
-        logger.debug("Reset idle state after real event, awaiting delivery")
+        self._reset_idle_state("Reset idle state after real event, awaiting delivery")
 
     def notify_idle_event_sent(self) -> None:
         """Clear idle state after sending an idle event to the agent.
@@ -644,12 +639,21 @@ class _IdleWaitTracker:
         The wait process is killed and a new one will be started after
         the idle event is delivered (via maybe_start_after_delivery).
         """
+        self._reset_idle_state("Idle event sent, awaiting delivery before restarting wait")
+
+    def _reset_idle_state(self, log_message: str) -> None:
+        """Clear idle tracking and prepare to restart after delivery.
+
+        Shared by on_real_event() and notify_idle_event_sent(): both
+        need to mark the agent as no longer idle and wait for delivery
+        confirmation before starting a new 'mng wait'.
+        """
         self._idle_since = None
         self._awaiting_delivery = True
         if self._process is not None:
             _terminate_process_gracefully(self._process)
             self._process = None
-        logger.debug("Idle event sent, awaiting delivery before restarting wait")
+        logger.debug(log_message)
 
     def maybe_start_after_delivery(
         self,
