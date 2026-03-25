@@ -8,6 +8,7 @@ Callers can poll creation status via get_creation_info() or stream logs
 via get_log_queue().
 """
 
+import os.path
 import queue
 import shutil
 import threading
@@ -223,6 +224,8 @@ def run_mng_create(
             if shared_dir is None:
                 raise MngCommandError("shared_dir is required for LOCAL launch mode")
             shared_dir.mkdir(parents=True, exist_ok=True)
+            remote_data_dir = os.path.expanduser(f"~/.minds/data/{agent_id}")
+            Path(remote_data_dir).mkdir(parents=True, exist_ok=True)
             mng_command.extend(
                 [
                     "--provider",
@@ -232,6 +235,8 @@ def run_mng_create(
                     str(mind_dir),
                     "-s",
                     "-v={}:{}".format(shared_dir, _CONTAINER_SHARED_MOUNT_PATH),
+                    "-s",
+                    "-v={}:{}".format(remote_data_dir, "/data/remote"),
                 ]
             )
             # If the source directory contains a Dockerfile, use it for the build
