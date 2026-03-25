@@ -1,0 +1,1 @@
+../../../scripts/export_transcript_paths.sh

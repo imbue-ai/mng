@@ -1,0 +1,1 @@
+../../../.claude/agents/validate-diff.md

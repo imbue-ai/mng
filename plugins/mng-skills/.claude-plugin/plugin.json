@@ -1,0 +1,10 @@
+{
+  "name": "mng-skills",
+  "version": "0.1.0",
+  "description": "Code review, architecture verification, conversation analysis, and development workflow tools for mng users",
+  "author": {
+    "name": "Imbue"
+  },
+  "repository": "https://github.com/imbue-ai/mng",
+  "keywords": ["code-review", "architecture", "autofix", "agents", "mng"]
+}

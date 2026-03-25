@@ -1,0 +1,16 @@
+{
+  "name": "mng-marketplace",
+  "owner": {
+    "name": "Imbue"
+  },
+  "metadata": {
+    "description": "Code review, architecture verification, and development workflow tools for mng users"
+  },
+  "plugins": [
+    {
+      "name": "mng-skills",
+      "source": "./plugins/mng-skills",
+      "description": "Code review, architecture verification, conversation analysis, and development workflow tools for mng users"
+    }
+  ]
+}

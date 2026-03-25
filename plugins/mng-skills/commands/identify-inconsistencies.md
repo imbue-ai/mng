@@ -1,0 +1,1 @@
+../../../.claude/commands/identify-inconsistencies.md

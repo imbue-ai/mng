@@ -1,0 +1,1 @@
+../../../.claude/commands/reviewer-autofix-ignore-minor-issues.md
