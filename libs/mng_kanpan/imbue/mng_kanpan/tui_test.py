@@ -154,8 +154,7 @@ def _make_state(
 ) -> _KanpanState:
     footer_left_text = Text("  Loading...")
     footer_left_attr = AttrMap(footer_left_text, "footer")
-    footer_marks = Text("U: unmark all  ")
-    footer_actions = Text("r: refresh  q: quit  ")
+    footer_right = Text("r: refresh  q: quit")
     frame = SimpleNamespace(body=None)
     mng_ctx = SimpleNamespace(config=SimpleNamespace(plugins={}))
     return _KanpanState.model_construct(
@@ -164,8 +163,7 @@ def _make_state(
         frame=frame,
         footer_left_text=footer_left_text,
         footer_left_attr=footer_left_attr,
-        footer_marks=footer_marks,
-        footer_actions=footer_actions,
+        footer_right=footer_right,
         commands=commands or {},
         spinner_index=0,
         refresh_future=None,
@@ -1196,8 +1194,7 @@ def _make_debounce_state(**overrides: Any) -> _KanpanState:
         "frame": SimpleNamespace(body=None),
         "footer_left_text": SimpleNamespace(set_text=lambda text: None),
         "footer_left_attr": SimpleNamespace(set_attr_map=lambda m: None),
-        "footer_marks": SimpleNamespace(set_text=lambda text: None),
-        "footer_actions": SimpleNamespace(set_text=lambda text: None),
+        "footer_right": SimpleNamespace(set_text=lambda text: None),
     }
     defaults.update(overrides)
     return _KanpanState.model_construct(**defaults)
