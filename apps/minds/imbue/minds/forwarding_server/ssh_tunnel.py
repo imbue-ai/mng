@@ -19,7 +19,7 @@ _BUFFER_SIZE: Final[int] = 65536
 
 _SELECT_TIMEOUT_SECONDS: Final[float] = 1.0
 
-_ACCEPT_TIMEOUT_SECONDS: Final[float] = 1.0
+_ACCEPT_TIMEOUT_SECONDS: Final[float] = 0.2
 
 _SOCKET_POLL_SECONDS: Final[float] = 0.01
 
