@@ -158,10 +158,10 @@ When creating agents with `--worktree` or `--copy-source`, certain files outside
 # .mng/settings.toml
 
 [work_dir_extra_paths]
-".mng/settings.local.toml" = "share"
-".venv" = "copy"
-"node_modules" = "share"
-".test_output" = "copy"
+".mng/settings.local.toml" = "SHARE"
+".venv" = "COPY"
+"node_modules" = "SHARE"
+".test_output" = "COPY"
 ```
 
 **Modes:**
@@ -176,7 +176,7 @@ When creating agents with `--worktree` or `--copy-source`, certain files outside
 
 **Behavior details:**
 
-- Paths are relative to the project root. Absolute paths and `..` components are rejected.
+- Paths are relative to the project root. Absolute paths and paths that escape the project root are rejected.
 - If a source path does not exist, it is skipped with a warning.
 - Symlinks are idempotent: if the correct symlink already exists, it is left in place.
 - If a non-symlink file or directory already exists at the target location when `"share"` mode would create a symlink, an error is raised.

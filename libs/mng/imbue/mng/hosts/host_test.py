@@ -2293,14 +2293,14 @@ def test_apply_work_dir_extra_paths_rejects_absolute_path(
         )
 
 
-def test_apply_work_dir_extra_paths_rejects_dotdot_traversal(
+def test_apply_work_dir_extra_paths_rejects_path_escaping_root(
     local_host: Host,
     source_and_work_dirs: tuple[Path, Path],
 ) -> None:
-    """Paths with '..' components should be rejected."""
+    """Paths that escape the project root should be rejected."""
     source_dir, work_dir = source_and_work_dirs
 
-    with pytest.raises(UserInputError, match="'\\.\\.'"):
+    with pytest.raises(UserInputError, match="escapes project root"):
         local_host._apply_work_dir_extra_paths(
             local_host, source_dir, work_dir, {"../escape": WorkDirExtraPathMode.COPY}
         )

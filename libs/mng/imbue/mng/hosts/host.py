@@ -1506,10 +1506,10 @@ class Host(BaseHost, OnlineHostInterface):
             rel_path = Path(rel_path_str)
             if rel_path.is_absolute():
                 raise UserInputError(f"work_dir_extra_paths: absolute paths are not allowed: {rel_path_str}")
-            if ".." in rel_path.parts:
-                raise UserInputError(f"work_dir_extra_paths: '..' path components are not allowed: {rel_path_str}")
 
-            source_abs = source_path / rel_path
+            source_abs = (source_path / rel_path).resolve()
+            if not source_abs.is_relative_to(source_path.resolve()):
+                raise UserInputError(f"work_dir_extra_paths: path escapes project root: {rel_path_str}")
             # Check source exists
             if source_host.is_local:
                 source_exists = source_abs.exists() or source_abs.is_symlink()
