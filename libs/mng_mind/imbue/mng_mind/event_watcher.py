@@ -849,21 +849,6 @@ def _make_synthetic_event_line(
     return json.dumps(event, separators=(",", ":"))
 
 
-def _cumulative_idle_delay_minutes(schedule: tuple[int, ...], event_index: int) -> int:
-    """Calculate the cumulative delay in minutes for the nth idle event (0-indexed).
-
-    For schedule [1, 10, 60] and event_index=2, returns 1+10+60=71.
-    For event_index >= len(schedule), the last value repeats.
-    """
-    total = 0
-    for i in range(event_index + 1):
-        if i < len(schedule):
-            total += schedule[i]
-        else:
-            total += schedule[-1]
-    return total
-
-
 def _per_event_idle_delay_minutes(schedule: tuple[int, ...], event_index: int) -> int:
     """Return the delay in minutes before sending the event_index-th idle event.
 

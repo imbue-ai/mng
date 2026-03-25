@@ -44,7 +44,6 @@ from imbue.mng_mind.event_watcher import _TokenBucket
 from imbue.mng_mind.event_watcher import _apply_event_batch_filter
 from imbue.mng_mind.event_watcher import _apply_special_event_handling
 from imbue.mng_mind.event_watcher import _compute_backoff_seconds
-from imbue.mng_mind.event_watcher import _cumulative_idle_delay_minutes
 from imbue.mng_mind.event_watcher import _deliver_batch
 from imbue.mng_mind.event_watcher import _filter_catchup_events
 from imbue.mng_mind.event_watcher import _filter_ignored_sources
@@ -1936,32 +1935,6 @@ def test_make_synthetic_event_line_includes_extra_fields() -> None:
     line = _make_synthetic_event_line("idle", "mind/idle", {"minutes_since_last_event": 5.0})
     parsed = json.loads(line)
     assert parsed["minutes_since_last_event"] == 5.0
-
-
-# -- _cumulative_idle_delay_minutes tests --
-
-
-def test_cumulative_idle_delay_first_event() -> None:
-    assert _cumulative_idle_delay_minutes((1, 10, 60), 0) == 1
-
-
-def test_cumulative_idle_delay_second_event() -> None:
-    assert _cumulative_idle_delay_minutes((1, 10, 60), 1) == 11
-
-
-def test_cumulative_idle_delay_third_event() -> None:
-    assert _cumulative_idle_delay_minutes((1, 10, 60), 2) == 71
-
-
-def test_cumulative_idle_delay_repeats_last_value() -> None:
-    # Index 3 is beyond the schedule, so last value (60) repeats
-    assert _cumulative_idle_delay_minutes((1, 10, 60), 3) == 131
-
-
-def test_cumulative_idle_delay_single_value_schedule() -> None:
-    assert _cumulative_idle_delay_minutes((5,), 0) == 5
-    assert _cumulative_idle_delay_minutes((5,), 1) == 10
-    assert _cumulative_idle_delay_minutes((5,), 2) == 15
 
 
 # -- _per_event_idle_delay_minutes tests --
