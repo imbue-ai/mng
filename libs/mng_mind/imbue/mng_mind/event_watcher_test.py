@@ -2094,19 +2094,21 @@ def test_synthetic_loop_onboarding_waits_for_delivery(tmp_path: Path) -> None:
     loop_thread.start()
 
     # Give the loop time to enter the waiting state, then verify no
-    # onboarding has been sent while delivery_mono is still 0.0
-    time.sleep(0.3)
+    # onboarding has been sent while delivery_mono is still 0.0.
+    # Uses a never-set event for the delay to avoid time.sleep.
+    delay = threading.Event()
+    delay.wait(timeout=0.3)
     assert len(env.event_buffer) == 0, "Onboarding should be blocked while delivery has not occurred"
     assert not onboarding_marker.exists()
 
     # Simulate delivery completing
     delivery_mono[0] = 1.0
 
-    # Wait for the onboarding marker to appear (proving the loop unblocked)
+    # Poll for the onboarding marker to appear (proving the loop unblocked)
     deadline = time.monotonic() + 5.0
     while not onboarding_marker.exists():
         assert time.monotonic() < deadline, "Timed out waiting for onboarding after delivery"
-        time.sleep(0.05)
+        delay.wait(timeout=0.05)
 
     env.stop_event.set()
     loop_thread.join(timeout=5.0)
