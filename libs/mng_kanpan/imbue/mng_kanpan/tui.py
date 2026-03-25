@@ -806,9 +806,7 @@ def _finish_refresh(loop: MainLoop, state: _KanpanState) -> None:
     try:
         new_snapshot = state.refresh_future.result()
         should_carry_forward = was_local_only or (
-            state.snapshot is not None
-            and state.snapshot.prs_loaded
-            and state.snapshot.prs_loaded_repos - new_snapshot.prs_loaded_repos
+            state.snapshot is not None and state.snapshot.prs_loaded_repos - new_snapshot.prs_loaded_repos
         )
         if should_carry_forward and state.snapshot is not None:
             new_snapshot = _carry_forward_pr_data(state.snapshot, new_snapshot)

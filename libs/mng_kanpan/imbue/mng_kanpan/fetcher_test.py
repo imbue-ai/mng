@@ -110,7 +110,6 @@ def test_fetch_github_data_skips_agents_without_remote_label(tmp_path: Path) -> 
     with patch("imbue.mng_kanpan.fetcher.fetch_all_prs", return_value=pr_result):
         result = fetch_github_data(mng_ctx, [agent_no_label, agent_with_label])
 
-    assert result.prs_loaded is True
     assert result.pr_by_repo_branch["org/repo"]["mng/feature"] == pr
 
 
@@ -154,7 +153,6 @@ def test_fetch_github_data_fetches_per_repo(tmp_path: Path) -> None:
         result = fetch_github_data(mng_ctx, [agent_a, agent_b])
 
     assert call_count == 2
-    assert result.prs_loaded is True
     assert len(result.prs_loaded_repos) == 2
     assert result.pr_by_repo_branch["org/repo-a"]["mng/feature-a"] == pr_a
     assert result.pr_by_repo_branch["org/repo-b"]["mng/feature-b"] == pr_b
@@ -184,7 +182,7 @@ def test_fetch_github_data_deduplicates_repos(tmp_path: Path) -> None:
         result = fetch_github_data(mng_ctx, [agent1, agent2])
 
     assert call_count == 1
-    assert result.prs_loaded is True
+    assert "org/repo" in result.prs_loaded_repos
 
 
 def test_fetch_github_data_partial_failure(tmp_path: Path) -> None:
@@ -219,7 +217,6 @@ def test_fetch_github_data_partial_failure(tmp_path: Path) -> None:
     with patch("imbue.mng_kanpan.fetcher.fetch_all_prs", side_effect=mock_fetch_prs):
         result = fetch_github_data(mng_ctx, [agent_good, agent_bad])
 
-    assert result.prs_loaded is True
     assert "org/good" in result.prs_loaded_repos
     assert "org/bad" not in result.prs_loaded_repos
     assert result.pr_by_repo_branch["org/good"]["mng/feature"] == pr
@@ -237,7 +234,7 @@ def test_fetch_github_data_no_local_agents() -> None:
     )
     mng_ctx = MagicMock()
     result = fetch_github_data(mng_ctx, [agent])
-    assert result.prs_loaded is False
+    assert result.prs_loaded_repos == frozenset()
     assert result.pr_by_repo_branch == {}
     assert result.errors == ()
 
@@ -321,7 +318,7 @@ def test_fetch_board_snapshot_integrates_agents_and_prs() -> None:
     assert snapshot.entries[1].name == AgentName("agent-2")
     assert snapshot.entries[1].pr is None
     assert snapshot.errors == ()
-    assert snapshot.prs_loaded is True
+    assert "org/repo" in snapshot.prs_loaded_repos
     assert snapshot.fetch_time_seconds > 0
 
 
@@ -368,7 +365,7 @@ def test_fetch_agent_snapshot_entries_have_no_pr() -> None:
     assert snapshot.entries[0].name == AgentName("agent-1")
     assert snapshot.entries[0].pr is None
     assert snapshot.entries[0].create_pr_url is None
-    assert snapshot.prs_loaded is False
+    assert snapshot.prs_loaded_repos == frozenset()
     assert snapshot.errors == ()
     assert snapshot.fetch_time_seconds > 0
 
@@ -508,7 +505,7 @@ def test_fetch_board_snapshot_surfaces_gh_errors_and_suppresses_create_pr_url(tm
 
     assert len(snapshot.errors) == 1
     assert "gh pr list failed" in snapshot.errors[0]
-    assert snapshot.prs_loaded is False
+    assert snapshot.prs_loaded_repos == frozenset()
     assert snapshot.entries[0].branch == "mng/agent-1"
     # When PRs failed to load, create_pr_url should be suppressed even though
     # the agent has a branch and a valid GitHub remote

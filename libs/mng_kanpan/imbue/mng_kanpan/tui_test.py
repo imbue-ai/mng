@@ -1021,7 +1021,7 @@ def test_carry_forward_pr_data_preserves_old_prs() -> None:
     )
 
     result = _carry_forward_pr_data(old, new)
-    assert result.prs_loaded is True
+    assert "org/repo" in result.prs_loaded_repos
     assert result.entries[0].pr is not None
     assert result.entries[0].pr.number == 42
     assert "gh auth failed" in result.errors[0]
@@ -1061,7 +1061,7 @@ def test_carry_forward_pr_data_preserves_create_pr_url_without_pr() -> None:
     )
 
     result = _carry_forward_pr_data(old, new)
-    assert result.prs_loaded is True
+    assert "org/repo" in result.prs_loaded_repos
     assert result.entries[0].pr is None
     assert result.entries[0].create_pr_url == "https://github.com/org/repo/compare/mng/agent-1?expand=1"
 
@@ -1244,7 +1244,6 @@ def test_carry_forward_partial_failure_preserves_failed_repo_prs() -> None:
     assert result.entries[1].pr is not None
     assert result.entries[1].pr.number == 20
 
-    assert result.prs_loaded is True
     assert "org/good" in result.prs_loaded_repos
     assert "org/bad" in result.prs_loaded_repos
 

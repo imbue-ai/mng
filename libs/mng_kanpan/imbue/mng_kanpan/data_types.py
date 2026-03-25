@@ -84,11 +84,6 @@ class BoardSnapshot(FrozenModel):
     prs_loaded_repos: frozenset[str] = Field(description="Repo paths for which PRs were successfully loaded")
     fetch_time_seconds: float = Field(description="Time taken to fetch data")
 
-    @property
-    def prs_loaded(self) -> bool:
-        """Whether PR data was successfully fetched for at least one repo."""
-        return len(self.prs_loaded_repos) > 0
-
 
 class GitHubData(FrozenModel):
     """GitHub PR data fetched via the gh CLI, used to enrich agent snapshots.
@@ -104,11 +99,6 @@ class GitHubData(FrozenModel):
     )
     prs_loaded_repos: frozenset[str] = Field(description="Repo paths for which PRs were successfully fetched")
     errors: tuple[str, ...] = Field(default=(), description="Errors encountered during remote fetch")
-
-    @property
-    def prs_loaded(self) -> bool:
-        """Whether PR data was successfully fetched for at least one repo."""
-        return len(self.prs_loaded_repos) > 0
 
 
 class CustomColumnConfig(FrozenModel):
