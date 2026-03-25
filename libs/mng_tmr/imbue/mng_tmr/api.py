@@ -6,6 +6,7 @@ test, poll for completion, gather results, and pull code changes.
 
 import json
 import secrets
+import shutil
 import time
 from pathlib import Path
 
@@ -811,13 +812,26 @@ def pull_test_outputs(
     destination_dir: Path,
 ) -> None:
     """Pull the .test_output directory from an agent's work_dir to a local directory."""
-    remote_test_output = agent_detail.work_dir / ".test_output"
+    source_test_output = agent_detail.work_dir / ".test_output"
     local_dest = destination_dir / str(agent_detail.name)
+
+    # For local agents, use filesystem copy instead of rsync
+    if source_test_output.exists():
+        local_dest.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copytree(source_test_output, local_dest, dirs_exist_ok=True)
+            logger.info("Copied .test_output from agent '{}' to {}", agent_detail.name, local_dest)
+            return
+        except OSError as exc:
+            logger.warning("Failed to copy .test_output from agent '{}': {}", agent_detail.name, exc)
+            return
+
+    # For remote agents, use rsync via copy_directory
     local_dest.mkdir(parents=True, exist_ok=True)
     try:
         local_host.copy_directory(
             source_host=host,
-            source_path=remote_test_output,
+            source_path=source_test_output,
             target_path=local_dest,
         )
         logger.info("Pulled .test_output from agent '{}' to {}", agent_detail.name, local_dest)
@@ -835,6 +849,8 @@ def pull_test_outputs_by_id(
     """Pull .test_output from an agent, looking up its work_dir from the host.
 
     This variant is used during polling when we may not have AgentDetails.
+    For local agents where the work_dir is directly accessible, uses filesystem
+    copy instead of rsync to avoid SSH hostname resolution issues.
     """
     try:
         agent = _get_agent_from_host(host, agent_id)
@@ -843,13 +859,27 @@ def pull_test_outputs_by_id(
         logger.warning("Could not find agent '{}' on host to pull artifacts: {}", agent_name, exc)
         return
 
-    remote_test_output = work_dir / ".test_output"
+    source_test_output = work_dir / ".test_output"
     local_dest = destination_dir / str(agent_name)
+
+    # For local agents, the work_dir is directly accessible on the filesystem.
+    # Use shutil.copytree instead of rsync to avoid SSH hostname issues.
+    if source_test_output.exists():
+        local_dest.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copytree(source_test_output, local_dest, dirs_exist_ok=True)
+            logger.info("Copied .test_output from agent '{}' to {}", agent_name, local_dest)
+            return
+        except OSError as exc:
+            logger.warning("Failed to copy .test_output from agent '{}': {}", agent_name, exc)
+            return
+
+    # For remote agents, use rsync via copy_directory
     local_dest.mkdir(parents=True, exist_ok=True)
     try:
         local_host.copy_directory(
             source_host=host,
-            source_path=remote_test_output,
+            source_path=source_test_output,
             target_path=local_dest,
         )
         logger.info("Pulled .test_output from agent '{}' to {}", agent_name, local_dest)
