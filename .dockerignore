@@ -1,4 +1,6 @@
-# Exclude git worktree state from Docker builds.
-# Worktree metadata files (e.g. FETCH_HEAD) are modified by active agents,
-# which causes Modal image builds to fail with "modified during build process".
-.git/worktrees/
+# Exclude .git/ from Docker builds entirely.
+# Git state is delivered via a tarball (current.tar.gz), not the live .git dir.
+# Files under .git/ (refs, worktrees, FETCH_HEAD, etc.) are actively modified
+# by running agents, which races with Modal's upload and causes
+# "modified during build process" errors.
+.git/
