@@ -525,6 +525,8 @@ def launch_and_poll_agents(
     report_path: Path | None,
     all_agents: list[TestAgentInfo],
     all_hosts: dict[str, OnlineHostInterface],
+    artifact_output_dir: Path | None = None,
+    local_host: OnlineHostInterface | None = None,
 ) -> tuple[dict[str, AgentDetails], set[str]]:
     """Launch agents incrementally and poll until all finish.
 
@@ -645,8 +647,14 @@ def launch_and_poll_agents(
             missing_rounds.pop(agent_id_str, None)
             changed = True
 
-            if agent_detail.state == AgentLifecycleState.WAITING:
-                _stop_agent_on_host(all_hosts[agent_id_str], agent_detail.id, agent_detail.name)
+            _finalize_agent(
+                agent_id=agent_detail.id,
+                agent_name=agent_detail.name,
+                host=all_hosts[agent_id_str],
+                artifact_output_dir=artifact_output_dir,
+                local_host=local_host,
+                should_stop=agent_detail.state == AgentLifecycleState.WAITING,
+            )
 
         for agent_id_str in list(pending_ids):
             if agent_id_str not in seen_ids:
@@ -669,9 +677,18 @@ def launch_and_poll_agents(
                 last_result_check[agent_id_str] = now
                 result = try_read_agent_result(AgentId(agent_id_str), all_hosts[agent_id_str])
                 if result is not None:
+                    info = agent_id_to_info[agent_id_str]
                     logger.info(
                         "Agent '{}' has result file (detected via direct check), treating as done",
-                        agent_id_to_info[agent_id_str].agent_name,
+                        info.agent_name,
+                    )
+                    _finalize_agent(
+                        agent_id=AgentId(agent_id_str),
+                        agent_name=info.agent_name,
+                        host=all_hosts[agent_id_str],
+                        artifact_output_dir=artifact_output_dir,
+                        local_host=local_host,
+                        should_stop=True,
                     )
                     pending_ids.discard(agent_id_str)
                     changed = True
@@ -686,6 +703,38 @@ def launch_and_poll_agents(
     return final_details, timed_out_ids
 
 
+def _parse_result_json(raw: str) -> TestResult:
+    """Parse a result.json string into a TestResult.
+
+    Raises json.JSONDecodeError, KeyError, or ValueError on invalid data.
+    """
+    data = json.loads(raw)
+    raw_changes = data.get("changes", {})
+    changes: dict[ChangeKind, Change] = {
+        ChangeKind(kind_str): Change(
+            status=ChangeStatus(entry["status"]),
+            summary_markdown=entry.get("summary_markdown", entry.get("summary", "")),
+        )
+        for kind_str, entry in raw_changes.items()
+    }
+    raw_runs = data.get("test_runs", [])
+    test_runs = tuple(
+        TestRunInfo(
+            run_name=run_entry.get("run_name", ""),
+            description_markdown=run_entry.get("description_markdown", ""),
+        )
+        for run_entry in raw_runs
+    )
+    return TestResult(
+        changes=changes,
+        errored=data.get("errored", False),
+        tests_passing_before=data.get("tests_passing_before"),
+        tests_passing_after=data.get("tests_passing_after"),
+        summary_markdown=data.get("summary_markdown", ""),
+        test_runs=test_runs,
+    )
+
+
 def try_read_agent_result(
     agent_id: AgentId,
     host: OnlineHostInterface,
@@ -695,41 +744,11 @@ def try_read_agent_result(
     Used to detect agents that have finished writing their result but whose
     lifecycle status has not yet updated to a terminal state.
     """
-    agent_state_dir = host.host_dir / "agents" / str(agent_id)
-    result_path = agent_state_dir / "plugin" / PLUGIN_NAME / "result.json"
-
+    result_path = host.host_dir / "agents" / str(agent_id) / "plugin" / PLUGIN_NAME / "result.json"
     try:
         raw = host.read_text_file(result_path)
-    except (HostError, FileNotFoundError, OSError):
-        return None
-
-    try:
-        data = json.loads(raw)
-        raw_changes = data.get("changes", {})
-        changes: dict[ChangeKind, Change] = {
-            ChangeKind(kind_str): Change(
-                status=ChangeStatus(entry["status"]),
-                summary_markdown=entry.get("summary_markdown", entry.get("summary", "")),
-            )
-            for kind_str, entry in raw_changes.items()
-        }
-        raw_runs = data.get("test_runs", [])
-        test_runs = tuple(
-            TestRunInfo(
-                run_name=run_entry.get("run_name", ""),
-                description_markdown=run_entry.get("description_markdown", ""),
-            )
-            for run_entry in raw_runs
-        )
-        return TestResult(
-            changes=changes,
-            errored=data.get("errored", False),
-            tests_passing_before=data.get("tests_passing_before"),
-            tests_passing_after=data.get("tests_passing_after"),
-            summary_markdown=data.get("summary_markdown", ""),
-            test_runs=test_runs,
-        )
-    except (json.JSONDecodeError, KeyError, ValueError):
+        return _parse_result_json(raw)
+    except (HostError, FileNotFoundError, OSError, json.JSONDecodeError, KeyError, ValueError):
         return None
 
 
@@ -742,41 +761,35 @@ def _stop_agent_on_host(host: OnlineHostInterface, agent_id: AgentId, agent_name
         logger.warning("Failed to stop agent '{}': {}", agent_name, exc)
 
 
+def _finalize_agent(
+    agent_id: AgentId,
+    agent_name: AgentName,
+    host: OnlineHostInterface,
+    artifact_output_dir: Path | None,
+    local_host: OnlineHostInterface | None,
+    should_stop: bool,
+) -> None:
+    """Pull artifacts from a finished agent and optionally stop it.
+
+    Called when an agent is detected as done (via state transition or result
+    file check). Pulls .test_output if artifact_output_dir and local_host
+    are provided.
+    """
+    if artifact_output_dir is not None and local_host is not None:
+        pull_test_outputs_by_id(agent_id, agent_name, host, local_host, artifact_output_dir)
+    if should_stop:
+        _stop_agent_on_host(host, agent_id, agent_name)
+
+
 def read_agent_result(
     agent_detail: AgentDetails,
     host: OnlineHostInterface,
 ) -> TestResult:
     """Read the result.json from a finished agent's state directory."""
-    agent_state_dir = host.host_dir / "agents" / str(agent_detail.id)
-    result_path = agent_state_dir / "plugin" / PLUGIN_NAME / "result.json"
-
+    result_path = host.host_dir / "agents" / str(agent_detail.id) / "plugin" / PLUGIN_NAME / "result.json"
     try:
         raw = host.read_text_file(result_path)
-        data = json.loads(raw)
-        raw_changes = data.get("changes", {})
-        changes: dict[ChangeKind, Change] = {
-            ChangeKind(kind_str): Change(
-                status=ChangeStatus(entry["status"]),
-                summary_markdown=entry.get("summary_markdown", entry.get("summary", "")),
-            )
-            for kind_str, entry in raw_changes.items()
-        }
-        raw_runs = data.get("test_runs", [])
-        test_runs = tuple(
-            TestRunInfo(
-                run_name=run_entry.get("run_name", ""),
-                description_markdown=run_entry.get("description_markdown", ""),
-            )
-            for run_entry in raw_runs
-        )
-        return TestResult(
-            changes=changes,
-            errored=data.get("errored", False),
-            tests_passing_before=data.get("tests_passing_before"),
-            tests_passing_after=data.get("tests_passing_after"),
-            summary_markdown=data.get("summary_markdown", ""),
-            test_runs=test_runs,
-        )
+        return _parse_result_json(raw)
     except HostError as exc:
         logger.warning("Lost connection to agent {} while fetching result file: {}", agent_detail.name, exc)
         return TestResult(
@@ -810,6 +823,38 @@ def pull_test_outputs(
         logger.info("Pulled .test_output from agent '{}' to {}", agent_detail.name, local_dest)
     except (MngError, HostError, OSError) as exc:
         logger.warning("Failed to pull .test_output from agent '{}': {}", agent_detail.name, exc)
+
+
+def pull_test_outputs_by_id(
+    agent_id: AgentId,
+    agent_name: AgentName,
+    host: OnlineHostInterface,
+    local_host: OnlineHostInterface,
+    destination_dir: Path,
+) -> None:
+    """Pull .test_output from an agent, looking up its work_dir from the host.
+
+    This variant is used during polling when we may not have AgentDetails.
+    """
+    try:
+        agent = _get_agent_from_host(host, agent_id)
+        work_dir = agent.work_dir
+    except (MngError, HostError, AgentNotFoundOnHostError) as exc:
+        logger.warning("Could not find agent '{}' on host to pull artifacts: {}", agent_name, exc)
+        return
+
+    remote_test_output = work_dir / ".test_output"
+    local_dest = destination_dir / str(agent_name)
+    local_dest.mkdir(parents=True, exist_ok=True)
+    try:
+        local_host.copy_directory(
+            source_host=host,
+            source_path=remote_test_output,
+            target_path=local_dest,
+        )
+        logger.info("Pulled .test_output from agent '{}' to {}", agent_name, local_dest)
+    except (MngError, HostError, OSError) as exc:
+        logger.warning("Failed to pull .test_output from agent '{}': {}", agent_name, exc)
 
 
 def read_integrator_result(

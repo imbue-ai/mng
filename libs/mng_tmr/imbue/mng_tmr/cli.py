@@ -38,7 +38,6 @@ from imbue.mng_tmr.api import launch_all_test_agents
 from imbue.mng_tmr.api import launch_and_poll_agents
 from imbue.mng_tmr.api import launch_integrator_agent
 from imbue.mng_tmr.api import pull_agent_branch
-from imbue.mng_tmr.api import pull_test_outputs
 from imbue.mng_tmr.api import read_integrator_result
 from imbue.mng_tmr.api import should_pull_changes
 from imbue.mng_tmr.api import wait_for_integrator
@@ -398,6 +397,8 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         report_path=html_path,
         all_agents=agent_infos,
         all_hosts=agent_hosts,
+        artifact_output_dir=output_dir,
+        local_host=source_host,
     )
 
     if use_batched:
@@ -416,14 +417,7 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         base_commit=base_commit if is_remote_provider else None,
     )
 
-    # Step 9: Pull .test_output from each finished agent
-    for agent_info in agent_infos:
-        agent_id_str = str(agent_info.agent_id)
-        detail = final_details.get(agent_id_str)
-        if detail is not None and agent_id_str in agent_hosts:
-            pull_test_outputs(detail, agent_hosts[agent_id_str], source_host, output_dir)
-
-    # Step 10: Write report with final results
+    # Step 9: Write report with final results (artifacts already pulled during polling)
     generate_html_report(results, html_path, test_artifacts_dir=output_dir)
 
     # Step 11: Build integrator config (defaults to local provider) and integrate

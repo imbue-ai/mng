@@ -15,10 +15,10 @@ from http.server import HTTPServer
 from http.server import SimpleHTTPRequestHandler
 from pathlib import Path
 
-from imbue.mng.e2e.detail_renderer import ASCIINEMA_PLAYER_CSS
-from imbue.mng.e2e.detail_renderer import ASCIINEMA_PLAYER_JS
-from imbue.mng.e2e.detail_renderer import render_transcript
-from imbue.mng.e2e.detail_renderer import render_tutorial_block
+from imbue.mng.utils.detail_renderer import ASCIINEMA_PLAYER_CSS
+from imbue.mng.utils.detail_renderer import ASCIINEMA_PLAYER_JS
+from imbue.mng.utils.detail_renderer import render_transcript
+from imbue.mng.utils.detail_renderer import render_tutorial_block
 
 _E2E_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = next(p for p in [_E2E_DIR, *_E2E_DIR.parents] if (p / ".git").exists())

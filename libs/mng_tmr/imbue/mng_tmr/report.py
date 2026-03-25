@@ -10,11 +10,11 @@ from pathlib import Path
 from loguru import logger
 from markdown_it import MarkdownIt
 
-from imbue.mng.e2e.detail_renderer import ASCIINEMA_PLAYER_CSS
-from imbue.mng.e2e.detail_renderer import ASCIINEMA_PLAYER_JS
-from imbue.mng.e2e.detail_renderer import DETAIL_CSS
-from imbue.mng.e2e.detail_renderer import render_test_detail
 from imbue.mng.primitives import AgentName
+from imbue.mng.utils.detail_renderer import ASCIINEMA_PLAYER_CSS
+from imbue.mng.utils.detail_renderer import ASCIINEMA_PLAYER_JS
+from imbue.mng.utils.detail_renderer import DETAIL_CSS
+from imbue.mng.utils.detail_renderer import render_test_detail
 from imbue.mng_tmr.data_types import ChangeStatus
 from imbue.mng_tmr.data_types import DisplayCategory
 from imbue.mng_tmr.data_types import IntegratorResult
