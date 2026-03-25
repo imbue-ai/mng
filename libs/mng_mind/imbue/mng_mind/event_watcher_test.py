@@ -20,10 +20,10 @@ from imbue.mng_mind import event_watcher as event_watcher_module
 from imbue.mng_mind.conftest import EventWatcherSubprocessCapture
 from imbue.mng_mind.conftest import FakeWaitProcess
 from imbue.mng_mind.conftest import SyntheticLoopEnv
-from imbue.mng_mind.conftest import TrackingIdleWait
 from imbue.mng_mind.conftest import _create_fake_wait_process
 from imbue.mng_mind.conftest import _create_synthetic_loop_env
 from imbue.mng_mind.conftest import create_executable_command
+from imbue.mng_mind.conftest import create_tracking_idle_wait
 from imbue.mng_mind.conftest import make_pending_idle_wait
 from imbue.mng_mind.data_types import WatcherSettings
 from imbue.mng_mind.event_watcher import DEFAULT_CEL_FILTER
@@ -2429,7 +2429,7 @@ def test_idle_wait_preserves_counter_across_messages_events(synthetic_loop_env: 
     env.last_real_event_monotonic[0] = 1000.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1, 10, 60))
 
-    tracker = TrackingIdleWait()
+    tracker = create_tracking_idle_wait()
     delivery_mono: list[float] = [1000.0]
 
     call_count = 0
@@ -2513,7 +2513,7 @@ def test_idle_wait_resets_counter_on_non_messages_event(synthetic_loop_env: Synt
     env.last_real_event_monotonic[0] = 1000.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1, 10, 60))
 
-    tracker = TrackingIdleWait()
+    tracker = create_tracking_idle_wait()
     delivery_mono: list[float] = [1000.0]
 
     call_count = 0
@@ -2607,7 +2607,7 @@ def test_idle_wait_uses_per_event_delay(synthetic_loop_env: SyntheticLoopEnv) ->
     env.last_real_event_monotonic[0] = 1000.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1, 10))
 
-    tracker = TrackingIdleWait()
+    tracker = create_tracking_idle_wait()
     delivery_mono: list[float] = [1000.0]
 
     call_count = 0

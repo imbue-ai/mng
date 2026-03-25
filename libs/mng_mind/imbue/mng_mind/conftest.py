@@ -240,15 +240,23 @@ class TrackingIdleWait:
     Use as the ``start_idle_wait`` argument to ``_run_synthetic_events_loop``.
     The ``processes`` attribute accumulates each FakeWaitProcess created,
     allowing tests to inspect and control individual wait processes.
+
+    Create via ``create_tracking_idle_wait()`` factory function.
     """
 
-    def __init__(self) -> None:
-        self.processes: list[FakeWaitProcess] = []
+    processes: list[FakeWaitProcess]
 
     def __call__(self, agent_id: str) -> FakeWaitProcess:
         process = _create_fake_wait_process(is_complete=False, returncode=None)
         self.processes.append(process)
         return process
+
+
+def create_tracking_idle_wait() -> TrackingIdleWait:
+    """Create a TrackingIdleWait with an empty process list."""
+    tracker = TrackingIdleWait()
+    tracker.processes = []
+    return tracker
 
 
 class EventWatcherSubprocessCapture:
