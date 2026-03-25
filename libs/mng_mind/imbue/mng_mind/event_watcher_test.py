@@ -2119,8 +2119,8 @@ def test_synthetic_loop_sends_idle_event_after_delay(synthetic_loop_env: Synthet
     assert parsed["minutes_since_last_event"] >= 1.0
 
 
-def test_synthetic_loop_resets_idle_on_non_messages_event(synthetic_loop_env: SyntheticLoopEnv) -> None:
-    """The idle counter resets when a non-messages event arrives."""
+def test_synthetic_loop_no_idle_events_when_agent_not_waiting(synthetic_loop_env: SyntheticLoopEnv) -> None:
+    """No idle events fire when the agent never enters WAITING state."""
     env = synthetic_loop_env
     env.last_real_event_monotonic[0] = 1000.0
     env.last_non_messages_event_monotonic[0] = 1030.0
