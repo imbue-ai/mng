@@ -124,6 +124,12 @@ class WatcherSettings(FrozenModel):
         description="IANA timezone name (e.g. 'America/New_York', 'Europe/London'). "
         "Used for scheduled events and local time reporting in idle events.",
     )
+    is_message_batching_enabled: bool = Field(
+        default=True,
+        description="When True, user messages from the 'messages' source are held "
+        "until the corresponding assistant response arrives so the agent sees both "
+        "together. When False, messages are delivered immediately as they arrive.",
+    )
     # Any paths should be relative to the repo root, since the event watcher runs
     # in a tmux window whose working directory is the agent's work_dir (the repo root).
     event_batch_filter_command: str | None = Field(

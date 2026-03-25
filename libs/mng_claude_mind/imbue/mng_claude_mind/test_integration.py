@@ -892,7 +892,7 @@ def test_chat_script_uses_hardcoded_default_when_no_env_var(chat_env: ChatScript
     log_file = log_dir / "chat" / "events.jsonl"
     assert log_file.exists()
     log_content = log_file.read_text()
-    assert "claude-opus-4.6" in log_content
+    assert "claude-haiku-4.5" in log_content
 
 
 @pytest.mark.timeout(30)

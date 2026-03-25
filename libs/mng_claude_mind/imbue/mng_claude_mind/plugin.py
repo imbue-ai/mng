@@ -265,7 +265,7 @@ class ClaudeMindAgent(ClaudeAgent):
 
         create_system_notifications_conversation(host, agent_state_dir, provisioning)
         create_slack_notifications_conversation(host, agent_state_dir, provisioning)
-        chat_model = settings.chat.model or "claude-opus-4.6"
+        chat_model = settings.chat.model or "claude-haiku-4.5"
         create_work_log_conversation(host, agent_state_dir, provisioning, chat_model)
         create_first_daily_conversation(host, agent_state_dir, provisioning, chat_model, settings.chat.welcome_message)
 

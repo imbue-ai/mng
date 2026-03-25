@@ -31,7 +31,7 @@ from imbue.mng_llm.provisioning import provision_supporting_services
 from imbue.mng_llm.settings import load_from_host
 from imbue.mng_recursive.provisioning import provision_mng_for_agent
 
-_DEFAULT_LLM_MODEL = "claude-opus-4.6"
+_DEFAULT_LLM_MODEL = "claude-haiku-4.5"
 
 
 def set_uv_tool_env_vars(env_vars: dict[str, str]) -> None:

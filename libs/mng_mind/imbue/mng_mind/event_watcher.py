@@ -124,6 +124,7 @@ class _EventWatcherSettings:
     idle_event_delay_minutes_schedule: tuple[int, ...] = ()
     scheduled_events: tuple[tuple[str, str], ...] = ()
     user_timezone: str = "UTC"
+    is_message_batching_enabled: bool = True
     event_batch_filter_command: str | None = None
 
 
@@ -146,6 +147,7 @@ def _load_watcher_settings(agent_work_dir: Path) -> _EventWatcherSettings:
         idle_event_delay_minutes_schedule=tuple(watchers.get("idle_event_delay_minutes_schedule", ())),
         scheduled_events=tuple((k, v) for k, v in raw_scheduled.items()),
         user_timezone=watchers.get("user_timezone", "UTC"),
+        is_message_batching_enabled=watchers.get("is_message_batching_enabled", True),
         event_batch_filter_command=watchers.get("event_batch_filter_command", None),
     )
 
@@ -1447,7 +1449,7 @@ def _run_delivery_loop(
 
         if not pending:
             # Even with no new events, check for timed-out held chat messages
-            if held_user_messages:
+            if settings.is_message_batching_enabled and held_user_messages:
                 deliverable_lines = _separate_chat_events([], held_user_messages)
                 if deliverable_lines:
                     last_parsed = {}
@@ -1469,7 +1471,8 @@ def _run_delivery_loop(
             )
 
             # Separate chat events: hold user messages until assistant responds
-            deliverable_lines = _separate_chat_events(deliverable_lines, held_user_messages)
+            if settings.is_message_batching_enabled:
+                deliverable_lines = _separate_chat_events(deliverable_lines, held_user_messages)
 
         # Apply custom event batch filter command (drops events and fields before aggregation)
         if settings.event_batch_filter_command and deliverable_lines:
@@ -1613,6 +1616,7 @@ def main(
     logger.info("  Idle schedule: {}", settings.idle_event_delay_minutes_schedule)
     logger.info("  Scheduled events: {}", settings.scheduled_events)
     logger.info("  User timezone: {}", settings.user_timezone)
+    logger.info("  Message batching enabled: {}", settings.is_message_batching_enabled)
     logger.info("  Event batch filter command: {}", settings.event_batch_filter_command or "(none)")
 
     # Resolve the ignored_sources.txt path: $MNG_AGENT_WORK_DIR/$ROLE/ignored_sources.txt

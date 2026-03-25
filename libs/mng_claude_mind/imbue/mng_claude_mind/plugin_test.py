@@ -216,7 +216,7 @@ def test_modify_env_vars_sets_uv_tool_dirs() -> None:
     agent.modify_env_vars(host_stub, env_vars)
     assert env_vars["UV_TOOL_DIR"] == "/home/user/.mng/agents/abc/tools"
     assert env_vars["UV_TOOL_BIN_DIR"] == "/home/user/.mng/agents/abc/bin"
-    assert env_vars["MNG_LLM_MODEL"] == "claude-opus-4.6"
+    assert env_vars["MNG_LLM_MODEL"] == "claude-haiku-4.5"
 
 
 def test_modify_env_vars_noop_without_state_dir() -> None:
@@ -233,7 +233,7 @@ def test_modify_env_vars_noop_without_state_dir() -> None:
     assert "UV_TOOL_DIR" not in env_vars
     assert "UV_TOOL_BIN_DIR" not in env_vars
     # MNG_LLM_MODEL should still be set even without state dir
-    assert env_vars["MNG_LLM_MODEL"] == "claude-opus-4.6"
+    assert env_vars["MNG_LLM_MODEL"] == "claude-haiku-4.5"
 
 
 # -- assemble_command tests --

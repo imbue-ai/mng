@@ -17,7 +17,7 @@
 # Environment:
 #   MNG_AGENT_STATE_DIR  - agent state directory (contains events/, commands/)
 #   MNG_AGENT_WORK_DIR   - agent work directory (contains talking/PROMPT.md)
-#   MNG_LLM_MODEL        - model to use for llm commands (default: claude-opus-4.6)
+#   MNG_LLM_MODEL        - model to use for llm commands (default: claude-haiku-4.5)
 #   LLM_USER_PATH        - llm data directory (contains logs.db)
 
 set -euo pipefail
@@ -52,7 +52,7 @@ log() {
 
 # Get the model from MNG_LLM_MODEL env var, falling back to hardcoded default.
 get_model() {
-    echo "${MNG_LLM_MODEL:-claude-opus-4.6}"
+    echo "${MNG_LLM_MODEL:-claude-haiku-4.5}"
 }
 
 generate_conversation_id() {
@@ -454,7 +454,7 @@ show_help() {
     echo "  message_id=<id>        Response ID of the injected message"
     echo ""
     echo "Environment:"
-    echo "  MNG_LLM_MODEL   Model for llm commands (default: claude-opus-4.6)"
+    echo "  MNG_LLM_MODEL   Model for llm commands (default: claude-haiku-4.5)"
 }
 
 log "Invoked with args: $*"

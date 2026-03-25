@@ -39,7 +39,7 @@ def test_set_llm_model_env_var_uses_default_when_no_model() -> None:
     settings = LlmSettings()
     env: dict[str, str] = {}
     set_llm_model_env_var(settings, env)
-    assert env["MNG_LLM_MODEL"] == "claude-opus-4.6"
+    assert env["MNG_LLM_MODEL"] == "claude-haiku-4.5"
 
 
 def test_set_llm_model_env_var_reads_model_from_settings() -> None:
