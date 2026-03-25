@@ -51,7 +51,7 @@ OutputCallback = Callable[[str, bool], None]
 
 DEFAULT_AGENT_TYPE: Final[str] = "claude-mind"
 
-_DEFAULT_PASS_ENV: Final[tuple[str, ...]] = ("ANTHROPIC_API_KEY",)
+_DEFAULT_PASS_ENV: Final[tuple[str, ...]] = ("ANTHROPIC_API_KEY", "GH_TOKEN")
 
 LOG_SENTINEL: Final[str] = "__DONE__"
 
