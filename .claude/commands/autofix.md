@@ -53,6 +53,8 @@ Important:
 - Do NOT pass the agent any information about previous iterations or previous fixes. It operates from a clean slate every time.
 - The point of printing the issues in step 4 is for the user to see what is being worked fixed.
 - You MUST explicitly wait for the `verify-and-fix` agent task to finish--do *not* simply finish your response!
+- You MUST use your ability to wait for your own Task or Agent primitives in order to wait for the agent! Do not try to sleep or poll--that is inefficient and unreliable.
+- Do *NOT* make any changes or run any tests or commands yourself while the above loop is running! That will be handled by the agent.
 
 ### Phase 4: Review
 
