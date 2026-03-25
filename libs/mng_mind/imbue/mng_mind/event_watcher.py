@@ -491,9 +491,12 @@ def _notify_user(events_dir: Path, message: str, level: str = "WARNING") -> None
     _send_chat_notification(events_dir, message)
 
 
-def _compute_backoff_seconds(consecutive_failures: int) -> float:
+def _compute_backoff_seconds(
+    consecutive_failures: int,
+    base_seconds: float = _BACKOFF_BASE_SECONDS,
+) -> float:
     """Compute exponential backoff duration based on the number of consecutive failures."""
-    return min(_BACKOFF_BASE_SECONDS * (2 ** (consecutive_failures - 1)), _BACKOFF_MAX_SECONDS)
+    return min(base_seconds * (2 ** (consecutive_failures - 1)), _BACKOFF_MAX_SECONDS)
 
 
 # -- Subprocess management --
@@ -1495,7 +1498,7 @@ def _run_delivery_loop(
     while not stop_event.is_set():
         # If we're in a failure state, wait with exponential backoff
         if consecutive_failures > 0:
-            backoff = min(backoff_base_seconds * (2 ** (consecutive_failures - 1)), _BACKOFF_MAX_SECONDS)
+            backoff = _compute_backoff_seconds(consecutive_failures, base_seconds=backoff_base_seconds)
             logger.debug("Backing off for {:.1f}s after {} consecutive failures", backoff, consecutive_failures)
             stop_event.wait(timeout=backoff)
             if stop_event.is_set():
