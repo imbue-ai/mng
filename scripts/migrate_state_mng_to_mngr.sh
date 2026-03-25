@@ -158,9 +158,8 @@ step 5 "Fixing agent data.json files..."
 agent_fixed=0
 for f in "$HOME/.mngr/agents"/*/data.json; do
     [ -f "$f" ] || continue
-    if grep -qE 'MNG_|\.mng' "$f" 2>/dev/null && ! grep -qE 'MNGR_|\.mngr' "$f" 2>/dev/null; then
-        sed -i'.bak' -e 's/MNG_HOST_DIR/MNGR_HOST_DIR/g; s/MNG_AGENT_STATE_DIR/MNGR_AGENT_STATE_DIR/g; s/MNG_READ_SID/MNGR_READ_SID/g; s/\.mng/.mngr/g' "$f"
-        rm -f "$f.bak"
+    if grep -qP 'MNG(?!R)_|\.mng(?!r)' "$f" 2>/dev/null; then
+        perl -pi -e 's/MNG(?!R)/MNGR/g; s/\.mng(?!r)/.mngr/g' "$f"
         agent_fixed=$((agent_fixed + 1))
     fi
 done
@@ -170,14 +169,13 @@ else
     ok "No agent data.json files need fixing."
 fi
 
-# Host data.json has .mng worktree paths in generated_work_dirs
+# Host data.json has .mng worktree paths and MNG_ env vars
 host_fixed=0
 for f in "$HOME/.mngr/data.json" "$HOME/.mngr/hosts"/*/data.json; do
     [ -f "$f" ] || continue
-    if grep -q '\.mng' "$f" 2>/dev/null && ! grep -q '\.mngr' "$f" 2>/dev/null; then
-        sed -i'.bak' -e 's/\.mng/.mngr/g' "$f"
-        rm -f "$f.bak"
-        ok "Fixed .mng paths in $f"
+    if grep -qP '\.mng(?!r)|MNG(?!R)_' "$f" 2>/dev/null; then
+        perl -pi -e 's/MNG(?!R)/MNGR/g; s/\.mng(?!r)/.mngr/g' "$f"
+        ok "Fixed stale references in $f"
         host_fixed=$((host_fixed + 1))
     fi
 done
