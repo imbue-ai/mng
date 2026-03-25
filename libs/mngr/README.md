@@ -168,12 +168,12 @@ To set up manually, generate the completion script and append it to your shell r
 
 **Zsh** (run once):
 ```bash
-uv tool run --from mngr python3 -m imbue.mngr.cli.complete --script zsh >> ~/.zshrc
+uv tool run --from imbue-mngr python3 -m imbue.mngr.cli.complete --script zsh >> ~/.zshrc
 ```
 
 **Bash** (run once):
 ```bash
-uv tool run --from mngr python3 -m imbue.mngr.cli.complete --script bash >> ~/.bashrc
+uv tool run --from imbue-mngr python3 -m imbue.mngr.cli.complete --script bash >> ~/.bashrc
 ```
 
 Note: `mngr` must be installed on your PATH for completion to work (not invoked via `uv run`).
