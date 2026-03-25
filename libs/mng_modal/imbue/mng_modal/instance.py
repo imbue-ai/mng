@@ -1076,7 +1076,7 @@ class ModalProviderInstance(BaseProviderInstance):
         )
         process = sandbox.exec("sh", "-c", check_install_cmd)
 
-        # Read output (implicitly waits for completion)
+        # Read output and check exit code
         stdout = process.get_stdout().read()
         exit_code = process.wait()
         if exit_code != 0:
