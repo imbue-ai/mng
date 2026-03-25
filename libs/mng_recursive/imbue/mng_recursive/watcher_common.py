@@ -73,7 +73,9 @@ DEFAULT_CEL_FILTER: Final[str] = (
     '    (source.startsWith("logs/") && (level == "ERROR" || level == "WARNING"))'
     ")"
     # also remove any mng/agent_state events for non-mind agents:
-    """ && !(source == 'mng/agent_states' && !(has(agent.labels.mind) && agent.labels.mind == "true"))"""
+    # (any agent with a mind label passes — both role agents with mind=true and
+    # working agents with mind=<mind-name>)
+    """ && !(source == 'mng/agent_states' && !has(agent.labels.mind))"""
 )
 
 
