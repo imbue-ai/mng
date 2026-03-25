@@ -52,6 +52,7 @@ Important:
 - Each iteration gets a fresh-context agent, which is the whole point.
 - Do NOT pass the agent any information about previous iterations or previous fixes. It operates from a clean slate every time.
 - The point of printing the issues in step 4 is for the user to see what is being worked fixed.
+- You MUST explicitly wait for the `verify-and-fix` agent task to finish--do *not* simply finish your response!
 
 ### Phase 4: Review
 

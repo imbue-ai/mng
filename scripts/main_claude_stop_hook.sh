@@ -229,7 +229,7 @@ fi
 
 if [[ "$AUTOFIX_NEEDED" == "true" && "$CONVO_NEEDED" == "true" ]]; then
     log_error "Neither autofix nor conversation review have been run."
-    log_error "Run /verify-conversation up to and including Step 4 (Spawn Agent). Spawn that agent in the background, then run \"${AUTOFIX_CMD}\" to verify your changes before finishing. Be sure to report the results from the background agent before attempting to stop again."
+    log_error "Run /verify-conversation up to and including Step 4 (Spawn Agent). Spawn that agent in the background, then run \"${AUTOFIX_CMD}\" to verify your changes. Be sure to report the results from the background agent before returning control to the user (be sure to wait for it to finish if it hasn't yet and if you're done running autofix)."
     _log_to_file "INFO" "main_stop_hook exiting with code 2 (both autofix and conversation review missing)"
     exit 2
 elif [[ "$AUTOFIX_NEEDED" == "true" ]]; then
