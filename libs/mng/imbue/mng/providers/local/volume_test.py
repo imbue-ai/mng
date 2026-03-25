@@ -98,38 +98,36 @@ def test_listdir_includes_size(volume: LocalVolume) -> None:
     assert entries[0].size == 5
 
 
-def test_listdir_works_when_root_path_is_symlink(tmp_path: Path) -> None:
-    """Listdir must work when root_path is a symlink to another directory."""
+@pytest.fixture()
+def symlink_volume(tmp_path: Path) -> LocalVolume:
+    """Volume whose root_path is a symlink to a real directory."""
     real_dir = tmp_path / "real_storage"
     real_dir.mkdir()
     symlink = tmp_path / "link"
     symlink.symlink_to(real_dir)
+    return LocalVolume(root_path=symlink)
 
-    volume = LocalVolume(root_path=symlink)
-    volume.write_files({"sub/file.txt": b"data"})
 
-    entries = volume.listdir("")
+def test_listdir_works_when_root_path_is_symlink(symlink_volume: LocalVolume) -> None:
+    """Listdir must work when root_path is a symlink to another directory."""
+    symlink_volume.write_files({"sub/file.txt": b"data"})
+
+    entries = symlink_volume.listdir("")
     assert len(entries) == 1
     assert entries[0].path == "sub"
     assert entries[0].file_type == VolumeFileType.DIRECTORY
 
-    sub_entries = volume.listdir("sub")
+    sub_entries = symlink_volume.listdir("sub")
     assert len(sub_entries) == 1
     assert sub_entries[0].path == "sub/file.txt"
     assert sub_entries[0].file_type == VolumeFileType.FILE
 
 
-def test_scoped_listdir_works_when_root_path_is_symlink(tmp_path: Path) -> None:
+def test_scoped_listdir_works_when_root_path_is_symlink(symlink_volume: LocalVolume) -> None:
     """Scoped volume listdir must work when the underlying root_path is a symlink."""
-    real_dir = tmp_path / "real_storage"
-    real_dir.mkdir()
-    symlink = tmp_path / "link"
-    symlink.symlink_to(real_dir)
+    symlink_volume.write_files({"agents/a1/events/claude/events.jsonl": b"{}"})
 
-    volume = LocalVolume(root_path=symlink)
-    volume.write_files({"agents/a1/events/claude/events.jsonl": b"{}"})
-
-    scoped = volume.scoped("agents/a1")
+    scoped = symlink_volume.scoped("agents/a1")
     entries = scoped.listdir("events")
     assert len(entries) == 1
     assert entries[0].path == "events/claude"
