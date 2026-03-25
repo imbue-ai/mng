@@ -22,11 +22,6 @@ def test_mind_paths_auth_dir_is_under_data_dir(tmp_path: Path) -> None:
     assert paths.auth_dir == tmp_path / "auth"
 
 
-def test_mind_paths_shared_dir_is_under_data_dir(tmp_path: Path) -> None:
-    paths = MindPaths(data_dir=tmp_path)
-    assert paths.shared_dir == tmp_path / "data" / "shared"
-
-
 def test_get_default_data_dir_returns_home_minds() -> None:
     result = get_default_data_dir()
     assert result.name == ".minds"

@@ -35,8 +35,8 @@ from imbue.minds.errors import GitCloneError
 from imbue.minds.errors import GitOperationError
 from imbue.minds.errors import MngCommandError
 from imbue.minds.forwarding_server.parent_tracking import setup_mind_branch_and_parent
+from imbue.minds.forwarding_server.vendor_mng import apply_vendor_overrides
 from imbue.minds.forwarding_server.vendor_mng import default_vendor_configs
-from imbue.minds.forwarding_server.vendor_mng import find_mng_repo_root
 from imbue.minds.forwarding_server.vendor_mng import vendor_repos
 from imbue.minds.primitives import AgentName
 from imbue.minds.primitives import GitBranch
@@ -166,9 +166,6 @@ def load_creation_settings(repo_dir: Path) -> ClaudeMindSettings:
         return ClaudeMindSettings()
 
 
-_CONTAINER_SHARED_MOUNT_PATH: Final[str] = "/mnt/shared"
-
-
 def run_mng_create(
     launch_mode: LaunchMode,
     mind_dir: Path,
@@ -176,8 +173,6 @@ def run_mng_create(
     agent_id: AgentId,
     agent_type: str,
     pass_env: tuple[str, ...],
-    # required when launch_mode is LOCAL (the shared mount target on the host)
-    shared_dir: Path | None = None,
     on_output: OutputCallback | None = None,
 ) -> None:
     """Create an mng agent via ``mng create``.
@@ -221,9 +216,6 @@ def run_mng_create(
         case LaunchMode.DEV:
             mng_command.append("--in-place")
         case LaunchMode.LOCAL:
-            if shared_dir is None:
-                raise MngCommandError("shared_dir is required for LOCAL launch mode")
-            shared_dir.mkdir(parents=True, exist_ok=True)
             remote_data_dir = os.path.expanduser(f"~/.minds/data/{agent_id}")
             Path(remote_data_dir).mkdir(parents=True, exist_ok=True)
             mng_command.extend(
@@ -233,8 +225,6 @@ def run_mng_create(
                     "-vv",
                     "--source-path",
                     str(mind_dir),
-                    "-s",
-                    "-v={}:{}".format(shared_dir, _CONTAINER_SHARED_MOUNT_PATH),
                     "-s",
                     "-v={}:{}".format(remote_data_dir, "/data/remote"),
                 ]
@@ -374,8 +364,9 @@ class AgentCreator(MutableModel):
 
                 settings = load_creation_settings(mind_dir)
 
-                mng_repo_root = find_mng_repo_root()
-                vendor_configs = settings.vendor if settings.vendor else default_vendor_configs(mng_repo_root)
+                vendor_configs = apply_vendor_overrides(
+                    settings.vendor if settings.vendor else default_vendor_configs()
+                )
 
                 log_queue.put("[minds] Vendoring {} repo(s)...".format(len(vendor_configs)))
                 vendor_repos(mind_dir, vendor_configs, on_output=emit_log)
@@ -434,7 +425,6 @@ class AgentCreator(MutableModel):
             agent_id=agent_id,
             agent_type=agent_type,
             pass_env=self.pass_env,
-            shared_dir=self.paths.shared_dir if launch_mode == LaunchMode.LOCAL else None,
             on_output=emit_log,
         )
         match launch_mode:

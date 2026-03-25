@@ -27,11 +27,6 @@ class MindPaths(FrozenModel):
         """Directory for authentication data (signing key, one-time codes)."""
         return self.data_dir / "auth"
 
-    @property
-    def shared_dir(self) -> Path:
-        """Directory shared across all minds, bind-mounted into containers."""
-        return self.data_dir / "data" / "shared"
-
     def mind_dir(self, agent_id: AgentId) -> Path:
         """Directory for a specific mind's repo (e.g. ~/.minds/<agent-id>/)."""
         return self.data_dir / str(agent_id)
