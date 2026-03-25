@@ -98,6 +98,44 @@ def test_listdir_includes_size(volume: LocalVolume) -> None:
     assert entries[0].size == 5
 
 
+def test_listdir_works_when_root_path_is_symlink(tmp_path: Path) -> None:
+    """Listdir must work when root_path is a symlink to another directory."""
+    real_dir = tmp_path / "real_storage"
+    real_dir.mkdir()
+    symlink = tmp_path / "link"
+    symlink.symlink_to(real_dir)
+
+    volume = LocalVolume(root_path=symlink)
+    volume.write_files({"sub/file.txt": b"data"})
+
+    entries = volume.listdir("")
+    assert len(entries) == 1
+    assert entries[0].path == "sub"
+    assert entries[0].file_type == VolumeFileType.DIRECTORY
+
+    sub_entries = volume.listdir("sub")
+    assert len(sub_entries) == 1
+    assert sub_entries[0].path == "sub/file.txt"
+    assert sub_entries[0].file_type == VolumeFileType.FILE
+
+
+def test_scoped_listdir_works_when_root_path_is_symlink(tmp_path: Path) -> None:
+    """Scoped volume listdir must work when the underlying root_path is a symlink."""
+    real_dir = tmp_path / "real_storage"
+    real_dir.mkdir()
+    symlink = tmp_path / "link"
+    symlink.symlink_to(real_dir)
+
+    volume = LocalVolume(root_path=symlink)
+    volume.write_files({"agents/a1/events/claude/events.jsonl": b"{}"})
+
+    scoped = volume.scoped("agents/a1")
+    entries = scoped.listdir("events")
+    assert len(entries) == 1
+    assert entries[0].path == "events/claude"
+    assert entries[0].file_type == VolumeFileType.DIRECTORY
+
+
 def test_path_traversal_blocked(volume: LocalVolume) -> None:
     """Paths with '..' that escape the volume root should be rejected."""
     with pytest.raises(MngError, match="escapes volume root"):

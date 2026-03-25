@@ -392,6 +392,9 @@ def apply_config_defaults(ctx: click.Context, config: MngConfig, command_name: s
             and isinstance(ctx.params[param_name], (list, tuple))
         ):
             updated_params[param_name] = tuple(ctx.params[param_name]) + tuple(config_value)
+        else:
+            # Parameter was explicitly set on the command line; CLI value wins
+            pass
 
     return updated_params
 
