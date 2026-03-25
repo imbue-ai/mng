@@ -1078,6 +1078,9 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Read output (implicitly waits for completion)
         stdout = process.get_stdout().read()
+        exit_code = process.wait()
+        if exit_code != 0:
+            raise MngError(f"Failed to install required packages (exit code {exit_code}): {stdout}")
 
         # Parse warnings from output and log them
         warnings = parse_warnings_from_output(stdout)
