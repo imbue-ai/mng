@@ -160,7 +160,6 @@ When creating agents with `--worktree` or `--copy-source`, certain files outside
 [work_dir_extra_paths]
 ".mng/settings.local.toml" = "SHARE"
 ".venv" = "COPY"
-"node_modules" = "SHARE"
 ".test_output" = "COPY"
 ```
 
@@ -171,8 +170,8 @@ When creating agents with `--worktree` or `--copy-source`, certain files outside
 
 **When to use each mode:**
 
-- Use `"SHARE"` for config files that are the same regardless of branch, like `.mng/settings.local.toml`, or large read-only caches like `node_modules` (if you pin versions).
-- Use `"COPY"` for paths that depend on branch state (like `.venv`, which reflects each branch's dependencies) or that each work directory should own independently (like test output).
+- Use `"SHARE"` for config files that are the same regardless of branch, like `.mng/settings.local.toml`.
+- Use `"COPY"` for paths that depend on branch state (like `.venv` or `node_modules`, which reflect each branch's dependencies) or that each work directory should own independently (like test output).
 
 **Behavior details:**
 
