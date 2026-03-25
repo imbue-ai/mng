@@ -1553,6 +1553,71 @@ def test_delivery_loop_filters_event_exclude_sources(tmp_path: Path) -> None:
     assert json.loads(lines[0])["event_id"] == "evt-keep"
 
 
+@pytest.mark.timeout(15)
+def test_delivery_loop_delivers_user_message_immediately_when_batching_disabled(tmp_path: Path) -> None:
+    """When is_message_batching_enabled=False, user messages are delivered without waiting for assistant."""
+    state_file, events_dir, event_batches_dir, event_lists_dir, ignored_sources_state = _setup_delivery_loop_dirs(
+        tmp_path
+    )
+    settings = _EventWatcherSettings(
+        burst_size=5,
+        max_messages_per_minute=60,
+        is_message_batching_enabled=False,
+    )
+
+    event_buffer: list[str] = []
+    buffer_lock = threading.Lock()
+    stop_event = threading.Event()
+    capture = _MessageCapture()
+
+    # A user message from the "messages" source -- with batching enabled this would be
+    # held until an assistant response arrives, but with batching disabled it should
+    # be delivered immediately.
+    user_msg = json.dumps(
+        {
+            "source": "messages",
+            "role": "user",
+            "conversation_id": "conv-1",
+            "event_id": "evt-user-1",
+            "timestamp": "2026-03-01T12:00:00Z",
+        }
+    )
+    event_buffer.append(user_msg)
+
+    thread = threading.Thread(
+        target=_run_delivery_loop,
+        args=(
+            settings,
+            "agent-test-00000000000000000001",
+            state_file,
+            events_dir,
+            event_buffer,
+            buffer_lock,
+            stop_event,
+            event_batches_dir,
+            event_lists_dir,
+            ignored_sources_state,
+        ),
+        kwargs={"send_message": capture},
+        daemon=True,
+    )
+    thread.start()
+
+    assert capture.wait_for_call(timeout=5.0), "Expected send_message to be called"
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    # The user message should have been delivered (not held)
+    batch_files = list(event_batches_dir.glob("*.jsonl"))
+    assert len(batch_files) == 1
+    lines = batch_files[0].read_text().strip().split("\n")
+    assert len(lines) == 1
+    parsed = json.loads(lines[0])
+    assert parsed["event_id"] == "evt-user-1"
+    assert parsed["role"] == "user"
+    assert parsed["source"] == "messages"
+
+
 # -- main() tests --
 
 
