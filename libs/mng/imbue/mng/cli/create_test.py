@@ -1063,7 +1063,16 @@ def test_create_accepts_name_flag_alone(
     """--name alone (no positional) should work for specifying the agent address."""
     result = cli_runner.invoke(
         create,
-        ["--name", "@.local", "--command", "true", "--no-connect", "--source-path", str(temp_work_dir)],
+        [
+            "--name",
+            "@.local",
+            "--command",
+            "true",
+            "--no-connect",
+            "--transfer=none",
+            "--source-path",
+            str(temp_work_dir),
+        ],
         obj=plugin_manager,
     )
 
@@ -1084,7 +1093,17 @@ def test_create_provider_flag_sets_provider(
     """--provider without an address provider should be accepted."""
     result = cli_runner.invoke(
         create,
-        ["my-agent", "--provider", "local", "--command", "true", "--no-connect", "--source-path", str(temp_work_dir)],
+        [
+            "my-agent",
+            "--provider",
+            "local",
+            "--command",
+            "true",
+            "--no-connect",
+            "--transfer=none",
+            "--source-path",
+            str(temp_work_dir),
+        ],
         obj=plugin_manager,
     )
 
@@ -1122,6 +1141,7 @@ def test_create_provider_flag_redundant_with_address_is_ok(
             "--command",
             "true",
             "--no-connect",
+            "--transfer=none",
             "--source-path",
             str(temp_work_dir),
         ],

@@ -103,6 +103,7 @@ def test_cli_create_via_subprocess(
                 "sleep 651472",
                 "--source",
                 str(temp_work_dir),
+                "--transfer=none",
                 "--no-connect",
                 "--no-ensure-clean",
                 # Note: --command automatically implies --type generic
@@ -155,6 +156,7 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
     opts = default_create_cli_opts.model_copy_update(
         to_update(default_create_cli_opts.field_ref().command, "sleep 397265"),
         to_update(default_create_cli_opts.field_ref().source_path, str(temp_work_dir)),
+        to_update(default_create_cli_opts.field_ref().transfer, "none"),
         to_update(default_create_cli_opts.field_ref().connect, True),
         to_update(default_create_cli_opts.field_ref().ensure_clean, False),
     )
