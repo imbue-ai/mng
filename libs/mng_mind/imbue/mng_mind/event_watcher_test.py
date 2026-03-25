@@ -2159,7 +2159,7 @@ def test_idle_wait_fires_after_agent_becomes_idle(synthetic_loop_env: SyntheticL
 
 
 def test_idle_wait_resets_on_real_event(synthetic_loop_env: SyntheticLoopEnv) -> None:
-    """When a real event arrives, idle state resets and a new wait starts."""
+    """When a real event arrives, idle state resets. No new wait starts until delivery."""
     env = synthetic_loop_env
     env.last_real_event_monotonic[0] = 1000.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1,))
@@ -2195,13 +2195,66 @@ def test_idle_wait_resets_on_real_event(synthetic_loop_env: SyntheticLoopEnv) ->
         poll_interval_seconds=0.01,
         agent_id="agent-test",
         start_idle_wait=tracking_idle_wait,
+        # No last_delivery_monotonic -- wait won't restart without delivery
     )
 
-    # Initial wait + restart after real event = 2 calls
-    assert len(wait_calls) == 2
+    # Only initial wait at startup; on_real_event does NOT start a new wait
+    assert len(wait_calls) == 1
     # No idle events because agent never entered WAITING
     idle_events = [line for line in env.event_buffer if '"mind/idle"' in line]
     assert len(idle_events) == 0
+
+
+def test_idle_wait_restarts_after_delivery_plus_slack(synthetic_loop_env: SyntheticLoopEnv) -> None:
+    """After a real event is delivered, the wait restarts only after slack time elapses."""
+    env = synthetic_loop_env
+    env.last_real_event_monotonic[0] = 1000.0
+    settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1,))
+
+    wait_calls: list[str] = []
+
+    def tracking_idle_wait(agent_id: str) -> FakeWaitProcess:
+        wait_calls.append(agent_id)
+        return _create_fake_wait_process(is_complete=False, returncode=None)
+
+    # Simulate delivery happening at T=1005 (after the real event at T=1000)
+    delivery_mono: list[float] = [1005.0]
+
+    call_count = 0
+
+    def clock_with_delivery() -> float:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # Real event arrives
+            env.last_real_event_monotonic[0] = 1002.0
+            return 1002.0
+        if call_count == 2:
+            # Not enough slack yet (only 3s after delivery, need 5s)
+            return 1008.0
+        if call_count == 3:
+            # Enough slack (6s after delivery at 1005)
+            return 1011.0
+        if call_count > 4:
+            env.stop_event.set()
+        return 1100.0
+
+    _run_synthetic_events_loop(
+        settings,
+        env.event_buffer,
+        env.buffer_lock,
+        env.stop_event,
+        env.last_real_event_monotonic,
+        env.mind_state_dir,
+        clock_with_delivery,
+        poll_interval_seconds=0.01,
+        agent_id="agent-test",
+        start_idle_wait=tracking_idle_wait,
+        last_delivery_monotonic=delivery_mono,
+    )
+
+    # Initial wait + restart after delivery+slack = 2 calls
+    assert len(wait_calls) == 2
 
 
 def test_idle_wait_disabled_without_agent_id(synthetic_loop_env: SyntheticLoopEnv) -> None:

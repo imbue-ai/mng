@@ -102,6 +102,10 @@ _SOURCE_MIND_FILTER_ERROR: Final[str] = "mind/filter_error"
 # Poll interval for the 'mng wait' subprocess used to detect agent idle state
 _IDLE_WAIT_POLL_INTERVAL: Final[str] = "2s"
 
+# Seconds to wait after event delivery before starting 'mng wait', to avoid
+# a race where the agent hasn't received the events yet and appears idle.
+_IDLE_WAIT_SLACK_SECONDS: Final[float] = 5.0
+
 
 # -- Settings --
 
@@ -589,8 +593,13 @@ class _IdleWaitTracker:
 
     _agent_id: str
     _start_idle_wait: Callable[[str], Any]
+    _slack_seconds: float = _IDLE_WAIT_SLACK_SECONDS
     _process: Any = dataclasses.field(default=None, init=False)
     _idle_since: float | None = dataclasses.field(default=None, init=False)
+    # Whether we're waiting for events to be delivered before starting
+    # the next 'mng wait'. Set True by on_real_event(), cleared when
+    # maybe_start_after_delivery() successfully starts the wait.
+    _awaiting_delivery: bool = dataclasses.field(default=False, init=False)
 
     def start(self) -> None:
         """Launch the initial 'mng wait' subprocess."""
@@ -598,12 +607,45 @@ class _IdleWaitTracker:
         logger.info("Started idle wait for agent {}", self._agent_id)
 
     def on_real_event(self) -> None:
-        """Reset idle state and restart the wait after a real event arrives."""
+        """Reset idle state when a real event arrives.
+
+        Does NOT immediately start a new wait -- the event hasn't been
+        delivered to the agent yet. Call maybe_start_after_delivery()
+        once delivery is confirmed to start the next wait.
+        """
         self._idle_since = None
+        self._awaiting_delivery = True
         if self._process is not None:
             _terminate_process_gracefully(self._process)
+            self._process = None
+        logger.debug("Reset idle state after real event, awaiting delivery")
+
+    def maybe_start_after_delivery(
+        self,
+        last_delivery_monotonic: float,
+        last_real_event_time: float,
+        now_monotonic: float,
+    ) -> None:
+        """Start 'mng wait' if events have been delivered and slack time has elapsed.
+
+        Only acts when we are awaiting delivery (on_real_event was called)
+        and the delivery loop has delivered events that arrived after the
+        last real event we saw, plus a slack period to ensure the agent
+        has had time to receive and begin processing them.
+        """
+        if not self._awaiting_delivery:
+            return
+        if self._process is not None:
+            return
+        # Delivery must have happened after the real event arrived
+        if last_delivery_monotonic <= last_real_event_time:
+            return
+        # Wait for slack time after delivery
+        if now_monotonic - last_delivery_monotonic < self._slack_seconds:
+            return
+        self._awaiting_delivery = False
         self._process = self._start_idle_wait(self._agent_id)
-        logger.debug("Restarted idle wait after real event")
+        logger.debug("Started idle wait after delivery + {:.0f}s slack", self._slack_seconds)
 
     def poll(self, now_monotonic: float) -> None:
         """Check whether the wait subprocess has completed.
@@ -972,6 +1014,7 @@ def _run_synthetic_events_loop(
     poll_interval_seconds: float = _SYNTHETIC_POLL_INTERVAL_SECONDS,
     agent_id: str = "",
     start_idle_wait: Callable[[str], Any] | None = None,
+    last_delivery_monotonic: list[float] | None = None,
 ) -> None:
     """Generate synthetic events: idle, scheduled, and onboarding.
 
@@ -981,7 +1024,9 @@ def _run_synthetic_events_loop(
     When agent_id is non-empty and idle events are configured, uses
     'mng wait' to detect when the agent enters WAITING state. Idle time
     is counted from the moment the agent becomes idle, not from the last
-    real event time.
+    real event time. The wait is only started after events have been
+    delivered (via last_delivery_monotonic) plus a slack period, to avoid
+    a race where the agent appears idle before it receives the events.
     """
     user_tz = _resolve_user_timezone(settings.user_timezone)
     _maybe_send_onboarding(mind_state_dir, event_buffer, buffer_lock)
@@ -1019,6 +1064,13 @@ def _run_synthetic_events_loop(
                     idle_wait_tracker.on_real_event()
 
             if idle_wait_tracker is not None:
+                # Start the wait only after events have been delivered + slack
+                if last_delivery_monotonic is not None:
+                    idle_wait_tracker.maybe_start_after_delivery(
+                        last_delivery_monotonic[0],
+                        last_seen_real_event_time,
+                        now_monotonic,
+                    )
                 idle_wait_tracker.poll(now_monotonic)
 
             if settings.idle_event_delay_minutes_schedule:
@@ -1342,6 +1394,7 @@ def _run_delivery_loop(
     event_lists_dir: Path,
     ignored_sources_state: _IgnoredSourcesState,
     send_message: Callable[[str, str], bool] = _send_message,
+    last_delivery_monotonic: list[float] | None = None,
 ) -> None:
     """Main delivery loop: drain buffer, rate-limit, format, and deliver to agent.
 
@@ -1475,6 +1528,9 @@ def _run_delivery_loop(
         )
 
         if success:
+            # Signal to the synthetic events loop that events have been delivered
+            if last_delivery_monotonic is not None:
+                last_delivery_monotonic[0] = time.monotonic()
             if has_notified_user:
                 _notify_user(
                     events_dir,
@@ -1576,6 +1632,11 @@ def main(
     # Updated by the reader thread, read by the synthetic events thread.
     last_real_event_monotonic: list[float] = [time.monotonic()]
 
+    # Shared monotonic timestamp of the last successful event delivery.
+    # Updated by the delivery thread, read by the synthetic events thread
+    # to know when it's safe to start the idle wait subprocess.
+    last_delivery_monotonic: list[float] = [0.0]
+
     # Directory for synthetic event state files (onboarding marker, scheduled state)
     mind_state_dir = agent_state_dir / "mind"
     mind_state_dir.mkdir(parents=True, exist_ok=True)
@@ -1591,6 +1652,7 @@ def main(
             "last_real_event_monotonic": last_real_event_monotonic,
             "mind_state_dir": mind_state_dir,
             "agent_id": agent_id,
+            "last_delivery_monotonic": last_delivery_monotonic,
         },
         daemon=True,
     )
@@ -1611,6 +1673,7 @@ def main(
             event_lists_dir,
             ignored_sources_state,
             send_message,
+            last_delivery_monotonic,
         ),
         daemon=True,
     )
