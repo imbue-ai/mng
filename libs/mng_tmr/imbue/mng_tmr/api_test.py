@@ -129,7 +129,7 @@ def test_build_agent_options_local_uses_worktree() -> None:
     assert opts.transfer_mode == TransferMode.GIT_WORKTREE
 
 
-def test_build_agent_options_remote_uses_clone() -> None:
+def test_build_agent_options_remote_uses_git_mirror() -> None:
     opts = _build_agent_options(AgentName("test"), "branch", _make_config("modal"))
     assert opts.git is not None
     assert opts.transfer_mode == TransferMode.GIT_MIRROR

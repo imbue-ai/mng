@@ -961,7 +961,12 @@ def test_provision_extends_trust_for_worktree(
 def test_provision_does_not_extend_trust_for_non_worktree(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
-    """provision should not extend trust when not using worktree mode."""
+    """provision should not extend trust when the git source path cannot be found.
+
+    GIT_MIRROR mode attempts trust extension, but _find_git_source_path returns
+    None here because the work_dir is not a git worktree (it's an ordinary git
+    repo), so no source path is available to extend trust from.
+    """
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
     _init_git_with_gitignore(agent.work_dir)
     _write_all_dialogs_dismissed(agent.work_dir)
@@ -973,8 +978,9 @@ def test_provision_does_not_extend_trust_for_non_worktree(
 
     agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
 
-    # Trust was written by _write_all_dialogs_dismissed, but the provision should NOT
-    # have extended trust from a source directory since we're using GIT_MIRROR mode.
+    # Trust was written by _write_all_dialogs_dismissed, but the provision could
+    # not extend trust from a source directory because _find_git_source_path
+    # returns None (work_dir is not a git worktree).
     # The global config should only contain what _write_all_dialogs_dismissed wrote.
     config_path = Path.home() / ".claude.json"
     config = json.loads(config_path.read_text())
