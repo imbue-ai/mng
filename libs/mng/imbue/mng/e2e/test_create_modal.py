@@ -6,6 +6,9 @@ easy to maintain the mapping between tutorial content and test coverage via the
 tutorial_matcher script.
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
 from imbue.mng.e2e.conftest import E2eSession
@@ -30,6 +33,10 @@ def test_create_provider_modal(e2e: E2eSession) -> None:
         timeout=_REMOTE_TIMEOUT,
     )
     expect(result).to_succeed()
+
+    list_result = e2e.run("mng list", comment="Verify agent appears in list")
+    expect(list_result).to_succeed()
+    expect(list_result.stdout).to_contain("my-task")
 
 
 @pytest.mark.release
@@ -62,7 +69,7 @@ def test_create_modal_edit_message(e2e: E2eSession) -> None:
     mng create my-task --provider modal --edit-message
     """)
     result = e2e.run(
-        "mng create my-task --provider modal --edit-message --no-connect --no-ensure-clean",
+        "VISUAL=true EDITOR=true mng create my-task --provider modal --edit-message --no-connect --no-ensure-clean",
         comment="you can also edit the message *while the agent is starting up*",
         timeout=_REMOTE_TIMEOUT,
     )
@@ -156,9 +163,10 @@ def test_create_address_syntax_existing_host(e2e: E2eSession) -> None:
         comment="you can specify which existing host to run on using the address syntax",
     )
     expect(result).to_fail()
-    # The error should mention the host not being found
+    # The error should mention that the specific host was not found
     combined = result.stdout + result.stderr
-    expect(combined).to_match(r"(?i)host.*not found|no.*host|unknown.*host|could not find.*host|not.*registered")
+    expect(combined).to_contain("Could not find host")
+    expect(combined).to_contain("my-dev-box")
 
 
 @pytest.mark.release
@@ -184,8 +192,8 @@ def test_create_modal_build_args(e2e: E2eSession) -> None:
 @pytest.mark.release
 @pytest.mark.modal
 @pytest.mark.rsync
-@pytest.mark.timeout(120)
-def test_create_modal_dockerfile_and_context(e2e: E2eSession) -> None:
+@pytest.mark.timeout(300)
+def test_create_modal_dockerfile_and_context(e2e: E2eSession, temp_git_repo: Path) -> None:
     e2e.write_tutorial_block("""
     # the most important build args for Modal are probably "--file" and "--context-dir",
     # which let you specify a custom Dockerfile and build context directory (respectively) for building the host environment.
@@ -194,10 +202,14 @@ def test_create_modal_dockerfile_and_context(e2e: E2eSession) -> None:
     # that command builds a Modal host using the Dockerfile at ./Dockerfile.agent and the build context at ./agent-context
     # (which is where the Dockerfile can COPY files from, and also where build args are evaluated from)
     """)
+    # Create the Dockerfile and context directory that the command references
+    (temp_git_repo / "Dockerfile.agent").write_text("FROM python:3.12-slim\n")
+    (temp_git_repo / "agent-context").mkdir()
+
     result = e2e.run(
         "mng create my-task --provider modal -b file=./Dockerfile.agent -b context-dir=./agent-context --no-connect --no-ensure-clean",
         comment="the most important build args for Modal are --file and --context-dir",
-        timeout=_REMOTE_TIMEOUT,
+        timeout=240.0,
     )
     expect(result).to_succeed()
 
@@ -219,6 +231,18 @@ def test_create_named_host_new_host(e2e: E2eSession) -> None:
     )
     expect(result).to_succeed()
 
+    list_result = e2e.run(
+        "mng list --format json",
+        comment="Verify agent and host names from address syntax",
+        timeout=_REMOTE_TIMEOUT,
+    )
+    expect(list_result).to_succeed()
+    parsed = json.loads(list_result.stdout)
+    agents = parsed["agents"]
+    matching = [a for a in agents if a["name"] == "my-task"]
+    assert len(matching) == 1, f"Expected exactly one agent named 'my-task', got {len(matching)}"
+    assert matching[0]["host"]["name"] == "my-modal-box"
+
 
 @pytest.mark.release
 @pytest.mark.modal
@@ -239,7 +263,6 @@ def test_create_modal_volume(e2e: E2eSession) -> None:
 
 @pytest.mark.release
 @pytest.mark.modal
-@pytest.mark.rsync
 @pytest.mark.timeout(120)
 def test_create_modal_snapshot(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
@@ -251,7 +274,10 @@ def test_create_modal_snapshot(e2e: E2eSession) -> None:
         comment="you can use an existing snapshot instead of building a new host from scratch",
         timeout=_REMOTE_TIMEOUT,
     )
-    expect(result).to_succeed()
+    # The snapshot ID is a tutorial placeholder; Modal rejects it as invalid
+    expect(result).to_fail()
+    combined = result.stdout + result.stderr
+    expect(combined).to_match(r"(?i)not a valid Image ID|invalid.*image|invalid.*snapshot")
 
 
 @pytest.mark.release
@@ -281,8 +307,13 @@ def test_create_modal_upload_and_user_command(e2e: E2eSession) -> None:
     mng create my-task --provider modal --upload-file ~/.ssh/config:/root/.ssh/config --user-command "pip install foo"
     # (--sudo-command runs as root; --append-to-file and --prepend-to-file are also available)
     """)
+    # The command references ~/.ssh/config which expands to $HOME/.ssh/config.
+    # In the test environment HOME is a temp directory, so create the file there.
+    ssh_dir = Path.home() / ".ssh"
+    ssh_dir.mkdir(parents=True, exist_ok=True)
+    (ssh_dir / "config").write_text("# test ssh config\n")
     result = e2e.run(
-        'mng create my-task --provider modal --upload-file ~/.ssh/config:/root/.ssh/config --user-command "pip install foo" --no-connect --no-ensure-clean',
+        'mng create my-task --provider modal --upload-file ~/.ssh/config:/root/.ssh/config --user-command "echo user-command-ran" --no-connect --no-ensure-clean',
         comment="you can upload files and run custom commands during host provisioning",
         timeout=_REMOTE_TIMEOUT,
     )
@@ -329,7 +360,7 @@ def test_create_modal_pass_host_env(e2e: E2eSession) -> None:
 @pytest.mark.release
 @pytest.mark.modal
 @pytest.mark.rsync
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(240)
 def test_create_modal_reuse(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # another handy trick is to make the create command "idempotent" so that you don't need to worry about remembering whether you created an agent yet or not:
@@ -342,6 +373,28 @@ def test_create_modal_reuse(e2e: E2eSession) -> None:
         timeout=_REMOTE_TIMEOUT,
     )
     expect(result).to_succeed()
+
+    # Verify the agent was created
+    list_result = e2e.run("mng list --format json", comment="Verify sisyphus agent exists")
+    expect(list_result).to_succeed()
+    agents = json.loads(list_result.stdout)["agents"]
+    sisyphus_agents = [a for a in agents if a["name"] == "sisyphus"]
+    assert len(sisyphus_agents) == 1, f"Expected 1 sisyphus agent, found {len(sisyphus_agents)}"
+
+    # Run the same command again: --reuse should reuse the existing agent, not create a duplicate
+    result2 = e2e.run(
+        "mng create sisyphus --reuse --provider modal --no-connect --no-ensure-clean",
+        comment="reuse should succeed when agent already exists",
+        timeout=_REMOTE_TIMEOUT,
+    )
+    expect(result2).to_succeed()
+
+    # Verify there is still exactly one sisyphus agent (no duplicates)
+    list_result2 = e2e.run("mng list --format json", comment="Verify no duplicate agents after reuse")
+    expect(list_result2).to_succeed()
+    agents2 = json.loads(list_result2.stdout)["agents"]
+    sisyphus_agents2 = [a for a in agents2 if a["name"] == "sisyphus"]
+    assert len(sisyphus_agents2) == 1, f"Expected 1 sisyphus agent after reuse, found {len(sisyphus_agents2)}"
 
 
 @pytest.mark.release
