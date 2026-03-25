@@ -551,7 +551,7 @@ def _read_events_from_subprocess(
                         if parsed.get("source") != "messages":
                             last_non_messages_event_monotonic[0] = now
                     except json.JSONDecodeError:
-                        pass
+                        logger.debug("Failed to parse event line for source check: {}", stripped[:200])
     except Exception as exc:
         if not stop_event.is_set():
             logger.error("Error reading from events subprocess: {}", exc)
