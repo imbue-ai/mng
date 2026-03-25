@@ -10,10 +10,10 @@ from pathlib import Path
 from loguru import logger
 from markdown_it import MarkdownIt
 
-from imbue.mng.e2e.test_detail_renderer import ASCIINEMA_PLAYER_CSS
-from imbue.mng.e2e.test_detail_renderer import ASCIINEMA_PLAYER_JS
-from imbue.mng.e2e.test_detail_renderer import DETAIL_CSS
-from imbue.mng.e2e.test_detail_renderer import render_test_detail
+from imbue.mng.e2e.detail_renderer import ASCIINEMA_PLAYER_CSS
+from imbue.mng.e2e.detail_renderer import ASCIINEMA_PLAYER_JS
+from imbue.mng.e2e.detail_renderer import DETAIL_CSS
+from imbue.mng.e2e.detail_renderer import render_test_detail
 from imbue.mng.primitives import AgentName
 from imbue.mng_tmr.data_types import ChangeStatus
 from imbue.mng_tmr.data_types import DisplayCategory
@@ -175,7 +175,7 @@ def _build_integrator_section(integrator: IntegratorResult | None) -> str:
             section += f"    <li><code>{html.escape(b)}</code></li>\n"
         section += "  </ul>\n"
     if integrator.failed:
-        section += '  <p style="color: rgb(244, 67, 54);">Failed to merge:</p>\n  <ul>\n'
+        section += '  <p style="color: rgb(244, 67, 54);">Failed to integrate:</p>\n  <ul>\n'
         for b in integrator.failed:
             section += f"    <li><code>{html.escape(b)}</code></li>\n"
         section += "  </ul>\n"

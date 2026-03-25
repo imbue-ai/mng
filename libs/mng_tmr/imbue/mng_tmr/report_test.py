@@ -252,7 +252,7 @@ def test_generate_html_report_integrator_with_failures(tmp_path: Path) -> None:
     output_path = tmp_path / "integrator_partial.html"
     generate_html_report(results, output_path, integrator=integrator)
     content = output_path.read_text()
-    assert "Failed to merge" in content
+    assert "Failed to integrate" in content
     assert "mng-tmr/b" in content
 
 

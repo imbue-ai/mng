@@ -85,21 +85,6 @@ def _try_list_agents(mng_ctx: MngContext) -> ListResult | None:
         return None
 
 
-_AUTO_MERGE_KINDS = frozenset({ChangeKind.FIX_TEST, ChangeKind.IMPROVE_TEST, ChangeKind.FIX_TUTORIAL})
-
-
-def should_auto_merge(result: TestMapReduceResult) -> bool:
-    """Determine whether an agent's changes can be auto-merged by the integrator.
-
-    Auto-merge when the result is pullable AND all changes are limited to
-    test/doc/tutorial fixes (no implementation fixes). Results with FIX_IMPL
-    are left unmerged for manual review.
-    """
-    if not should_pull_changes(result):
-        return False
-    return all(kind in _AUTO_MERGE_KINDS for kind in result.changes)
-
-
 def should_pull_changes(result: TestMapReduceResult) -> bool:
     """Determine whether an agent's changes should be pulled.
 
@@ -545,21 +530,22 @@ def launch_and_poll_agents(
         agent_id_to_info[agent_id_str] = info
         pending_ids.add(agent_id_str)
 
-    launch_args = (
-        remaining_tests,
-        pending_ids,
-        max_agents,
-        config,
-        mng_ctx,
-        pytest_flags,
-        prompt_suffix,
-        all_agents,
-        all_hosts,
-        agent_id_to_info,
-    )
+    # Shared kwargs for _launch_agents_up_to_limit (avoids fragile *args tuple)
+    launch_kwargs: dict = {
+        "remaining_tests": remaining_tests,
+        "pending_ids": pending_ids,
+        "max_agents": max_agents,
+        "config": config,
+        "mng_ctx": mng_ctx,
+        "pytest_flags": pytest_flags,
+        "prompt_suffix": prompt_suffix,
+        "all_agents": all_agents,
+        "all_hosts": all_hosts,
+        "agent_id_to_info": agent_id_to_info,
+    }
 
     # Launch initial batch (no-op when remaining_tests is empty)
-    _launch_agents_up_to_limit(*launch_args)
+    _launch_agents_up_to_limit(**launch_kwargs)
 
     if report_path is not None:
         current_results = build_current_results(all_agents, final_details, timed_out_ids, all_hosts)
@@ -580,7 +566,7 @@ def launch_and_poll_agents(
                 timed_out_this_round = True
 
         # Launch new agents if capacity opened up
-        _launch_agents_up_to_limit(*launch_args)
+        _launch_agents_up_to_limit(**launch_kwargs)
 
         if timed_out_this_round and report_path is not None:
             current_results = build_current_results(all_agents, final_details, timed_out_ids, all_hosts)
@@ -628,7 +614,7 @@ def launch_and_poll_agents(
                     changed = True
 
         # Launch new agents if capacity opened up from finished agents
-        _launch_agents_up_to_limit(*launch_args)
+        _launch_agents_up_to_limit(**launch_kwargs)
 
         if (changed or timed_out_this_round) and report_path is not None:
             current_results = build_current_results(all_agents, final_details, timed_out_ids, all_hosts)

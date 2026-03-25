@@ -101,11 +101,11 @@ class TmrLaunchConfig(FrozenModel):
 
 
 class IntegratorResult(FrozenModel):
-    """Result from the integrator agent that merges fix branches."""
+    """Result from the integrator agent that cherry-picks fix branches."""
 
     agent_name: AgentName | None = Field(default=None, description="Name of the integrator agent")
-    merged: tuple[str, ...] = Field(default=(), description="Branch names successfully merged")
-    failed: tuple[str, ...] = Field(default=(), description="Branch names that could not be merged")
+    merged: tuple[str, ...] = Field(default=(), description="Branch names successfully integrated")
+    failed: tuple[str, ...] = Field(default=(), description="Branch names that could not be integrated")
     branch_name: str | None = Field(default=None, description="Integrated branch name, if any merges succeeded")
     summary_markdown: str = Field(default="", description="Markdown summary from the integrator agent")
 
