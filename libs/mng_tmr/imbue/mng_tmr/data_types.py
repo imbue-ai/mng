@@ -52,6 +52,13 @@ class DisplayCategory(UpperCaseStrEnum):
     CLEAN_PASS = auto()
 
 
+class TestRunInfo(FrozenModel):
+    """Metadata for a single test run within an agent's work."""
+
+    run_name: str = Field(description="The --mng-e2e-run-name value used for this run")
+    description_markdown: str = Field(description="Brief description of what this run was for")
+
+
 class TestResult(FrozenModel):
     """Result reported by a test agent, read from result.json."""
 
@@ -68,6 +75,7 @@ class TestResult(FrozenModel):
         default=None, description="Are tests passing after all changes? None if unknown."
     )
     summary_markdown: str = Field(default="", description="Overall markdown summary of what happened")
+    test_runs: tuple[TestRunInfo, ...] = Field(default=(), description="List of test runs performed, in order")
 
 
 class TestAgentInfo(FrozenModel):
@@ -126,3 +134,4 @@ class TestMapReduceResult(FrozenModel):
         default=None,
         description="Git branch name if code changes were pulled, or None",
     )
+    test_runs: tuple[TestRunInfo, ...] = Field(default=(), description="Test runs performed by the agent, in order")

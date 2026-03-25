@@ -127,7 +127,7 @@ def e2e_run_dir(request: pytest.FixtureRequest) -> Path:
     """Create a named or timestamped directory for this test run's output."""
     run_name = request.config.getoption("--mng-e2e-run-name", default=None)
     if run_name is None:
-        run_name = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+        run_name = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d_%H:%M:%S")
     run_dir = _TEST_OUTPUT_DIR / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir

@@ -51,6 +51,7 @@ from imbue.mng_tmr.data_types import IntegratorResult
 from imbue.mng_tmr.data_types import TestAgentInfo
 from imbue.mng_tmr.data_types import TestMapReduceResult
 from imbue.mng_tmr.data_types import TestResult
+from imbue.mng_tmr.data_types import TestRunInfo
 from imbue.mng_tmr.data_types import TmrLaunchConfig
 from imbue.mng_tmr.report import generate_html_report
 
@@ -218,6 +219,20 @@ in brackets. Examples:
 This means if you make both a FIX_TEST and a FIX_IMPL change, you should have
 exactly two commits. Do NOT mix different kinds in the same commit.
 
+# Running tests multiple times
+
+You may run the test multiple times during your work (initial run, then after
+each fix attempt). Each run should use a DIFFERENT --mng-e2e-run-name value
+by appending a suffix to the base run name that was passed to you:
+
+  First run:  --mng-e2e-run-name <base>_try_1
+  Second run: --mng-e2e-run-name <base>_try_2
+  ...and so on.
+
+This ensures each run's artifacts (transcripts, recordings) are kept separately.
+Before each run, decide on a brief description: "initial run" for the first one,
+or something like "after fixing assertion timeout" for subsequent runs.
+
 # Writing the result
 
 In all cases, write the result to a JSON file at
@@ -227,7 +242,11 @@ $MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json with this schema:
  "errored": false,
  "tests_passing_before": false,
  "tests_passing_after": true,
- "summary_markdown": "Fixed test assertion and verified it passes."}}
+ "summary_markdown": "Fixed test assertion and verified it passes.",
+ "test_runs": [
+   {{"run_name": "<base>_try_1", "description_markdown": "initial run"}},
+   {{"run_name": "<base>_try_2", "description_markdown": "after fixing assertion timeout"}}
+ ]}}
 
 Fields:
 - changes: object keyed by change kind (IMPROVE_TEST, FIX_TEST, FIX_IMPL,
@@ -237,6 +256,9 @@ Fields:
 - tests_passing_before: were tests passing before you made any changes?
 - tests_passing_after: are tests passing now, after all your changes?
 - summary_markdown: overall markdown summary of what happened.
+- test_runs: list of objects, one per test run, in order. Each has run_name
+  (matching the --mng-e2e-run-name used) and description_markdown (brief
+  description of what this run was for).
 """
     if prompt_suffix:
         prompt += f"\n{prompt_suffix}\n"
@@ -654,12 +676,21 @@ def read_agent_result(
             )
             for kind_str, entry in raw_changes.items()
         }
+        raw_runs = data.get("test_runs", [])
+        test_runs = tuple(
+            TestRunInfo(
+                run_name=run_entry.get("run_name", ""),
+                description_markdown=run_entry.get("description_markdown", ""),
+            )
+            for run_entry in raw_runs
+        )
         return TestResult(
             changes=changes,
             errored=data.get("errored", False),
             tests_passing_before=data.get("tests_passing_before"),
             tests_passing_after=data.get("tests_passing_after"),
             summary_markdown=data.get("summary_markdown", ""),
+            test_runs=test_runs,
         )
     except HostError as exc:
         logger.warning("Lost connection to agent {} while fetching result file: {}", agent_detail.name, exc)
@@ -854,6 +885,7 @@ def _collect_agent_results(
                 tests_passing_after=test_result.tests_passing_after,
                 summary_markdown=test_result.summary_markdown,
                 branch_name=detail.initial_branch,
+                test_runs=test_result.test_runs,
             )
         )
 

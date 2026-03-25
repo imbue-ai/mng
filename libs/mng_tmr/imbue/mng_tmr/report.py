@@ -19,6 +19,7 @@ from imbue.mng_tmr.data_types import ChangeStatus
 from imbue.mng_tmr.data_types import DisplayCategory
 from imbue.mng_tmr.data_types import IntegratorResult
 from imbue.mng_tmr.data_types import TestMapReduceResult
+from imbue.mng_tmr.data_types import TestRunInfo
 
 _DISPLAY_COLORS: dict[DisplayCategory, str] = {
     DisplayCategory.PENDING: "rgb(3, 169, 244)",
@@ -69,21 +70,21 @@ def generate_html_report(
         cat = display_category_of(r)
         counts[cat] = counts.get(cat, 0) + 1
 
-    # Find artifact directories per agent
-    artifact_dirs: dict[str, Path] = {}
+    # Find artifact directories per agent (may have multiple runs)
+    agent_artifact_runs: dict[str, list[tuple[str, str, Path]]] = {}
     if test_artifacts_dir is not None:
         for r in results:
-            artifact_dir = _find_test_artifact_dir(test_artifacts_dir, r.agent_name)
-            if artifact_dir is not None:
-                artifact_dirs[str(r.agent_name)] = artifact_dir
+            runs = _find_test_artifact_runs(test_artifacts_dir, r.agent_name, r.test_runs)
+            if runs:
+                agent_artifact_runs[str(r.agent_name)] = runs
 
     nav_html = _build_category_nav(counts, len(results))
-    tables_html = _build_grouped_tables(results, artifact_dirs)
+    tables_html = _build_grouped_tables(results, agent_artifact_runs)
     integrator_html = _build_integrator_section(integrator)
     integrator_nav = _build_integrator_nav(integrator)
-    panels_html = _build_artifact_panels(artifact_dirs)
+    panels_html = _build_artifact_panels(agent_artifact_runs)
 
-    has_artifacts = bool(artifact_dirs)
+    has_artifacts = bool(agent_artifact_runs)
     asciinema_head = ""
     if has_artifacts:
         asciinema_head = (
@@ -191,10 +192,10 @@ def _render_markdown(text: str) -> str:
 
 def _build_grouped_tables(
     results: list[TestMapReduceResult],
-    artifact_dirs: dict[str, Path] | None = None,
+    agent_artifact_runs: dict[str, list[tuple[str, str, Path]]] | None = None,
 ) -> str:
     """Build HTML tables grouped by display category, with CLEAN_PASS last."""
-    artifact_dirs = artifact_dirs or {}
+    agent_artifact_runs = agent_artifact_runs or {}
     grouped: dict[DisplayCategory, list[TestMapReduceResult]] = {}
     for r in results:
         cat = display_category_of(r)
@@ -210,7 +211,7 @@ def _build_grouped_tables(
         sections += f'  <h2 id="{anchor}" style="color: {color};">{cat.value} ({len(group)})</h2>\n'
         sections += "  <table>\n    <thead>\n      <tr>"
         sections += "<th>Test</th><th>Changes</th><th>Summary</th><th>Agent</th><th>Branch</th>"
-        if artifact_dirs:
+        if agent_artifact_runs:
             sections += "<th>Artifacts</th>"
         sections += "</tr>\n    </thead>\n    <tbody>\n"
         for r in group:
@@ -223,8 +224,8 @@ def _build_grouped_tables(
             )
             agent_name_str = str(r.agent_name)
             artifact_cell = ""
-            if artifact_dirs:
-                if agent_name_str in artifact_dirs:
+            if agent_artifact_runs:
+                if agent_name_str in agent_artifact_runs:
                     escaped = html.escape(agent_name_str)
                     artifact_cell = f'<td><button class="artifacts-btn" data-agent="{escaped}">View</button></td>'
                 else:
@@ -279,17 +280,24 @@ def _html_report_css() -> str:
     )
 
 
-def _find_test_artifact_dir(artifacts_root: Path, agent_name: AgentName) -> Path | None:
-    """Find the test artifact directory for an agent.
+def _find_test_artifact_runs(
+    artifacts_root: Path,
+    agent_name: AgentName,
+    test_runs: tuple[TestRunInfo, ...],
+) -> list[tuple[str, str, Path]]:
+    """Find test artifact directories for all runs of an agent.
 
-    The structure after pull_test_outputs is:
-      <artifacts_root>/<agent_name>/e2e/<run_name>/<test_name>/
-    Since each TMR agent runs one test, there should be one run and one test dir.
+    Returns a list of (run_name, description, test_dir) tuples, one per run.
+    Uses test_runs metadata when available to match run names to descriptions;
+    otherwise discovers all run directories on disk.
     """
     agent_dir = artifacts_root / str(agent_name)
     if not agent_dir.is_dir():
-        return None
-    # Walk: agent_dir / e2e / <run> / <test> -- or agent_dir / <run> / <test> if no e2e subdir
+        return []
+
+    run_descriptions: dict[str, str] = {tr.run_name: tr.description_markdown for tr in test_runs}
+
+    found: list[tuple[str, str, Path]] = []
     for candidate_root in [agent_dir / "e2e", agent_dir]:
         if not candidate_root.is_dir():
             continue
@@ -298,26 +306,50 @@ def _find_test_artifact_dir(artifacts_root: Path, agent_name: AgentName) -> Path
                 continue
             for test_dir in sorted(run_dir.iterdir()):
                 if test_dir.is_dir() and (test_dir / "transcript.txt").exists():
-                    return test_dir
-    return None
+                    run_name = run_dir.name
+                    description = run_descriptions.get(run_name, "")
+                    found.append((run_name, description, test_dir))
+    return found
 
 
-def _build_artifact_panels(artifact_dirs: dict[str, Path]) -> str:
-    """Build the overlay and slide-in panel divs for each agent's artifacts."""
-    if not artifact_dirs:
+def _build_artifact_panels(agent_artifact_runs: dict[str, list[tuple[str, str, Path]]]) -> str:
+    """Build the overlay and slide-in panel divs for each agent's artifacts.
+
+    When an agent has multiple runs, a tab bar is rendered at the top of the
+    panel. Each tab shows the run number; clicking a tab switches the content.
+    """
+    if not agent_artifact_runs:
         return ""
     panels = '  <div id="artifacts-overlay" class="artifacts-overlay"></div>\n'
-    for agent_name, test_dir in artifact_dirs.items():
+    for agent_name, runs in agent_artifact_runs.items():
         escaped_name = html.escape(agent_name)
-        prefix = f"art-{escaped_name}-"
-        content = render_test_detail(test_dir, detail_id_prefix=prefix)
         panels += (
             f'  <div class="artifacts-panel" id="panel-{escaped_name}">\n'
             f'    <button class="artifacts-close">&times;</button>\n'
             f"    <h2>{escaped_name}</h2>\n"
-            f"    {content}\n"
-            f"  </div>\n"
         )
+
+        if len(runs) > 1:
+            panels += '    <div class="run-tabs">\n'
+            for i, (_run_name, _desc, _test_dir) in enumerate(runs):
+                active = " active" if i == 0 else ""
+                panels += (
+                    f'      <button class="run-tab{active}" '
+                    f'data-agent="{escaped_name}" data-run="{i}">{i + 1}</button>\n'
+                )
+            panels += "    </div>\n"
+
+        for i, (_run_name, description, test_dir) in enumerate(runs):
+            prefix = f"art-{escaped_name}-r{i}-"
+            content = render_test_detail(test_dir, detail_id_prefix=prefix)
+            display = "" if i == 0 else ' style="display:none"'
+            panels += f'    <div class="run-content" data-agent="{escaped_name}" data-run="{i}"{display}>\n'
+            if description:
+                panels += f"      <p><em>{_render_markdown(description)}</em></p>\n"
+            panels += f"      {content}\n"
+            panels += "    </div>\n"
+
+        panels += "  </div>\n"
     return panels
 
 
@@ -333,6 +365,10 @@ def _artifact_panel_css() -> str:
         "    .artifacts-panel.open, .artifacts-overlay.open { display: block; }\n"
         "    .artifacts-close { position: sticky; top: 0; float: right; font-size: 1.5rem;"
         " cursor: pointer; background: none; border: none; padding: 0.5rem; z-index: 1001; }\n"
+        "    .run-tabs { display: flex; gap: 4px; margin-bottom: 1rem; }\n"
+        "    .run-tab { cursor: pointer; padding: 4px 12px; border: 1px solid rgb(200,200,200);"
+        " border-radius: 4px; background: rgb(245,245,245); font-size: 0.85rem; }\n"
+        "    .run-tab.active { background: rgb(33,150,243); color: white; border-color: rgb(33,150,243); }\n"
     )
 
 
@@ -357,6 +393,17 @@ def _artifact_panel_js() -> str:
   if (overlay) overlay.addEventListener('click', closePanel);
   document.querySelectorAll('.artifacts-close').forEach(function(btn) {
     btn.addEventListener('click', closePanel);
+  });
+  document.querySelectorAll('.run-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      var agent = tab.getAttribute('data-agent');
+      var run = tab.getAttribute('data-run');
+      tab.closest('.run-tabs').querySelectorAll('.run-tab').forEach(function(t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      tab.closest('.artifacts-panel').querySelectorAll('.run-content').forEach(function(c) {
+        c.style.display = (c.getAttribute('data-run') === run) ? '' : 'none';
+      });
+    });
   });
 })();
 </script>"""
