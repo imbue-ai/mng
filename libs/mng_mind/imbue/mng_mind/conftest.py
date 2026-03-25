@@ -5,7 +5,6 @@ import tempfile
 import threading
 import time
 import types
-from collections.abc import Callable
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -162,6 +161,7 @@ class SyntheticLoopEnv:
     buffer_lock: threading.Lock
     stop_event: threading.Event
     last_real_event_monotonic: list[float]
+    last_non_messages_event_monotonic: list[float]
 
 
 def _create_synthetic_loop_env(mind_state_dir: Path) -> SyntheticLoopEnv:
@@ -172,6 +172,7 @@ def _create_synthetic_loop_env(mind_state_dir: Path) -> SyntheticLoopEnv:
     env.buffer_lock = threading.Lock()
     env.stop_event = threading.Event()
     env.last_real_event_monotonic = [time.monotonic()]
+    env.last_non_messages_event_monotonic = [0.0]
     return env
 
 
@@ -233,21 +234,21 @@ def make_pending_idle_wait(agent_id: str) -> FakeWaitProcess:
     return _create_fake_wait_process(is_complete=False, returncode=None)
 
 
-def make_tracking_idle_wait() -> tuple[list[FakeWaitProcess], Callable[[str], FakeWaitProcess]]:
-    """Create a start_idle_wait callback that records every process it creates.
+class TrackingIdleWait:
+    """A start_idle_wait callback that records every process it creates.
 
-    Returns (processes, start_fn) where ``processes`` accumulates each
-    FakeWaitProcess created by ``start_fn``, allowing tests to inspect
-    and control individual wait processes.
+    Use as the ``start_idle_wait`` argument to ``_run_synthetic_events_loop``.
+    The ``processes`` attribute accumulates each FakeWaitProcess created,
+    allowing tests to inspect and control individual wait processes.
     """
-    processes: list[FakeWaitProcess] = []
 
-    def start(agent_id: str) -> FakeWaitProcess:
+    def __init__(self) -> None:
+        self.processes: list[FakeWaitProcess] = []
+
+    def __call__(self, agent_id: str) -> FakeWaitProcess:
         process = _create_fake_wait_process(is_complete=False, returncode=None)
-        processes.append(process)
+        self.processes.append(process)
         return process
-
-    return processes, start
 
 
 class EventWatcherSubprocessCapture:

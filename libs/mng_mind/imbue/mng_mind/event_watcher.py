@@ -520,11 +520,17 @@ def _read_events_from_subprocess(
     buffer_lock: threading.Lock,
     stop_event: threading.Event,
     last_real_event_monotonic: list[float] | None = None,
+    last_non_messages_event_monotonic: list[float] | None = None,
 ) -> None:
     """Read JSONL lines from subprocess stdout into the event buffer (thread target).
 
     If last_real_event_monotonic is provided, updates it (under buffer_lock)
     whenever a real event is received, enabling idle detection.
+
+    If last_non_messages_event_monotonic is provided, updates it only for
+    events whose source is not "messages". This allows the synthetic events
+    loop to distinguish genuinely new external events from conversation
+    events (which include the agent's response to idle events).
     """
     assert process.stdout is not None
     try:
@@ -535,9 +541,17 @@ def _read_events_from_subprocess(
             if not stripped:
                 continue
             with buffer_lock:
+                now = time.monotonic()
                 event_buffer.append(stripped)
                 if last_real_event_monotonic is not None:
-                    last_real_event_monotonic[0] = time.monotonic()
+                    last_real_event_monotonic[0] = now
+                if last_non_messages_event_monotonic is not None:
+                    try:
+                        parsed = json.loads(stripped)
+                        if parsed.get("source") != "messages":
+                            last_non_messages_event_monotonic[0] = now
+                    except json.JSONDecodeError:
+                        pass
     except Exception as exc:
         if not stop_event.is_set():
             logger.error("Error reading from events subprocess: {}", exc)
@@ -591,10 +605,6 @@ class _IdleWaitTracker:
 
     Encapsulates process lifecycle (start, poll, restart on failure, cleanup)
     and tracks the monotonic timestamp when the agent became idle.
-
-    Also tracks whether the agent is currently processing a response to one
-    of our idle events, so that the caller can avoid resetting its idle
-    event counter when the agent's response generates real events.
     """
 
     _agent_id: str
@@ -607,14 +617,6 @@ class _IdleWaitTracker:
     # notify_idle_event_sent(), cleared when maybe_start_after_delivery()
     # successfully starts the wait.
     _awaiting_delivery: bool = dataclasses.field(default=False, init=False)
-    # True after we send an idle event and before the agent finishes
-    # processing it (enters WAITING again). While True, real events from
-    # mng events should NOT reset the caller's idle_events_sent counter.
-    _is_expecting_idle_response: bool = dataclasses.field(default=False, init=False)
-    # Monotonic timestamp when notify_idle_event_sent() was last called.
-    # Used by maybe_start_after_delivery() to verify that the delivery loop
-    # has processed at least one batch since the idle event was enqueued.
-    _idle_event_sent_at: float = dataclasses.field(default=0.0, init=False)
 
     def start(self) -> None:
         """Launch the initial 'mng wait' subprocess."""
@@ -622,7 +624,7 @@ class _IdleWaitTracker:
         logger.info("Started idle wait for agent {}", self._agent_id)
 
     def on_real_event(self) -> None:
-        """Reset idle state when a genuinely new (non-idle-response) event arrives.
+        """Reset idle state when a real event arrives.
 
         Does NOT immediately start a new wait -- the event hasn't been
         delivered to the agent yet. Call maybe_start_after_delivery()
@@ -630,29 +632,24 @@ class _IdleWaitTracker:
         """
         self._idle_since = None
         self._awaiting_delivery = True
-        self._is_expecting_idle_response = False
         if self._process is not None:
             _terminate_process_gracefully(self._process)
             self._process = None
         logger.debug("Reset idle state after real event, awaiting delivery")
 
-    def notify_idle_event_sent(self, now_monotonic: float) -> None:
-        """Record that we just sent an idle event to the agent.
+    def notify_idle_event_sent(self) -> None:
+        """Clear idle state after sending an idle event to the agent.
 
-        The agent will wake up to process it, generating real events that
-        should NOT reset the caller's idle event counter. This method
-        prepares the tracker for the idle-event response cycle: kill the
-        current wait process, mark idle state as cleared, and request a
-        new wait after the idle event is delivered.
+        The agent will wake up to process it, so it is no longer idle.
+        The wait process is killed and a new one will be started after
+        the idle event is delivered (via maybe_start_after_delivery).
         """
-        self._is_expecting_idle_response = True
-        self._idle_event_sent_at = now_monotonic
         self._idle_since = None
         self._awaiting_delivery = True
         if self._process is not None:
             _terminate_process_gracefully(self._process)
             self._process = None
-        logger.debug("Idle event sent, expecting agent response")
+        logger.debug("Idle event sent, awaiting delivery before restarting wait")
 
     def maybe_start_after_delivery(
         self,
@@ -664,20 +661,16 @@ class _IdleWaitTracker:
 
         Only acts when we are awaiting delivery (on_real_event or
         notify_idle_event_sent was called) and the delivery loop has
-        processed a batch since then, plus a slack period to ensure the
-        agent has had time to receive and begin processing the events.
+        delivered events that arrived after the last real event we saw,
+        plus a slack period to ensure the agent has had time to receive
+        and begin processing them.
         """
         if not self._awaiting_delivery:
             return
         if self._process is not None:
             return
-        # For idle event delivery, check that the delivery loop has run
-        # since we enqueued the idle event. For external events, check
-        # that delivery happened after the real event arrived.
-        delivery_reference_time = (
-            self._idle_event_sent_at if self._is_expecting_idle_response else last_real_event_time
-        )
-        if last_delivery_monotonic <= delivery_reference_time:
+        # Delivery must have happened after the real event arrived
+        if last_delivery_monotonic <= last_real_event_time:
             return
         # Wait for slack time after delivery
         if now_monotonic - last_delivery_monotonic < self._slack_seconds:
@@ -691,8 +684,7 @@ class _IdleWaitTracker:
 
         If the process exited with code 0, records the current time as the
         moment the agent became idle. If it exited with a non-zero code,
-        restarts the wait. When the agent enters WAITING after processing
-        an idle event response, clears the expecting-response flag.
+        restarts the wait.
         """
         if self._process is None:
             return
@@ -701,11 +693,7 @@ class _IdleWaitTracker:
             return
         if poll_result == 0 and self._idle_since is None:
             self._idle_since = now_monotonic
-            if self._is_expecting_idle_response:
-                self._is_expecting_idle_response = False
-                logger.info("Agent entered idle state (WAITING) after idle event response")
-            else:
-                logger.info("Agent entered idle state (WAITING)")
+            logger.info("Agent entered idle state (WAITING)")
         elif poll_result != 0:
             logger.warning("mng wait exited with code {}, restarting", poll_result)
             self._process = self._start_idle_wait(self._agent_id)
@@ -717,11 +705,6 @@ class _IdleWaitTracker:
     def idle_since(self) -> float | None:
         """Monotonic timestamp when the agent entered WAITING, or None if not idle."""
         return self._idle_since
-
-    @property
-    def is_expecting_idle_response(self) -> bool:
-        """True if the agent is expected to be processing our idle event."""
-        return self._is_expecting_idle_response
 
     def cleanup(self) -> None:
         """Terminate any running wait subprocess."""
@@ -1055,20 +1038,16 @@ def _check_scheduled_events(
 
 def _compute_idle_elapsed_minutes(
     now_monotonic: float,
-    idle_wait_tracker: _IdleWaitTracker | None,
-    last_seen_real_event_time: float,
+    idle_wait_tracker: _IdleWaitTracker,
 ) -> float | None:
     """Return the elapsed idle minutes, or None if the agent is not yet idle.
 
-    When an idle wait tracker is active, idle time is measured from the moment
-    the agent entered WAITING state. Otherwise, it falls back to time since
-    the last real event.
+    Idle time is measured from the moment the agent entered WAITING state
+    (as detected by the idle wait tracker).
     """
-    if idle_wait_tracker is not None:
-        if idle_wait_tracker.idle_since is None:
-            return None
-        return (now_monotonic - idle_wait_tracker.idle_since) / 60.0
-    return (now_monotonic - last_seen_real_event_time) / 60.0
+    if idle_wait_tracker.idle_since is None:
+        return None
+    return (now_monotonic - idle_wait_tracker.idle_since) / 60.0
 
 
 def _run_synthetic_events_loop(
@@ -1083,6 +1062,7 @@ def _run_synthetic_events_loop(
     agent_id: str = "",
     start_idle_wait: Callable[[str], Any] | None = None,
     last_delivery_monotonic: list[float] | None = None,
+    last_non_messages_event_monotonic: list[float] | None = None,
 ) -> None:
     """Generate synthetic events: idle, scheduled, and onboarding.
 
@@ -1096,18 +1076,23 @@ def _run_synthetic_events_loop(
     delivered (via last_delivery_monotonic) plus a slack period, to avoid
     a race where the agent appears idle before it receives the events.
 
-    When the tracker detects that real events are just the agent responding
-    to a previously-sent idle event, the idle event counter is preserved
-    (not reset), which maintains the exponential backoff between idle events.
+    The idle event counter (idle_events_sent) is reset only when a
+    non-messages event arrives (via last_non_messages_event_monotonic).
+    Events from the "messages" source (which includes the agent's own
+    conversation output in response to idle events) do NOT reset the
+    counter, which preserves the exponential backoff between idle events.
     """
     user_tz = _resolve_user_timezone(settings.user_timezone)
     _maybe_send_onboarding(mind_state_dir, event_buffer, buffer_lock)
 
     idle_events_sent = 0
     last_seen_real_event_time = last_real_event_monotonic[0]
+    last_seen_non_messages_event_time = (
+        last_non_messages_event_monotonic[0] if last_non_messages_event_monotonic is not None else 0.0
+    )
 
-    # When agent_id is provided, track when the agent actually became idle
-    # (entered WAITING state) via 'mng wait' subprocess.
+    # Track when the agent actually became idle (entered WAITING state)
+    # via 'mng wait' subprocess.
     idle_wait_tracker: _IdleWaitTracker | None = None
     if agent_id and settings.idle_event_delay_minutes_schedule:
         idle_wait_tracker = _IdleWaitTracker(
@@ -1131,16 +1116,20 @@ def _run_synthetic_events_loop(
             with buffer_lock:
                 current_real_event_time = last_real_event_monotonic[0]
             if current_real_event_time > last_seen_real_event_time:
-                if idle_wait_tracker is not None and idle_wait_tracker.is_expecting_idle_response:
-                    # The agent is responding to our idle event -- these events
-                    # are expected and should NOT reset the idle counter.
-                    pass
-                else:
-                    # Genuinely new event -- reset the backoff counter
-                    idle_events_sent = 0
-                    if idle_wait_tracker is not None:
-                        idle_wait_tracker.on_real_event()
                 last_seen_real_event_time = current_real_event_time
+                if idle_wait_tracker is not None:
+                    idle_wait_tracker.on_real_event()
+
+            # Reset the idle counter only when a non-messages event arrives.
+            # Events from the "messages" source include the agent's own
+            # conversation output (including responses to our idle events),
+            # so they should not reset the backoff.
+            if last_non_messages_event_monotonic is not None:
+                with buffer_lock:
+                    current_non_messages_time = last_non_messages_event_monotonic[0]
+                if current_non_messages_time > last_seen_non_messages_event_time:
+                    idle_events_sent = 0
+                    last_seen_non_messages_event_time = current_non_messages_time
 
             if idle_wait_tracker is not None:
                 # Start the wait only after events have been delivered + slack
@@ -1152,24 +1141,13 @@ def _run_synthetic_events_loop(
                     )
                 idle_wait_tracker.poll(now_monotonic)
 
-            if settings.idle_event_delay_minutes_schedule:
+            if settings.idle_event_delay_minutes_schedule and idle_wait_tracker is not None:
                 elapsed_minutes = _compute_idle_elapsed_minutes(
                     now_monotonic,
                     idle_wait_tracker,
-                    last_seen_real_event_time,
                 )
                 if elapsed_minutes is not None:
-                    # With the tracker, use per-event delays since _idle_since
-                    # resets after each idle event cycle. Without the tracker,
-                    # use cumulative delays from the fixed reference point.
-                    if idle_wait_tracker is not None:
-                        delay = _per_event_idle_delay_minutes(
-                            settings.idle_event_delay_minutes_schedule, idle_events_sent
-                        )
-                    else:
-                        delay = _cumulative_idle_delay_minutes(
-                            settings.idle_event_delay_minutes_schedule, idle_events_sent
-                        )
+                    delay = _per_event_idle_delay_minutes(settings.idle_event_delay_minutes_schedule, idle_events_sent)
                     previous_idle_events_sent = idle_events_sent
                     idle_events_sent = _maybe_send_idle_event(
                         elapsed_minutes,
@@ -1179,9 +1157,8 @@ def _run_synthetic_events_loop(
                         event_buffer,
                         buffer_lock,
                     )
-                    # Notify the tracker so it expects the agent's response
-                    if idle_events_sent > previous_idle_events_sent and idle_wait_tracker is not None:
-                        idle_wait_tracker.notify_idle_event_sent(now_monotonic)
+                    if idle_events_sent > previous_idle_events_sent:
+                        idle_wait_tracker.notify_idle_event_sent()
 
             if settings.scheduled_events:
                 saved_date, fired_today = _check_scheduled_events(
@@ -1728,6 +1705,13 @@ def main(
     # Updated by the reader thread, read by the synthetic events thread.
     last_real_event_monotonic: list[float] = [time.monotonic()]
 
+    # Shared monotonic timestamp of the last event from a non-"messages" source.
+    # Updated by the reader thread, read by the synthetic events thread to
+    # decide when to reset the idle event counter. Events from the "messages"
+    # source include the agent's conversation output (including responses to
+    # idle events) and should not reset the backoff.
+    last_non_messages_event_monotonic: list[float] = [0.0]
+
     # Shared monotonic timestamp of the last successful event delivery.
     # Updated by the delivery thread, read by the synthetic events thread
     # to know when it's safe to start the idle wait subprocess.
@@ -1749,6 +1733,7 @@ def main(
             "mind_state_dir": mind_state_dir,
             "agent_id": agent_id,
             "last_delivery_monotonic": last_delivery_monotonic,
+            "last_non_messages_event_monotonic": last_non_messages_event_monotonic,
         },
         daemon=True,
     )
@@ -1782,7 +1767,14 @@ def main(
             # Reader thread feeds subprocess stdout into the shared buffer
             reader_thread = threading.Thread(
                 target=_read_events_from_subprocess,
-                args=(active_process, event_buffer, buffer_lock, stop_event, last_real_event_monotonic),
+                args=(
+                    active_process,
+                    event_buffer,
+                    buffer_lock,
+                    stop_event,
+                    last_real_event_monotonic,
+                    last_non_messages_event_monotonic,
+                ),
                 daemon=True,
             )
             reader_thread.start()

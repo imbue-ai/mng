@@ -24,7 +24,6 @@ from imbue.mng_mind.conftest import _create_fake_wait_process
 from imbue.mng_mind.conftest import _create_synthetic_loop_env
 from imbue.mng_mind.conftest import create_executable_command
 from imbue.mng_mind.conftest import make_pending_idle_wait
-from imbue.mng_mind.conftest import make_tracking_idle_wait
 from imbue.mng_mind.data_types import WatcherSettings
 from imbue.mng_mind.event_watcher import DEFAULT_CEL_FILTER
 from imbue.mng_mind.event_watcher import InvalidTimeFormatError
@@ -2110,14 +2109,19 @@ def test_synthetic_loop_sends_idle_event_after_delay(synthetic_loop_env: Synthet
     env.last_real_event_monotonic[0] = 1000.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1,))
 
+    # The wait process completes immediately (agent is already idle)
+    fake_process = _create_fake_wait_process(is_complete=True, returncode=0)
+
     call_count = 0
 
     def clock_past_threshold() -> float:
         nonlocal call_count
         call_count += 1
-        if call_count > 1:
+        if call_count > 2:
             env.stop_event.set()
-        return 1061.0
+        # First call: agent becomes idle at 1050
+        # Second call: 70s after idle -> fires
+        return 1050.0 + (call_count - 1) * 70.0
 
     _run_synthetic_events_loop(
         settings,
@@ -2128,6 +2132,8 @@ def test_synthetic_loop_sends_idle_event_after_delay(synthetic_loop_env: Synthet
         env.mind_state_dir,
         clock_past_threshold,
         poll_interval_seconds=0.01,
+        agent_id="agent-test",
+        start_idle_wait=lambda _agent_id: fake_process,
     )
 
     idle_events = [line for line in env.event_buffer if '"mind/idle"' in line]
@@ -2139,10 +2145,11 @@ def test_synthetic_loop_sends_idle_event_after_delay(synthetic_loop_env: Synthet
     assert parsed["minutes_since_last_event"] >= 1.0
 
 
-def test_synthetic_loop_resets_idle_on_real_event(synthetic_loop_env: SyntheticLoopEnv) -> None:
-    """The idle counter resets when a real event arrives."""
+def test_synthetic_loop_resets_idle_on_non_messages_event(synthetic_loop_env: SyntheticLoopEnv) -> None:
+    """The idle counter resets when a non-messages event arrives."""
     env = synthetic_loop_env
-    env.last_real_event_monotonic[0] = 1030.0
+    env.last_real_event_monotonic[0] = 1000.0
+    env.last_non_messages_event_monotonic[0] = 1030.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1,))
 
     call_count = 0
@@ -2163,8 +2170,12 @@ def test_synthetic_loop_resets_idle_on_real_event(synthetic_loop_env: SyntheticL
         env.mind_state_dir,
         clock_30s_after_real,
         poll_interval_seconds=0.01,
+        agent_id="agent-test",
+        start_idle_wait=make_pending_idle_wait,
+        last_non_messages_event_monotonic=env.last_non_messages_event_monotonic,
     )
 
+    # No idle events because the agent never entered WAITING (still pending)
     idle_events = [line for line in env.event_buffer if '"mind/idle"' in line]
     assert len(idle_events) == 0
 
@@ -2350,8 +2361,8 @@ def test_idle_wait_restarts_after_delivery_plus_slack(synthetic_loop_env: Synthe
     assert len(wait_calls) == 2
 
 
-def test_idle_wait_disabled_without_agent_id(synthetic_loop_env: SyntheticLoopEnv) -> None:
-    """Without agent_id, falls back to old behavior (time since last real event)."""
+def test_idle_events_require_agent_id(synthetic_loop_env: SyntheticLoopEnv) -> None:
+    """Without agent_id, no idle events are sent even if the schedule is configured."""
     env = synthetic_loop_env
     env.last_real_event_monotonic[0] = 1000.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1,))
@@ -2374,12 +2385,11 @@ def test_idle_wait_disabled_without_agent_id(synthetic_loop_env: SyntheticLoopEn
         env.mind_state_dir,
         clock_past_threshold,
         poll_interval_seconds=0.01,
-        # agent_id="" (default) -- no idle wait
     )
 
-    # Idle events fire based on time since last real event (old behavior)
+    # No idle events: agent_id is required for idle event generation
     idle_events = [line for line in env.event_buffer if '"mind/idle"' in line]
-    assert len(idle_events) >= 1
+    assert len(idle_events) == 0
 
 
 def test_idle_wait_restarts_on_nonzero_exit(synthetic_loop_env: SyntheticLoopEnv) -> None:
@@ -2433,18 +2443,25 @@ def test_idle_wait_restarts_on_nonzero_exit(synthetic_loop_env: SyntheticLoopEnv
     assert len(idle_events) >= 1
 
 
-def test_idle_wait_preserves_counter_across_idle_response(synthetic_loop_env: SyntheticLoopEnv) -> None:
-    """After sending an idle event, agent response events do NOT reset idle_events_sent.
+def test_idle_wait_preserves_counter_across_messages_events(synthetic_loop_env: SyntheticLoopEnv) -> None:
+    """After sending an idle event, conversation events (messages source) do NOT
+    reset idle_events_sent because last_non_messages_event_monotonic is unchanged.
 
     This tests the full backoff cycle: send idle event -> agent processes it
-    and generates real events -> agent re-enters WAITING -> next idle event
+    and generates messages events -> agent re-enters WAITING -> next idle event
     uses the incremented counter (longer delay).
     """
     env = synthetic_loop_env
     env.last_real_event_monotonic[0] = 1000.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1, 10, 60))
 
-    wait_processes, tracking_idle_wait = make_tracking_idle_wait()
+    wait_processes: list[FakeWaitProcess] = []
+
+    def tracking_idle_wait(agent_id: str) -> FakeWaitProcess:
+        process = _create_fake_wait_process(is_complete=False, returncode=None)
+        wait_processes.append(process)
+        return process
+
     delivery_mono: list[float] = [1000.0]
 
     call_count = 0
@@ -2463,14 +2480,17 @@ def test_idle_wait_preserves_counter_across_idle_response(synthetic_loop_env: Sy
             return 1120.0
 
         if call_count == 3:
-            # Simulate delivery of the idle event
+            # Simulate delivery of the idle event + conversation events
             delivery_mono[0] = 1121.0
-            return 1127.0
-
-        if call_count == 4:
-            # Agent's response generates real events (should NOT reset counter)
+            # Conversation events arrive (messages source) but
+            # last_non_messages_event_monotonic stays unchanged
             env.last_real_event_monotonic[0] = 1130.0
             return 1130.0
+
+        if call_count == 4:
+            # Another delivery of conversation events
+            delivery_mono[0] = 1131.0
+            return 1137.0
 
         if call_count == 5:
             # Agent re-enters WAITING (latest wait process completes)
@@ -2503,6 +2523,8 @@ def test_idle_wait_preserves_counter_across_idle_response(synthetic_loop_env: Sy
         agent_id="agent-test",
         start_idle_wait=tracking_idle_wait,
         last_delivery_monotonic=delivery_mono,
+        # last_non_messages_event_monotonic stays at 0 (no non-messages events)
+        last_non_messages_event_monotonic=env.last_non_messages_event_monotonic,
     )
 
     idle_events = [line for line in env.event_buffer if '"mind/idle"' in line]
@@ -2513,18 +2535,23 @@ def test_idle_wait_preserves_counter_across_idle_response(synthetic_loop_env: Sy
     assert parsed_second["idle_event_number"] == 2
 
 
-def test_idle_wait_resets_counter_on_genuinely_new_event(synthetic_loop_env: SyntheticLoopEnv) -> None:
-    """When a non-idle-response event arrives, the idle counter resets to 0.
+def test_idle_wait_resets_counter_on_non_messages_event(synthetic_loop_env: SyntheticLoopEnv) -> None:
+    """When a non-messages event arrives, the idle counter resets to 0.
 
-    After the agent finishes processing an idle event and re-enters WAITING,
-    the is_expecting_idle_response flag is cleared. A subsequent real event
-    is treated as genuinely new and resets idle_events_sent.
+    Events from sources other than "messages" (e.g. mng/agents, monitor)
+    are genuinely new external events and should reset the backoff.
     """
     env = synthetic_loop_env
     env.last_real_event_monotonic[0] = 1000.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1, 10, 60))
 
-    wait_processes, tracking_idle_wait = make_tracking_idle_wait()
+    wait_processes: list[FakeWaitProcess] = []
+
+    def tracking_idle_wait(agent_id: str) -> FakeWaitProcess:
+        process = _create_fake_wait_process(is_complete=False, returncode=None)
+        wait_processes.append(process)
+        return process
+
     delivery_mono: list[float] = [1000.0]
 
     call_count = 0
@@ -2543,24 +2570,25 @@ def test_idle_wait_resets_counter_on_genuinely_new_event(synthetic_loop_env: Syn
             return 1120.0
 
         if call_count == 3:
-            # Delivery happens
+            # Delivery + conversation events (messages source only)
             delivery_mono[0] = 1121.0
-            return 1127.0
-
-        if call_count == 4:
-            # Agent response events (expected, don't reset)
             env.last_real_event_monotonic[0] = 1130.0
             return 1130.0
 
+        if call_count == 4:
+            delivery_mono[0] = 1131.0
+            return 1137.0
+
         if call_count == 5:
-            # Agent re-enters WAITING (clears is_expecting_idle_response)
+            # Agent re-enters WAITING
             if len(wait_processes) >= 2:
                 wait_processes[-1].complete(0)
             return 1140.0
 
         if call_count == 6:
-            # A genuinely new event arrives (e.g. user message) -- resets counter
+            # A genuinely new non-messages event arrives -- resets counter
             env.last_real_event_monotonic[0] = 1200.0
+            env.last_non_messages_event_monotonic[0] = 1200.0
             return 1200.0
 
         if call_count == 7:
@@ -2594,6 +2622,7 @@ def test_idle_wait_resets_counter_on_genuinely_new_event(synthetic_loop_env: Syn
         agent_id="agent-test",
         start_idle_wait=tracking_idle_wait,
         last_delivery_monotonic=delivery_mono,
+        last_non_messages_event_monotonic=env.last_non_messages_event_monotonic,
     )
 
     idle_events = [line for line in env.event_buffer if '"mind/idle"' in line]
@@ -2606,8 +2635,8 @@ def test_idle_wait_resets_counter_on_genuinely_new_event(synthetic_loop_env: Syn
     assert second_event["idle_event_number"] == 1
 
 
-def test_idle_wait_uses_per_event_delay_with_tracker(synthetic_loop_env: SyntheticLoopEnv) -> None:
-    """With the idle wait tracker, delays are per-event (not cumulative).
+def test_idle_wait_uses_per_event_delay(synthetic_loop_env: SyntheticLoopEnv) -> None:
+    """Delays are per-event (not cumulative).
 
     Schedule [1, 10]: first event after 1 min, second after 10 min
     from the new WAITING time, not 11 min cumulative.
@@ -2616,7 +2645,13 @@ def test_idle_wait_uses_per_event_delay_with_tracker(synthetic_loop_env: Synthet
     env.last_real_event_monotonic[0] = 1000.0
     settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1, 10))
 
-    wait_processes, tracking_idle_wait = make_tracking_idle_wait()
+    wait_processes: list[FakeWaitProcess] = []
+
+    def tracking_idle_wait(agent_id: str) -> FakeWaitProcess:
+        process = _create_fake_wait_process(is_complete=False, returncode=None)
+        wait_processes.append(process)
+        return process
+
     delivery_mono: list[float] = [1000.0]
 
     call_count = 0
@@ -2635,13 +2670,14 @@ def test_idle_wait_uses_per_event_delay_with_tracker(synthetic_loop_env: Synthet
             return 1120.0
 
         if call_count == 3:
+            # Delivery + conversation events
             delivery_mono[0] = 1121.0
-            return 1127.0
-
-        if call_count == 4:
-            # Agent response events
             env.last_real_event_monotonic[0] = 1130.0
             return 1130.0
+
+        if call_count == 4:
+            delivery_mono[0] = 1131.0
+            return 1137.0
 
         if call_count == 5:
             # Agent re-enters WAITING at T=1140
@@ -2673,6 +2709,7 @@ def test_idle_wait_uses_per_event_delay_with_tracker(synthetic_loop_env: Synthet
         agent_id="agent-test",
         start_idle_wait=tracking_idle_wait,
         last_delivery_monotonic=delivery_mono,
+        last_non_messages_event_monotonic=env.last_non_messages_event_monotonic,
     )
 
     idle_events = [line for line in env.event_buffer if '"mind/idle"' in line]
