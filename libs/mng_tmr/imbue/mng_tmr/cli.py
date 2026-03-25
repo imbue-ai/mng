@@ -70,6 +70,7 @@ class TmrCliOptions(CommonCliOptions):
     launch_delay: float
     poll_interval: float
     timeout: float
+    result_check_interval: float
     integrator_timeout: float
     output_html: str | None
     source: str | None
@@ -276,6 +277,13 @@ def _run_integrator_phase(
     help="Maximum seconds each agent can run before being stopped (per-agent timeout)",
 )
 @click.option(
+    "--result-check-interval",
+    default=300.0,
+    show_default=True,
+    type=float,
+    help="Seconds between direct result file checks for agents whose status may be stale",
+)
+@click.option(
     "--integrator-timeout",
     default=_DEFAULT_INTEGRATOR_TIMEOUT_SECONDS,
     show_default=True,
@@ -386,6 +394,7 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         max_agents=opts.max_agents,
         agent_timeout_seconds=opts.timeout,
         poll_interval_seconds=opts.poll_interval,
+        result_check_interval_seconds=opts.result_check_interval,
         report_path=html_path,
         all_agents=agent_infos,
         all_hosts=agent_hosts,

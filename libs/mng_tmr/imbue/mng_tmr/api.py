@@ -235,8 +235,11 @@ or something like "after fixing assertion timeout" for subsequent runs.
 
 # Writing the result
 
-In all cases, write the result to a JSON file at
-$MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json with this schema:
+Write the result atomically to avoid races with the orchestrator reading it:
+1. First write to $MNG_AGENT_STATE_DIR/plugin/{PLUGIN_NAME}/result.json.draft
+2. Then rename (mv) the .draft file to result.json
+
+The schema is:
 
 {{"changes": {{"FIX_TEST": {{"status": "SUCCEEDED", "summary_markdown": "Fixed assertion"}}}},
  "errored": false,
@@ -518,6 +521,7 @@ def launch_and_poll_agents(
     max_agents: int,
     agent_timeout_seconds: float,
     poll_interval_seconds: float,
+    result_check_interval_seconds: float,
     report_path: Path | None,
     all_agents: list[TestAgentInfo],
     all_hosts: dict[str, OnlineHostInterface],
@@ -545,12 +549,16 @@ def launch_and_poll_agents(
     final_details: dict[str, AgentDetails] = {}
     timed_out_ids: set[str] = set()
     missing_rounds: dict[str, int] = {}
+    # Track when we last attempted to read each agent's result file directly.
+    # Initialized to created_at so the first check happens result_check_interval_seconds later.
+    last_result_check: dict[str, float] = {}
 
     # Initialize tracking from any pre-launched agents already in all_agents
     for info in all_agents:
         agent_id_str = str(info.agent_id)
         agent_id_to_info[agent_id_str] = info
         pending_ids.add(agent_id_str)
+        last_result_check[agent_id_str] = info.created_at
 
     # Shared kwargs for _launch_agents_up_to_limit (avoids fragile *args tuple)
     launch_kwargs: dict = {
@@ -568,6 +576,9 @@ def launch_and_poll_agents(
 
     # Launch initial batch (no-op when remaining_tests is empty)
     _launch_agents_up_to_limit(**launch_kwargs)
+    for aid in pending_ids:
+        if aid not in last_result_check:
+            last_result_check[aid] = agent_id_to_info[aid].created_at
 
     if report_path is not None:
         current_results = build_current_results(all_agents, final_details, timed_out_ids, all_hosts)
@@ -581,6 +592,14 @@ def launch_and_poll_agents(
             info = agent_id_to_info[agent_id_str]
             elapsed = now - info.created_at
             if elapsed >= agent_timeout_seconds:
+                # Before stopping, try to read the result file -- the agent may have finished
+                result = try_read_agent_result(AgentId(agent_id_str), all_hosts[agent_id_str])
+                if result is not None:
+                    logger.info(
+                        "Agent '{}' has result file (found before timeout stop), treating as done", info.agent_name
+                    )
+                    pending_ids.discard(agent_id_str)
+                    continue
                 logger.warning("Agent '{}' timed out after {:.0f}s, stopping", info.agent_name, elapsed)
                 _stop_agent_on_host(all_hosts[agent_id_str], AgentId(agent_id_str), info.agent_name)
                 pending_ids.discard(agent_id_str)
@@ -589,6 +608,9 @@ def launch_and_poll_agents(
 
         # Launch new agents if capacity opened up
         _launch_agents_up_to_limit(**launch_kwargs)
+        for aid in pending_ids:
+            if aid not in last_result_check:
+                last_result_check[aid] = agent_id_to_info[aid].created_at
 
         if timed_out_this_round and report_path is not None:
             current_results = build_current_results(all_agents, final_details, timed_out_ids, all_hosts)
@@ -637,6 +659,22 @@ def launch_and_poll_agents(
 
         # Launch new agents if capacity opened up from finished agents
         _launch_agents_up_to_limit(**launch_kwargs)
+        for aid in pending_ids:
+            if aid not in last_result_check:
+                last_result_check[aid] = agent_id_to_info[aid].created_at
+
+        # Periodically check result files directly for agents whose status may be stale
+        for agent_id_str in list(pending_ids):
+            if now - last_result_check[agent_id_str] >= result_check_interval_seconds:
+                last_result_check[agent_id_str] = now
+                result = try_read_agent_result(AgentId(agent_id_str), all_hosts[agent_id_str])
+                if result is not None:
+                    logger.info(
+                        "Agent '{}' has result file (detected via direct check), treating as done",
+                        agent_id_to_info[agent_id_str].agent_name,
+                    )
+                    pending_ids.discard(agent_id_str)
+                    changed = True
 
         if (changed or timed_out_this_round) and report_path is not None:
             current_results = build_current_results(all_agents, final_details, timed_out_ids, all_hosts)
@@ -646,6 +684,53 @@ def launch_and_poll_agents(
             time.sleep(poll_interval_seconds)
 
     return final_details, timed_out_ids
+
+
+def try_read_agent_result(
+    agent_id: AgentId,
+    host: OnlineHostInterface,
+) -> TestResult | None:
+    """Try to read an agent's result.json, returning None if not found.
+
+    Used to detect agents that have finished writing their result but whose
+    lifecycle status has not yet updated to a terminal state.
+    """
+    agent_state_dir = host.host_dir / "agents" / str(agent_id)
+    result_path = agent_state_dir / "plugin" / PLUGIN_NAME / "result.json"
+
+    try:
+        raw = host.read_text_file(result_path)
+    except (HostError, FileNotFoundError, OSError):
+        return None
+
+    try:
+        data = json.loads(raw)
+        raw_changes = data.get("changes", {})
+        changes: dict[ChangeKind, Change] = {
+            ChangeKind(kind_str): Change(
+                status=ChangeStatus(entry["status"]),
+                summary_markdown=entry.get("summary_markdown", entry.get("summary", "")),
+            )
+            for kind_str, entry in raw_changes.items()
+        }
+        raw_runs = data.get("test_runs", [])
+        test_runs = tuple(
+            TestRunInfo(
+                run_name=run_entry.get("run_name", ""),
+                description_markdown=run_entry.get("description_markdown", ""),
+            )
+            for run_entry in raw_runs
+        )
+        return TestResult(
+            changes=changes,
+            errored=data.get("errored", False),
+            tests_passing_before=data.get("tests_passing_before"),
+            tests_passing_after=data.get("tests_passing_after"),
+            summary_markdown=data.get("summary_markdown", ""),
+            test_runs=test_runs,
+        )
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return None
 
 
 def _stop_agent_on_host(host: OnlineHostInterface, agent_id: AgentId, agent_name: AgentName) -> None:
