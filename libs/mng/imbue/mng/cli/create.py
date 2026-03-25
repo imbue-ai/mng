@@ -1,5 +1,6 @@
 import os
 import shlex
+import sys
 from collections.abc import Callable
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -97,6 +98,7 @@ from imbue.mng.utils.logging import LoggingSuppressor
 from imbue.mng.utils.name_generator import generate_agent_name
 
 _DEFAULT_NEW_BRANCH_PATTERN: Final[str] = "mng/*"
+_RECOVERED_MESSAGE_FILENAME: Final[str] = "recovered-message.txt"
 
 
 class _CachedAgentHostLoader(MutableModel):
@@ -615,10 +617,13 @@ def _create_agent(
             # or send initial message directly if --message/--message-file was provided
             with _editor_cleanup_scope(setup.editor_session):
                 if setup.editor_session is not None:
-                    _handle_editor_message(
-                        editor_session=setup.editor_session,
-                        agent=agent,
-                    )
+                    # Hold the host lock while waiting for the editor to prevent
+                    # idle shutdown during long editing sessions
+                    with host.lock_cooperatively():
+                        _handle_editor_message(
+                            editor_session=setup.editor_session,
+                            agent=agent,
+                        )
                 elif setup.initial_message is not None:
                     # Send initial message directly (from --message or --message-file)
                     logger.info("Sending message to agent")
@@ -662,12 +667,15 @@ def _create_agent(
             mng_ctx=mng_ctx,
         )
 
-        # If --edit-message was used, wait for editor and send the message
+        # If --edit-message was used, wait for editor and send the message.
+        # Re-acquire the host lock to prevent idle shutdown while the user edits
+        # (api_create releases its lock before returning).
         if setup.editor_session is not None:
-            _handle_editor_message(
-                editor_session=setup.editor_session,
-                agent=create_result.agent,
-            )
+            with create_result.host.lock_cooperatively():
+                _handle_editor_message(
+                    editor_session=setup.editor_session,
+                    agent=create_result.agent,
+                )
 
     return create_result, connection_opts
 
@@ -721,6 +729,9 @@ def _on_editor_exit() -> None:
 def _editor_cleanup_scope(editor_session: EditorSession | None) -> Iterator[None]:
     """Ensure editor session cleanup and logging suppressor restoration on exit.
 
+    On failure, saves any editor content to a recovery file before cleanup so
+    the user does not lose their work.
+
     Safe to nest: EditorSession.cleanup() is idempotent, and
     LoggingSuppressor.disable_and_replay() is a no-op when not suppressed.
     """
@@ -728,9 +739,44 @@ def _editor_cleanup_scope(editor_session: EditorSession | None) -> Iterator[None
         yield
     finally:
         if editor_session is not None:
+            # If exiting due to an exception, rescue the editor content before
+            # cleanup deletes the temp file
+            if sys.exc_info()[0] is not None:
+                _rescue_editor_content(editor_session)
             editor_session.cleanup()
         if LoggingSuppressor.is_suppressed():
             LoggingSuppressor.disable_and_replay(clear_screen=True)
+
+
+def _rescue_editor_content(editor_session: EditorSession) -> None:
+    """Save editor content to a recovery file so the user does not lose their work.
+
+    Reads the content from the editor's temp file (which still exists before cleanup)
+    and writes it to ~/.mng/recovered-message.txt. Uses logger.warning which will be
+    buffered if logging is suppressed and replayed when suppression is disabled.
+    """
+    if not editor_session.temp_file_path.exists():
+        return
+
+    try:
+        content = editor_session.temp_file_path.read_text().rstrip()
+    except OSError:
+        return
+
+    if not content:
+        return
+
+    # Save to ~/.mng/recovered-message.txt
+    recovery_dir = Path.home() / ".mng"
+    recovery_dir.mkdir(parents=True, exist_ok=True)
+    recovery_path = recovery_dir / _RECOVERED_MESSAGE_FILENAME
+
+    try:
+        recovery_path.write_text(content)
+    except OSError:
+        return
+
+    logger.warning("Your editor message has been saved to: {}", recovery_path)
 
 
 def _handle_editor_message(
