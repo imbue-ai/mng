@@ -190,8 +190,8 @@ def synthetic_loop_env(tmp_path: Path) -> SyntheticLoopEnv:
 class FakeWaitProcess:
     """Controllable fake for the 'mng wait' subprocess used in idle detection.
 
-    Use the factory functions ``make_immediate_idle_wait`` or
-    ``make_pending_idle_wait`` to create instances. Call ``.complete()``
+    Use the factory function ``make_pending_idle_wait`` or
+    ``_create_fake_wait_process`` to create instances. Call ``.complete()``
     to simulate the agent entering WAITING state.
     """
 
@@ -225,11 +225,6 @@ def _create_fake_wait_process(*, is_complete: bool, returncode: int | None) -> F
     process._is_complete = is_complete
     process.returncode = returncode
     return process
-
-
-def make_immediate_idle_wait(agent_id: str) -> FakeWaitProcess:
-    """Create a FakeWaitProcess that immediately reports the agent is idle."""
-    return _create_fake_wait_process(is_complete=True, returncode=0)
 
 
 def make_pending_idle_wait(agent_id: str) -> FakeWaitProcess:
