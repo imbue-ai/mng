@@ -760,7 +760,8 @@ def _rescue_editor_content(editor_session: EditorSession) -> None:
 
     try:
         content = editor_session.temp_file_path.read_text().rstrip()
-    except OSError:
+    except OSError as e:
+        logger.trace("Failed to read editor temp file for recovery: {}", e)
         return
 
     if not content:
@@ -773,7 +774,8 @@ def _rescue_editor_content(editor_session: EditorSession) -> None:
 
     try:
         recovery_path.write_text(content)
-    except OSError:
+    except OSError as e:
+        logger.trace("Failed to write recovery file {}: {}", recovery_path, e)
         return
 
     logger.warning("Your editor message has been saved to: {}", recovery_path)
