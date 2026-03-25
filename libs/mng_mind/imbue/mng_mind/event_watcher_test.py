@@ -2051,6 +2051,7 @@ def test_synthetic_loop_sends_onboarding_on_first_run(tmp_path: Path) -> None:
         env.stop_event,
         env.last_real_event_monotonic,
         env.mind_state_dir,
+        last_delivery_monotonic=[0.0],
     )
 
     assert len(env.event_buffer) == 1

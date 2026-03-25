@@ -881,11 +881,21 @@ def _maybe_send_onboarding(
     mind_state_dir: Path,
     event_buffer: list[str],
     buffer_lock: threading.Lock,
+    stop_event: threading.Event,
+    last_delivery_monotonic: list[float] | None = None,
 ) -> None:
     """Send a mind/onboarding event if none has ever been sent (marker file absent)."""
     onboarding_marker = mind_state_dir / _ONBOARDING_MARKER_FILENAME
     if onboarding_marker.exists():
         return
+
+    # FOLLOWUP: I'm not quite sure how to make this better, but we should
+    # we wait a bit when starting because the onboarding event should come after the conversation events
+    while last_delivery_monotonic is None:
+        if stop_event.is_set():
+            return
+        time.sleep(0.1)
+
     logger.info("Sending mind/onboarding event (first run)")
     line = _make_synthetic_event_line("onboarding", _SOURCE_MIND_ONBOARDING)
     with buffer_lock:
@@ -1031,7 +1041,7 @@ def _run_synthetic_events_loop(
     a race where the agent appears idle before it receives the events.
     """
     user_tz = _resolve_user_timezone(settings.user_timezone)
-    _maybe_send_onboarding(mind_state_dir, event_buffer, buffer_lock)
+    _maybe_send_onboarding(mind_state_dir, event_buffer, buffer_lock, stop_event, last_delivery_monotonic)
 
     idle_events_sent = 0
     last_seen_real_event_time = last_real_event_monotonic[0]
