@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mngr label [AGENTS...] [--agent <AGENT>] [--all] -l KEY=VALUE [-l KEY=VALUE ...]
+mngr label [AGENTS...|-] [--agent <AGENT>] [--all] -l KEY=VALUE [-l KEY=VALUE ...]
 ```
 
 Set labels on agents.
@@ -28,7 +28,7 @@ mngr label [OPTIONS] [AGENTS]...
 ```
 ## Arguments
 
-- `AGENTS`: Agent name(s) or ID(s) to label. Can also be read from stdin (one per line) when not provided as arguments.
+- `AGENTS`: Agent name(s) or ID(s) to label. Use '-' to read from stdin (one per line).
 
 **Options:**
 
@@ -96,7 +96,7 @@ $ mngr label --all --label project=myproject
 **Read agent names from stdin**
 
 ```bash
-$ mngr list --format '{name}' | mngr label -l reviewed=true
+$ mngr list --format '{name}' | mngr label - -l reviewed=true
 ```
 
 **Preview changes**

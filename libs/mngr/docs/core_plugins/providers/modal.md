@@ -137,9 +137,6 @@ mngr snapshot list my-agent
 
 # Destroy a specific snapshot
 mngr snapshot destroy my-agent --snapshot <id> --force
-
-# Start from a snapshot (restores the sandbox state) [future]
-mngr start my-agent --snapshot <id>
 ```
 
 Snapshots are stored as Modal images and persist even after the sandbox is terminated.

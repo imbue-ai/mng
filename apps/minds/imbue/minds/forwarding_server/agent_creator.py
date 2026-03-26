@@ -214,7 +214,7 @@ def run_mngr_create(
 
     match launch_mode:
         case LaunchMode.DEV:
-            mngr_command.append("--in-place")
+            mngr_command.append("--transfer=none")
         case LaunchMode.LOCAL:
             remote_data_dir = os.path.expanduser(f"~/.minds/data/{agent_id}")
             Path(remote_data_dir).mkdir(parents=True, exist_ok=True)

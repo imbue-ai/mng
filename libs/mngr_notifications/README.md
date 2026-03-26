@@ -2,7 +2,7 @@
 
 Desktop notifications when agents need your attention.
 
-A plugin for [mngr](https://github.com/imbue-ai/mngr) that adds the `mngr watch` command. It monitors the event stream from `mngr observe` and sends a native desktop notification whenever an agent transitions from RUNNING to WAITING.
+A plugin for [mngr](https://github.com/imbue-ai/mngr) that adds the `mngr notify` command. It monitors the event stream from `mngr observe` and sends a native desktop notification whenever an agent transitions from RUNNING to WAITING.
 
 ## Requirements
 
@@ -12,12 +12,12 @@ A plugin for [mngr](https://github.com/imbue-ai/mngr) that adds the `mngr watch`
 ## Usage
 
 ```bash
-mngr watch
+mngr notify
 ```
 
 When an agent finishes working and waits for input, you get a notification. On macOS, clicking the notification opens a terminal tab connected to that agent.
 
-If `mngr observe` is not already running, `mngr watch` starts it automatically in the background and stops it on exit.
+If `mngr observe` is not already running, `mngr notify` starts it automatically in the background and stops it on exit.
 
 ## Configuration
 
