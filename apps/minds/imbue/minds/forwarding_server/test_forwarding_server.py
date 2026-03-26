@@ -1118,6 +1118,8 @@ def test_creating_page_shows_status(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "Creating your mind" in response.text
 
+    agent_creator.wait_for_completion(agent_id, timeout=10.0)
+
 
 def test_creating_page_returns_404_for_unknown(tmp_path: Path) -> None:
     """GET /creating/{agent_id} returns 404 for unknown agent creation."""
@@ -1138,6 +1140,8 @@ def test_creation_status_api_returns_status_for_tracked_agent(tmp_path: Path) ->
     data = response.json()
     assert data["agent_id"] == str(agent_id)
     assert data["status"] in ("CLONING", "CREATING", "DONE", "FAILED")
+
+    agent_creator.wait_for_completion(agent_id, timeout=10.0)
 
 
 def test_create_page_prefills_git_url_from_query(tmp_path: Path) -> None:
@@ -1267,6 +1271,8 @@ def test_creation_logs_sse_streams_events(tmp_path: Path) -> None:
     with client.stream("GET", "/api/create-agent/{}/logs".format(agent_id)) as response:
         assert response.status_code == 200
         assert "text/event-stream" in response.headers.get("content-type", "")
+
+    agent_creator.wait_for_completion(agent_id, timeout=10.0)
 
 
 def test_creating_page_rejects_unauthenticated(tmp_path: Path) -> None:
