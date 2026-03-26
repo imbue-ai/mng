@@ -1025,7 +1025,7 @@ def _create_test_server_with_agent_creator(
 
 def test_create_form_submit_redirects_to_creating_page(tmp_path: Path) -> None:
     """POST /create with valid git_url redirects to /creating/{agent_id}."""
-    client, _, _ = _create_test_server_with_agent_creator(tmp_path)
+    client, _, _creator = _create_test_server_with_agent_creator(tmp_path)
 
     response = client.post(
         "/create",
@@ -1034,6 +1034,7 @@ def test_create_form_submit_redirects_to_creating_page(tmp_path: Path) -> None:
     )
     assert response.status_code == 303
     assert response.headers["location"].startswith("/creating/")
+    _creator.close()
 
 
 def test_create_form_submit_rejects_empty_git_url(tmp_path: Path) -> None:
@@ -1146,11 +1147,12 @@ def test_creation_status_api_returns_status_for_tracked_agent(tmp_path: Path) ->
 
 def test_create_page_prefills_git_url_from_query(tmp_path: Path) -> None:
     """GET /create?git_url=... pre-fills the form."""
-    client, _, _ = _create_test_server_with_agent_creator(tmp_path)
+    client, _, _creator = _create_test_server_with_agent_creator(tmp_path)
 
     response = client.get("/create", params={"git_url": "file:///nonexistent-repo"})
     assert response.status_code == 200
     assert "file:///nonexistent-repo" in response.text
+    _creator.close()
 
 
 def test_landing_page_shows_create_link_when_multiple_agents_known(tmp_path: Path) -> None:
@@ -1290,7 +1292,7 @@ def test_creating_page_rejects_unauthenticated(tmp_path: Path) -> None:
 
 def test_create_form_submit_passes_launch_mode(tmp_path: Path) -> None:
     """POST /create passes launch_mode to the creator."""
-    client, _, _ = _create_test_server_with_agent_creator(tmp_path)
+    client, _, _creator = _create_test_server_with_agent_creator(tmp_path)
 
     response = client.post(
         "/create",
@@ -1302,11 +1304,12 @@ def test_create_form_submit_passes_launch_mode(tmp_path: Path) -> None:
         follow_redirects=False,
     )
     assert response.status_code == 303
+    _creator.close()
 
 
 def test_create_agent_api_passes_launch_mode(tmp_path: Path) -> None:
     """POST /api/create-agent passes launch_mode to the creator."""
-    client, _, _ = _create_test_server_with_agent_creator(tmp_path)
+    client, _, _creator = _create_test_server_with_agent_creator(tmp_path)
 
     response = client.post(
         "/api/create-agent",
@@ -1319,11 +1322,12 @@ def test_create_agent_api_passes_launch_mode(tmp_path: Path) -> None:
     assert response.status_code == 200
     data = response.json()
     assert "agent_id" in data
+    _creator.close()
 
 
 def test_create_agent_api_rejects_invalid_launch_mode(tmp_path: Path) -> None:
     """POST /api/create-agent returns 400 for an invalid launch_mode."""
-    client, _, _ = _create_test_server_with_agent_creator(tmp_path)
+    client, _, _creator = _create_test_server_with_agent_creator(tmp_path)
 
     response = client.post(
         "/api/create-agent",
@@ -1335,6 +1339,7 @@ def test_create_agent_api_rejects_invalid_launch_mode(tmp_path: Path) -> None:
     )
     assert response.status_code == 400
     assert "Invalid launch_mode" in response.json()["error"]
+    _creator.close()
 
 
 def test_create_form_shows_launch_mode_dropdown(tmp_path: Path) -> None:

@@ -326,6 +326,13 @@ class AgentCreator(MutableModel):
         if thread is not None:
             thread.join(timeout=timeout)
 
+    def close(self, timeout: float = 10.0) -> None:
+        """Wait for all background creation threads to finish."""
+        with self._lock:
+            threads = list(self._threads.values())
+        for thread in threads:
+            thread.join(timeout=timeout)
+
     def get_creation_info(self, agent_id: AgentId) -> AgentCreationInfo | None:
         """Get the current creation status for an agent, or None if not tracked."""
         with self._lock:
