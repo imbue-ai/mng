@@ -226,7 +226,7 @@ def _kill_stale_process(pid: int) -> bool:
     # Give the process a moment to shut down gracefully before escalating.
     # Human-sanctioned use of time.sleep -- there is no event-based mechanism
     # to wait for an arbitrary (non-child) process to exit.
-    time.sleep(2)
+    time.sleep(5)
 
     if not _is_process_alive(pid):
         return True
