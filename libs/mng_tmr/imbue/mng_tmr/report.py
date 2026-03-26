@@ -15,6 +15,7 @@ from imbue.mng.utils.detail_renderer import ASCIINEMA_PLAYER_CSS
 from imbue.mng.utils.detail_renderer import ASCIINEMA_PLAYER_JS
 from imbue.mng.utils.detail_renderer import DETAIL_CSS
 from imbue.mng.utils.detail_renderer import render_test_detail
+from imbue.mng_tmr.data_types import Change
 from imbue.mng_tmr.data_types import ChangeKind
 from imbue.mng_tmr.data_types import ChangeStatus
 from imbue.mng_tmr.data_types import IntegratorResult
@@ -203,10 +204,11 @@ def _build_grouped_tables(
         if is_running:
             sections += "<th>Test</th><th>Agent</th>"
         else:
-            sections += "<th>Test</th><th>Changes</th><th>Summary</th><th>Agent</th><th>Branch</th><th>Merged?</th>"
+            sections += "<th>Test</th><th>Changes</th><th>Agent</th><th>Branch</th><th>Merged?</th>"
             if agent_artifact_runs:
                 sections += "<th>Artifacts</th>"
         sections += "</tr>\n      </thead>\n      <tbody>\n"
+        col_count = 5 + (1 if agent_artifact_runs and not is_running else 0)
         for r in group:
             agent_name_str = str(r.agent_name)
             if is_running:
@@ -217,12 +219,7 @@ def _build_grouped_tables(
 """
             else:
                 branch_cell = r.branch_name if r.branch_name else "-"
-                summary_html = _render_markdown(r.summary_markdown)
-                changes_cell = (
-                    ", ".join(f"{kind.value}/{change.status.value}" for kind, change in r.changes.items())
-                    if r.changes
-                    else "-"
-                )
+                changes_cell = _format_changes(r.changes) if r.changes else "-"
                 merged_cell = _merged_status(r, integrator)
                 artifact_cell = ""
                 if agent_artifact_runs:
@@ -233,17 +230,35 @@ def _build_grouped_tables(
                         artifact_cell = "<td>-</td>"
                 sections += f"""        <tr>
           <td>{html.escape(r.test_node_id)}</td>
-          <td>{html.escape(changes_cell)}</td>
-          <td class="md">{summary_html}</td>
+          <td>{changes_cell}</td>
           <td><code>{html.escape(agent_name_str)}</code></td>
           <td><code>{html.escape(branch_cell)}</code></td>
           <td>{merged_cell}</td>
           {artifact_cell}
         </tr>
 """
+                if r.summary_markdown:
+                    summary_html = _render_markdown(r.summary_markdown)
+                    sections += f'        <tr class="summary-row"><td colspan="{col_count}" class="md summary-cell">{summary_html}</td></tr>\n'
         sections += "      </tbody>\n    </table>\n"
 
     return sections
+
+
+_CHANGE_STATUS_ICONS: dict[ChangeStatus, str] = {
+    ChangeStatus.SUCCEEDED: "&#10003;",
+    ChangeStatus.FAILED: "&#10007;",
+    ChangeStatus.BLOCKED: "&#9644;",
+}
+
+
+def _format_changes(changes: dict[ChangeKind, Change]) -> str:
+    """Format changes as concise kind + icon pairs."""
+    parts = []
+    for kind, change in changes.items():
+        icon = _CHANGE_STATUS_ICONS.get(change.status, "?")
+        parts.append(f"{kind.value} {icon}")
+    return ", ".join(parts)
 
 
 def _render_markdown(text: str) -> str:
@@ -271,6 +286,8 @@ def _html_report_css() -> str:
         "    th, td { border: 1px solid rgb(221, 221, 221); padding: 8px 12px; text-align: left; }\n"
         "    th { background: rgb(245, 245, 245); font-weight: 600; }\n"
         "    tr:hover { background: rgb(250, 250, 250); }\n"
+        "    .summary-row td { border-top: none; }\n"
+        "    .summary-cell { padding-left: 2em; color: rgb(80, 80, 80); font-size: 0.9em; }\n"
         "    td.md p { margin: 0.25em 0; }\n"
         "    td.md p:first-child { margin-top: 0; }\n"
         "    td.md p:last-child { margin-bottom: 0; }\n"

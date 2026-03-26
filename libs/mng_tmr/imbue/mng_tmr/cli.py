@@ -1,5 +1,6 @@
 """CLI command for test-mapreduce."""
 
+import resource
 import time
 from datetime import datetime
 from datetime import timezone
@@ -77,6 +78,20 @@ class TmrCliOptions(CommonCliOptions):
     output_html: str | None
     source: str | None
     reintegrate: str | None
+
+
+_MIN_FD_LIMIT = 4096
+
+
+def _raise_fd_limit() -> None:
+    """Raise the soft file descriptor limit to handle many concurrent agents."""
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft < _MIN_FD_LIMIT:
+            new_soft = min(_MIN_FD_LIMIT, hard)
+            resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+    except (ValueError, OSError):
+        pass
 
 
 class _TmrCommand(click.Command):
@@ -423,6 +438,11 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         command_class=TmrCliOptions,
     )
 
+    # Raise the soft FD limit to handle many concurrent agents.
+    # Each agent process (tmux + claude) opens many files, and list_agents
+    # enumerates all hosts which can push the system near the FD limit.
+    _raise_fd_limit()
+
     source_dir = Path(opts.source) if opts.source is not None else Path.cwd()
 
     if opts.reintegrate is not None:
@@ -556,6 +576,13 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
     integrator_result = _run_integrator_phase(results, integrator_config, mng_ctx, opts, base_commit=base_commit)
     generate_html_report(results, html_path, integrator=integrator_result, test_artifacts_dir=output_dir)
     _emit_report_path(html_path, output_opts)
+
+    # Print useful commands for managing this run's agents
+    write_human_line("")
+    write_human_line("List agents from this run:")
+    write_human_line("  mng ls --include 'labels.tmr_run_name == \"{}\"'", e2e_run_prefix)
+    write_human_line("Reintegrate (after sending followup messages to agents):")
+    write_human_line("  mng tmr --reintegrate {}", e2e_run_prefix)
 
 
 CommandHelpMetadata(

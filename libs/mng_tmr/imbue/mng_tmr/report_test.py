@@ -211,8 +211,10 @@ def test_build_grouped_tables_shows_changes_column() -> None:
         summary_markdown="Fixed test",
     )
     tables_html = _build_grouped_tables([r])
-    assert "FIX_TEST/SUCCEEDED" in tables_html
-    assert "IMPROVE_TEST/BLOCKED" in tables_html
+    assert "FIX_TEST" in tables_html
+    assert "IMPROVE_TEST" in tables_html
+    assert "10003" in tables_html
+    assert "9644" in tables_html
 
 
 def test_build_grouped_tables_renders_markdown_summary() -> None:
