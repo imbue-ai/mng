@@ -1,7 +1,7 @@
 """Mng-specific overrides for vet-generated code issue categories.
 
 These overrides are applied AFTER generating from vet, so the vet base is always
-the starting point. They add new categories and extend existing ones with
+the starting point. They add new categories and extend or replace existing ones with
 mng-specific guidance.
 """
 
