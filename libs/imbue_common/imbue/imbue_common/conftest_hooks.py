@@ -262,15 +262,26 @@ def _compute_max_duration() -> float:
 
     The same logic is used by _pytest_sessionfinish to enforce the time limit
     and by _compute_lock_deadline to derive the lock file deadline.
+
+    There are 4 types of tests, each with different time limits in CI:
+
+    - unit tests: fast, local, no network (run together with integration tests)
+    - integration tests: local, no network, used for coverage calculation
+    - acceptance tests: run on all branches except release, have network/Modal/etc access
+    - release tests: only run on release, comprehensive tests for release readiness
     """
     if "PYTEST_MAX_DURATION" in os.environ:
         return float(os.environ["PYTEST_MAX_DURATION"])
+    # Release tests have the highest limit since there can be many, and they can be slow
     if os.environ.get("IS_RELEASE", "0") == "1":
         return 10 * 60.0
+    # Acceptance tests have a somewhat higher limit than integration/unit
     if os.environ.get("IS_ACCEPTANCE", "0") == "1":
         return 6 * 60.0
     if "CI" in os.environ:
+        # Integration + unit tests in CI should be fast
         return 150.0
+    # Local development default
     return 300.0
 
 
