@@ -299,10 +299,13 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         if is_format_explicit:
             raise click.UsageError(f"{shorthand_name} cannot be combined with --format")
 
-    if opts.ids:
-        format_template = "{id}"
-    elif opts.addrs:
-        format_template = "{name}@{host.name}.{host.provider_name}"
+    match (opts.ids, opts.addrs):
+        case (True, False):
+            format_template = "{id}"
+        case (False, True):
+            format_template = "{name}@{host.name}.{host.provider_name}"
+        case _:
+            pass
 
     # Parse fields if provided
     fields = None
