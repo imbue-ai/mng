@@ -363,6 +363,7 @@ def _acquire_global_test_lock(
     closed or when the process exits.
     """
     acquired_handle: TextIO | None = None
+    waited_for_lock = False
     while acquired_handle is None:
         # Ensure the lock file exists.
         lock_path.touch(exist_ok=True)
@@ -394,7 +395,7 @@ def _acquire_global_test_lock(
             except FileNotFoundError:
                 continue
             fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX)
-            _print_lock_message("PYTEST GLOBAL LOCK: Lock acquired, proceeding with tests.")
+            waited_for_lock = True
 
         # Verify the inode has not been replaced while we waited.
         if _verify_lock_inode(lock_file_handle, lock_path):
@@ -404,6 +405,9 @@ def _acquire_global_test_lock(
             acquired_handle = lock_file_handle
         else:
             lock_file_handle.close()
+
+    if waited_for_lock:
+        _print_lock_message("PYTEST GLOBAL LOCK: Lock acquired, proceeding with tests.")
 
     return acquired_handle
 
