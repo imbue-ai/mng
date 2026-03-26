@@ -227,13 +227,6 @@ def generate_conversation_categories(vet_modules) -> str:
 
 def _check_vet_base(vet_repo: Path) -> None:
     """Warn if the vet repo HEAD doesn't match the pinned base commit."""
-    if not VET_BASE_COMMIT_PATH.exists():
-        print(
-            f"warning: {VET_BASE_COMMIT_PATH.name} not found, cannot verify vet version",
-            file=sys.stderr,
-        )
-        return
-
     base_commit = VET_BASE_COMMIT_PATH.read_text().strip()
     result = subprocess.run(
         ["git", "-C", str(vet_repo), "rev-parse", "HEAD"],
