@@ -326,8 +326,11 @@ def launch_all_test_agents(
     if use_snapshot:
         provider = get_provider_instance(config.provider_name, mng_ctx)
         if provider.supports_snapshots:
-            snapshot_name = _create_snapshot_host(config, mng_ctx)
-            launch_config = config.model_copy_update(to_update(config.field_ref().snapshot, snapshot_name))
+            try:
+                snapshot_name = _create_snapshot_host(config, mng_ctx)
+                launch_config = config.model_copy_update(to_update(config.field_ref().snapshot, snapshot_name))
+            except (MngError, HostError, OSError, BaseExceptionGroup) as exc:
+                logger.warning("Failed to create snapshot, launching agents without snapshot: {}", exc)
         else:
             logger.warning(
                 "Provider '{}' does not support snapshots, launching all agents without snapshot",
@@ -642,6 +645,17 @@ def try_read_agent_result(
         return None
 
 
+def _try_get_agent_branch(agent_id: AgentId, host: OnlineHostInterface) -> str | None:
+    """Try to get an agent's initial branch name from the host's data.json."""
+    data_path = host.host_dir / "agents" / str(agent_id) / "data.json"
+    try:
+        raw = host.read_text_file(data_path)
+        data = json.loads(raw)
+        return data.get("initial_branch")
+    except (HostError, OSError, json.JSONDecodeError, KeyError):
+        return None
+
+
 def _stop_agent_on_host(host: OnlineHostInterface, agent_id: AgentId, agent_name: AgentName) -> None:
     """Stop a single agent on the host."""
     try:
@@ -926,8 +940,11 @@ def _collect_agent_results(
             # Agent may have been detected as done via direct result file check
             # (without going through list_agents). Try reading result directly.
             if agent_id_str in hosts:
-                direct_result = try_read_agent_result(AgentId(agent_id_str), hosts[agent_id_str])
+                direct_result = cached_results.get(agent_id_str) or try_read_agent_result(
+                    AgentId(agent_id_str), hosts[agent_id_str]
+                )
                 if direct_result is not None:
+                    branch_name = _try_get_agent_branch(AgentId(agent_id_str), hosts[agent_id_str])
                     results.append(
                         TestMapReduceResult(
                             test_node_id=agent_info.test_node_id,
@@ -937,6 +954,7 @@ def _collect_agent_results(
                             tests_passing_before=direct_result.tests_passing_before,
                             tests_passing_after=direct_result.tests_passing_after,
                             summary_markdown=direct_result.summary_markdown,
+                            branch_name=branch_name,
                             test_runs=direct_result.test_runs,
                         )
                     )

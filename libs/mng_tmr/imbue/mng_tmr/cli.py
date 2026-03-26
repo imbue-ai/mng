@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import assert_never
 
 import click
+from loguru import logger
 
 from imbue.mng.api.find import ensure_host_started
 from imbue.mng.api.list import list_agents
@@ -23,6 +24,8 @@ from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
+from imbue.mng.errors import HostError
+from imbue.mng.errors import MngError
 from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.host import AgentEnvironmentOptions
 from imbue.mng.interfaces.host import AgentLabelOptions
@@ -202,10 +205,17 @@ def _run_reintegrate(
         agent_infos.append(info)
         final_details[agent_id_str] = detail
         if detail.host is not None:
-            host_provider = get_provider_instance(detail.host.provider_name, mng_ctx)
-            host_ref = host_provider.get_host(HostName(detail.host.name))
-            host, _ = ensure_host_started(host_ref, is_start_desired=True, provider=host_provider)
-            agent_hosts[agent_id_str] = host
+            is_local = detail.host.provider_name == LOCAL_PROVIDER_NAME
+            if is_local:
+                agent_hosts[agent_id_str] = source_host
+            else:
+                try:
+                    host_provider = get_provider_instance(detail.host.provider_name, mng_ctx)
+                    host_ref = host_provider.get_host(HostName(detail.host.name))
+                    host, _ = ensure_host_started(host_ref, is_start_desired=True, provider=host_provider)
+                    agent_hosts[agent_id_str] = host
+                except (MngError, HostError, OSError, BaseExceptionGroup) as exc:
+                    logger.warning("Could not connect to host for agent '{}': {}", detail.name, exc)
 
     # Compute output directory
     if opts.output_html is not None:
@@ -272,11 +282,15 @@ def _run_integrator_phase(
     if not fix_branches:
         return None
 
-    integrator, integrator_host = launch_integrator_agent(
-        fix_branches=fix_branches,
-        config=config,
-        mng_ctx=mng_ctx,
-    )
+    try:
+        integrator, integrator_host = launch_integrator_agent(
+            fix_branches=fix_branches,
+            config=config,
+            mng_ctx=mng_ctx,
+        )
+    except (MngError, HostError, OSError, BaseExceptionGroup) as exc:
+        logger.warning("Failed to launch integrator agent: {}", exc)
+        return None
 
     integrator_deadline = time.monotonic() + opts.integrator_timeout
     integrator_branch = wait_for_integrator(
