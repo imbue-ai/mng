@@ -241,6 +241,7 @@ def _is_behind_origin(vet_repo: Path, base_commit: str) -> bool:
     """Check if the pinned base commit is behind vet's origin/main."""
     origin_result = _git(vet_repo, "rev-parse", "origin/main", check=False)
     if origin_result.returncode != 0:
+        print("warning: could not resolve origin/main in vet repo", file=sys.stderr)
         return False
     origin_main = origin_result.stdout.strip()
     if origin_main == base_commit:
