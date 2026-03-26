@@ -240,11 +240,8 @@ def fetch_board_snapshot(
     if on_after_refresh:
         after_errors = run_refresh_hooks(cg, on_after_refresh, snapshot.entries)
         if after_errors:
-            snapshot = BoardSnapshot(
-                entries=snapshot.entries,
-                errors=(*snapshot.errors, *after_errors),
-                prs_loaded_repos=snapshot.prs_loaded_repos,
-                fetch_time_seconds=snapshot.fetch_time_seconds,
+            snapshot = snapshot.model_copy_update(
+                to_update(snapshot.field_ref().errors, (*snapshot.errors, *after_errors)),
             )
 
     return snapshot
