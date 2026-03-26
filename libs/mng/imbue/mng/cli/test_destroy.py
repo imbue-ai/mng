@@ -669,3 +669,152 @@ def test_destroy_remove_created_branch_graceful_when_no_branch(
 
         assert destroy_result.exit_code == 0, f"Destroy failed: {destroy_result.output}"
         assert "Destroyed agent:" in destroy_result.output
+
+
+# =============================================================================
+# Multi-agent worktree and branch removal regression tests
+# =============================================================================
+
+
+def _git_worktree_paths(repo_path: Path) -> list[str]:
+    """Get worktree paths registered in a git repo (excluding the main repo itself)."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_path), "worktree", "list", "--porcelain"],
+        capture_output=True,
+        text=True,
+    )
+    paths = []
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            paths.append(line.removeprefix("worktree "))
+    # First entry is the main repo itself; skip it
+    return paths[1:]
+
+
+@pytest.mark.tmux
+def test_destroy_multiple_agents_removes_all_worktrees(
+    cli_runner: CliRunner,
+    temp_git_repo: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that destroying multiple agents removes ALL worktrees, not just the last one.
+
+    Regression test: the original sequential destroy code used a singular variable
+    (worktree_to_remove) that was overwritten each iteration, so only the last
+    agent's worktree was removed.
+    """
+    timestamp = int(time.time())
+    agent_names = [f"test-multi-wt-{i}-{timestamp}" for i in range(3)]
+    session_names = [f"{mng_test_prefix}{name}" for name in agent_names]
+
+    with ExitStack() as stack:
+        for session_name in session_names:
+            stack.enter_context(tmux_session_cleanup(session_name))
+
+        # Create all agents with worktrees
+        for agent_name in agent_names:
+            result = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name,
+                    "--command",
+                    "sleep 764523",
+                    "--source",
+                    str(temp_git_repo),
+                    "--no-connect",
+                    "--worktree",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert result.exit_code == 0, f"Create failed for {agent_name}: {result.output}"
+
+        # Verify worktrees were created
+        worktrees_before = _git_worktree_paths(temp_git_repo)
+        assert len(worktrees_before) == 3, f"Expected 3 worktrees, got {len(worktrees_before)}: {worktrees_before}"
+
+        # Destroy all agents
+        destroy_result = cli_runner.invoke(
+            destroy,
+            [*agent_names, "--force", "--no-gc"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert destroy_result.exit_code == 0, f"Destroy failed: {destroy_result.output}"
+
+        # Verify ALL worktrees are removed (not just the last one)
+        worktrees_after = _git_worktree_paths(temp_git_repo)
+        assert len(worktrees_after) == 0, (
+            f"Expected all worktrees to be removed, but {len(worktrees_after)} remain: {worktrees_after}"
+        )
+
+        # Verify all worktree directories are actually gone
+        for wt_path in worktrees_before:
+            assert not Path(wt_path).exists(), f"Expected worktree directory to be removed: {wt_path}"
+
+
+@pytest.mark.tmux
+def test_destroy_multiple_agents_removes_all_branches(
+    cli_runner: CliRunner,
+    temp_git_repo: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that destroying multiple agents with -b deletes ALL branches, not just the last one.
+
+    Regression test: the original sequential destroy code used a singular variable
+    (branch_to_remove) that was overwritten each iteration, so only the last
+    agent's branch was deleted.
+    """
+    timestamp = int(time.time())
+    agent_names = [f"test-multi-br-{i}-{timestamp}" for i in range(3)]
+    branch_names = [f"mng/{name}" for name in agent_names]
+    session_names = [f"{mng_test_prefix}{name}" for name in agent_names]
+
+    with ExitStack() as stack:
+        for session_name in session_names:
+            stack.enter_context(tmux_session_cleanup(session_name))
+
+        # Create all agents with worktrees
+        for agent_name in agent_names:
+            result = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name,
+                    "--command",
+                    "sleep 853294",
+                    "--source",
+                    str(temp_git_repo),
+                    "--no-connect",
+                    "--worktree",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert result.exit_code == 0, f"Create failed for {agent_name}: {result.output}"
+
+        # Verify all branches exist
+        for branch_name in branch_names:
+            assert _git_branch_exists(temp_git_repo, branch_name), (
+                f"Expected branch {branch_name} to exist after create"
+            )
+
+        # Destroy all agents with --remove-created-branch
+        destroy_result = cli_runner.invoke(
+            destroy,
+            [*agent_names, "--force", "--remove-created-branch", "--no-gc"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert destroy_result.exit_code == 0, f"Destroy failed: {destroy_result.output}"
+
+        # Verify ALL branches are deleted (not just the last one)
+        for branch_name in branch_names:
+            assert not _git_branch_exists(temp_git_repo, branch_name), (
+                f"Expected branch {branch_name} to be deleted after destroy --remove-created-branch"
+            )
