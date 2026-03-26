@@ -164,6 +164,12 @@ def _apply_overrides(sections: list[CategorySection]) -> list[CategorySection]:
                 section.examples.extend(_split_list_items(override.content))
             case OverrideAction.APPEND_EXCEPTIONS:
                 section.exceptions.extend(_split_list_items(override.content))
+            case OverrideAction.REPLACE_GUIDE:
+                section.guide = override.content
+            case OverrideAction.REPLACE_EXAMPLES:
+                section.examples = _split_list_items(override.content)
+            case OverrideAction.REPLACE_EXCEPTIONS:
+                section.exceptions = _split_list_items(override.content)
             case OverrideAction.ADD_CATEGORY:
                 msg = "ADD_CATEGORY should use NEW_CATEGORIES, not CATEGORY_EXTENSIONS"
                 raise ValueError(msg)
