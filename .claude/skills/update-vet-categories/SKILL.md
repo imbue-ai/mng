@@ -11,6 +11,8 @@ This skill enables editing the issue category `.md` files directly and then upda
 
 The issue category files in `.claude/agents/categories/` are generated from vet (an external repo) plus mng-specific overrides defined in `scripts/verify_skill_overrides.py`. The generator script `scripts/generate_verify_skills.py` reads vet's base categories, applies the overrides, and writes the final `.md` files.
 
+The generator pins a specific vet commit in `scripts/vet_base_commit`. When it runs, it checks out that commit in the vet repo (warning if vet HEAD is newer). This prevents unintended vet upstream changes from silently altering the output.
+
 The workflow is: the user edits the `.md` files to say what they want, then you (the agent) update the override script so the generator reproduces those edits.
 
 ## Safety Checks

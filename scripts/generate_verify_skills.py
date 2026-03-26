@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ from verify_skill_overrides import OverrideAction
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
+VET_BASE_COMMIT_PATH = SCRIPT_DIR / "vet_base_commit"
 
 # Output paths (vet-generated, checked in)
 BRANCH_CATEGORIES_PATH = REPO_ROOT / ".claude" / "agents" / "categories" / "code-issue-categories.md"
@@ -223,8 +225,38 @@ def generate_conversation_categories(vet_modules) -> str:
     return "\n".join(sections)
 
 
+def _check_vet_base(vet_repo: Path) -> None:
+    """Warn if the vet repo HEAD doesn't match the pinned base commit."""
+    if not VET_BASE_COMMIT_PATH.exists():
+        print(
+            f"warning: {VET_BASE_COMMIT_PATH.name} not found, cannot verify vet version",
+            file=sys.stderr,
+        )
+        return
+
+    base_commit = VET_BASE_COMMIT_PATH.read_text().strip()
+    result = subprocess.run(
+        ["git", "-C", str(vet_repo), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print("warning: could not determine vet HEAD commit", file=sys.stderr)
+        return
+
+    vet_head = result.stdout.strip()
+    if vet_head != base_commit:
+        print(
+            f"warning: vet HEAD ({vet_head[:12]}) does not match pinned base ({base_commit[:12]}). "
+            f"Run 'git -C {vet_repo} checkout {base_commit}' to use the pinned version.",
+            file=sys.stderr,
+        )
+
+
 def load_vet(vet_repo: Path) -> dict:
     """Import vet modules and return the symbols we need."""
+    _check_vet_base(vet_repo)
+
     vet_str = str(vet_repo)
     if vet_str not in sys.path:
         sys.path.insert(0, vet_str)
