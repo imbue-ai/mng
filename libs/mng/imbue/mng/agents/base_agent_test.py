@@ -1011,7 +1011,7 @@ def _create_agent_with_stub_host(
     temp_mng_ctx: MngContext,
     stub: _StubHost,
     cls: type[BaseAgent] = BaseAgent,
-    name: AgentName | None = None,
+    name: AgentName = AgentName("stub-agent"),
     **kwargs: Any,
 ) -> BaseAgent:
     """Create an agent with a stub host for command recording.
@@ -1023,7 +1023,7 @@ def _create_agent_with_stub_host(
     """
     return cls.model_construct(
         id=AgentId.generate(),
-        name=name if name is not None else AgentName("stub-agent"),
+        name=name,
         agent_type=AgentTypeName("test"),
         work_dir=Path("/tmp/stub-work"),
         create_time=datetime.now(timezone.utc),
