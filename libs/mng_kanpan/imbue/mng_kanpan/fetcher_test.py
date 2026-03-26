@@ -486,7 +486,7 @@ def test_fetch_board_snapshot_surfaces_gh_errors_and_suppresses_create_pr_url(tm
 
     # Simulate fetch_github_data returning an error for this repo.
     remote = GitHubData(
-        repo_pr_loaded={},
+        repo_pr_loaded={"org/repo": False},
         errors=("gh pr list failed: auth required",),
     )
 
@@ -505,7 +505,7 @@ def test_fetch_board_snapshot_surfaces_gh_errors_and_suppresses_create_pr_url(tm
 
     assert len(snapshot.errors) == 1
     assert "gh pr list failed" in snapshot.errors[0]
-    assert snapshot.repo_pr_loaded == {}
+    assert snapshot.repo_pr_loaded == {"org/repo": False}
     assert snapshot.entries[0].branch == "mng/agent-1"
     # When PRs failed to load, create_pr_url should be suppressed even though
     # the agent has a branch and a valid GitHub remote
