@@ -1614,17 +1614,15 @@ class Host(BaseHost, OnlineHostInterface):
                     f"errors=\"${{errors}}$(printf 'CONFLICT: %s\\n' {t})\"; "
                     f"elif [ ! -L {t} ] || "
                     f'[ "$(readlink -f {t} 2>/dev/null)" != "$(readlink -f {s} 2>/dev/null)" ]; then '
-                    f"mkdir -p {t_parent} && ln -snf {s} {t}; "
+                    f"mkdir -p {t_parent} && ln -snf {s} {t} "
+                    f"|| errors=\"${{errors}}$(printf 'FAILED: %s\\n' {t})\"; "
                     f"fi"
                 )
             script_parts.append('if [ -n "$errors" ]; then printf "%s" "$errors" >&2; exit 1; fi')
             result = self.execute_command("; ".join(script_parts))
             if not result.success:
-                conflicts = [
-                    line.removeprefix("CONFLICT: ")
-                    for line in result.stderr.strip().split("\n")
-                    if line.startswith("CONFLICT: ")
-                ]
+                stderr_lines = result.stderr.strip().split("\n")
+                conflicts = [line.removeprefix("CONFLICT: ") for line in stderr_lines if line.startswith("CONFLICT: ")]
                 if conflicts:
                     raise UserInputError(
                         "work_dir_extra_paths: target already exists and is not a symlink: " + ", ".join(conflicts)
