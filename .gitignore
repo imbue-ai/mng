@@ -248,7 +248,6 @@ tmr_*/
 
 # Offload caches and local files
 .offload/**
-test-results/**
 current.tar.gz
 
 # Minds deploy-time build artifacts
