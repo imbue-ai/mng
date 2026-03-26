@@ -217,7 +217,9 @@ def _run_reintegrate(
 
     # Gather results from all agents (re-reads outcome files)
     base_commit = get_base_commit(source_dir, mng_ctx.concurrency_group)
-    is_remote_provider = any(d.host is not None and d.host.provider != LOCAL_PROVIDER_NAME for d in matching_agents)
+    is_remote_provider = any(
+        d.host is not None and d.host.provider_name != LOCAL_PROVIDER_NAME for d in matching_agents
+    )
     results = gather_results(
         agents=agent_infos,
         final_details=final_details,
