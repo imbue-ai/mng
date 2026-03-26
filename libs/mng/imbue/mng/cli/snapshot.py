@@ -863,7 +863,7 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
 CommandHelpMetadata(
     key="snapshot",
     one_line_description="Create, list, and destroy host snapshots",
-    synopsis="mng [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]",
+    synopsis="mng [snapshot|snap] [create|list|destroy] [AGENTS...|-] [OPTIONS]",
     description="""Snapshots capture the complete filesystem state of a host, allowing it to be
 restored later. Because the snapshot is at the host level, the state of all
 agents on the host is saved.
@@ -900,7 +900,7 @@ add_pager_help_option(snapshot)
 CommandHelpMetadata(
     key="snapshot.create",
     one_line_description="Create a snapshot of agent host(s)",
-    synopsis="mng snapshot create [IDENTIFIERS...] [OPTIONS]",
+    synopsis="mng snapshot create [IDENTIFIERS...|-] [OPTIONS]",
     description="""Positional arguments can be agent names/IDs or host names/IDs. Each
 identifier is automatically resolved: if it matches a known agent, that
 agent's host is snapshotted; otherwise it is treated as a host identifier.
@@ -925,7 +925,7 @@ add_pager_help_option(snapshot_create)
 CommandHelpMetadata(
     key="snapshot.list",
     one_line_description="List snapshots for agent host(s)",
-    synopsis="mng snapshot list [IDENTIFIERS...] [OPTIONS]",
+    synopsis="mng snapshot list [IDENTIFIERS...|-] [OPTIONS]",
     description="""Shows snapshot ID, name, creation time, size, and host for each snapshot.
 
 Positional arguments can be agent names/IDs or host names/IDs. Each
@@ -951,7 +951,7 @@ add_pager_help_option(snapshot_list)
 CommandHelpMetadata(
     key="snapshot.destroy",
     one_line_description="Destroy snapshots for agent host(s)",
-    synopsis="mng snapshot destroy [AGENTS...] [OPTIONS]",
+    synopsis="mng snapshot destroy [AGENTS...|-] [OPTIONS]",
     description="""Requires either --snapshot (to delete specific snapshots) or --all-snapshots
 (to delete all snapshots for the resolved hosts). A confirmation prompt is
 shown unless --force is specified.

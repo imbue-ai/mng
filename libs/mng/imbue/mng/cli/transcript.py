@@ -247,7 +247,7 @@ def transcript(ctx: click.Context, **kwargs: Any) -> None:
 CommandHelpMetadata(
     key="transcript",
     one_line_description="View the message transcript for an agent",
-    synopsis="mng transcript TARGET [--role ROLE] [--tail N] [--head N] [--format human|json|jsonl]",
+    synopsis="mng transcript <TARGET|-> [--role ROLE] [--tail N] [--head N] [--format human|json|jsonl]",
     arguments_description="- `TARGET`: Agent name or ID whose transcript to view",
     description="""View the common transcript for an agent. The transcript contains
 user messages, assistant messages, and tool call/result summaries in a

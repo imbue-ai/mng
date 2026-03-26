@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mng start [AGENTS...] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]
+mng start [AGENTS...|-] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]
 ```
 
 Start stopped agent(s).

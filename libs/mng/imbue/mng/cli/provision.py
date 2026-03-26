@@ -221,7 +221,7 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
 CommandHelpMetadata(
     key="provision",
     one_line_description="Re-run provisioning on an existing agent [experimental]",
-    synopsis="mng [provision|prov] [AGENT] [--agent <AGENT>] [--extra-provision-command <CMD>] [--upload-file <LOCAL:REMOTE>] [--env <KEY=VALUE>]",
+    synopsis="mng [provision|prov] [AGENT|-] [--agent <AGENT>] [--extra-provision-command <CMD>] [--upload-file <LOCAL:REMOTE>] [--env <KEY=VALUE>]",
     description="""This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
 user commands, env vars) on an agent that has already been created. Useful for
 syncing configuration, authentication, and installing additional packages. Most

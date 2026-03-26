@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mng [message|msg] [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]
+mng [message|msg] [AGENTS...|-] [--agent <AGENT>] [--all] [-m <MESSAGE>]
 ```
 
 Send a message to one or more agents.

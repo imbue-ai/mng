@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mng label [AGENTS...] [--agent <AGENT>] [--all] -l KEY=VALUE [-l KEY=VALUE ...]
+mng label [AGENTS...|-] [--agent <AGENT>] [--all] -l KEY=VALUE [-l KEY=VALUE ...]
 ```
 
 Set labels on agents.

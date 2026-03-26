@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mng [connect|conn] [OPTIONS] [AGENT]
+mng [connect|conn] [OPTIONS] [AGENT|-]
 ```
 
 Connect to an existing agent via the terminal.

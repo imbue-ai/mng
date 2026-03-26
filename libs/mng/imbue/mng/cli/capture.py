@@ -76,7 +76,7 @@ def capture(ctx: click.Context, **kwargs: Any) -> None:
 CommandHelpMetadata(
     key="capture",
     one_line_description="Capture and display an agent's tmux pane content",
-    synopsis="mng capture [AGENT] [--full] [--start/--no-start]",
+    synopsis="mng capture [AGENT|-] [--full] [--start/--no-start]",
     description="""Captures the current tmux pane content for the specified agent and
 prints it to stdout. Useful for debugging agent state without connecting
 to the agent's terminal.

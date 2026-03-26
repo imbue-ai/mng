@@ -293,7 +293,7 @@ def label(ctx: click.Context, **kwargs: Any) -> None:
 CommandHelpMetadata(
     key="label",
     one_line_description="Set labels on agents",
-    synopsis="mng label [AGENTS...] [--agent <AGENT>] [--all] -l KEY=VALUE [-l KEY=VALUE ...]",
+    synopsis="mng label [AGENTS...|-] [--agent <AGENT>] [--all] -l KEY=VALUE [-l KEY=VALUE ...]",
     arguments_description="- `AGENTS`: Agent name(s) or ID(s) to label. Use '-' to read from stdin (one per line).",
     description="""Labels are key-value pairs attached to agents. They are stored in the
 agent's certified data and persist across restarts.

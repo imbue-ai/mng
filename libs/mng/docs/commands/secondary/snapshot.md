@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mng [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]
+mng [snapshot|snap] [create|list|destroy] [AGENTS...|-] [OPTIONS]
 ```
 
 Create, list, and destroy host snapshots.

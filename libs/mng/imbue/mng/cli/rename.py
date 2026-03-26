@@ -151,7 +151,7 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
 CommandHelpMetadata(
     key="rename",
     one_line_description="Rename an agent or host [experimental]",
-    synopsis="mng [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]",
+    synopsis="mng [rename|mv] <CURRENT|-> <NEW-NAME> [--dry-run] [--host]",
     arguments_description="- `CURRENT`: Current name or ID of the agent to rename\n- `NEW-NAME`: New name for the agent",
     description="""Updates the agent's name in its data.json and renames the tmux session
 if the agent is currently running. Git branch names are not renamed.
