@@ -544,6 +544,7 @@ def test_gc_no_args_succeeds(
         catch_exceptions=True,
     )
     assert result.exit_code == 0
+    assert "Cleaning work directories" in result.output
     assert "Cleaning machines" in result.output
     assert "Cleaning snapshots" in result.output
     assert "Cleaning volumes" in result.output
