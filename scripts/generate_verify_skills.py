@@ -225,46 +225,72 @@ def generate_conversation_categories(vet_modules) -> str:
     return "\n".join(sections)
 
 
-def _check_vet_base(vet_repo: Path) -> None:
-    """Warn if the vet repo HEAD doesn't match the pinned base commit."""
-    base_commit = VET_BASE_COMMIT_PATH.read_text().strip()
+def _git(vet_repo: Path, *args: str) -> str:
+    """Run a git command in the vet repo and return stripped stdout."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     result = subprocess.run(
-        ["git", "-C", str(vet_repo), "rev-parse", "HEAD"],
+        ["git", "-C", str(vet_repo), *args],
         capture_output=True,
         text=True,
+        check=True,
+        env=env,
     )
-    if result.returncode != 0:
-        print("warning: could not determine vet HEAD commit", file=sys.stderr)
-        return
+    return result.stdout.strip()
 
-    vet_head = result.stdout.strip()
-    if vet_head != base_commit:
-        print(
-            f"warning: vet HEAD ({vet_head[:12]}) does not match pinned base ({base_commit[:12]}). "
-            f"Run 'git -C {vet_repo} checkout {base_commit}' to use the pinned version.",
-            file=sys.stderr,
-        )
+
+def _warn_if_behind_origin(vet_repo: Path, base_commit: str) -> None:
+    """Warn if the pinned base commit is behind vet's origin/main."""
+    try:
+        origin_main = _git(vet_repo, "rev-parse", "origin/main")
+    except subprocess.CalledProcessError:
+        return
+    if origin_main == base_commit:
+        return
+    try:
+        _git(vet_repo, "merge-base", "--is-ancestor", base_commit, origin_main)
+    except subprocess.CalledProcessError:
+        return
+    # base_commit is an ancestor of origin/main, so it's behind.
+    print(
+        f"warning: pinned vet base ({base_commit[:12]}) is behind origin/main ({origin_main[:12]}). "
+        f"Consider updating scripts/vet_base_commit.",
+        file=sys.stderr,
+    )
 
 
 def load_vet(vet_repo: Path) -> dict:
-    """Import vet modules and return the symbols we need."""
-    _check_vet_base(vet_repo)
+    """Import vet modules at the pinned base commit, restoring vet HEAD after."""
+    base_commit = VET_BASE_COMMIT_PATH.read_text().strip()
+    original_head = _git(vet_repo, "rev-parse", "HEAD")
+    _warn_if_behind_origin(vet_repo, base_commit)
 
-    vet_str = str(vet_repo)
-    if vet_str not in sys.path:
-        sys.path.insert(0, vet_str)
+    if original_head != base_commit:
+        print(
+            f"note: checking out pinned vet base ({base_commit[:12]}), "
+            f"will restore HEAD ({original_head[:12]}) after.",
+            file=sys.stderr,
+        )
+        _git(vet_repo, "checkout", "--quiet", base_commit)
 
-    from vet.issue_identifiers.identification_guides import ISSUE_CODES_FOR_BATCHED_COMMIT_CHECK
-    from vet.issue_identifiers.identification_guides import ISSUE_CODES_FOR_CONVERSATION_HISTORY_CHECK
-    from vet.issue_identifiers.identification_guides import ISSUE_CODES_FOR_CORRECTNESS_CHECK
-    from vet.issue_identifiers.identification_guides import ISSUE_IDENTIFICATION_GUIDES_BY_ISSUE_CODE
+    try:
+        vet_str = str(vet_repo)
+        if vet_str not in sys.path:
+            sys.path.insert(0, vet_str)
 
-    return {
-        "ISSUE_CODES_FOR_BATCHED_COMMIT_CHECK": ISSUE_CODES_FOR_BATCHED_COMMIT_CHECK,
-        "ISSUE_CODES_FOR_CORRECTNESS_CHECK": ISSUE_CODES_FOR_CORRECTNESS_CHECK,
-        "ISSUE_CODES_FOR_CONVERSATION_HISTORY_CHECK": ISSUE_CODES_FOR_CONVERSATION_HISTORY_CHECK,
-        "ISSUE_IDENTIFICATION_GUIDES_BY_ISSUE_CODE": ISSUE_IDENTIFICATION_GUIDES_BY_ISSUE_CODE,
-    }
+        from vet.issue_identifiers.identification_guides import ISSUE_CODES_FOR_BATCHED_COMMIT_CHECK
+        from vet.issue_identifiers.identification_guides import ISSUE_CODES_FOR_CONVERSATION_HISTORY_CHECK
+        from vet.issue_identifiers.identification_guides import ISSUE_CODES_FOR_CORRECTNESS_CHECK
+        from vet.issue_identifiers.identification_guides import ISSUE_IDENTIFICATION_GUIDES_BY_ISSUE_CODE
+
+        return {
+            "ISSUE_CODES_FOR_BATCHED_COMMIT_CHECK": ISSUE_CODES_FOR_BATCHED_COMMIT_CHECK,
+            "ISSUE_CODES_FOR_CORRECTNESS_CHECK": ISSUE_CODES_FOR_CORRECTNESS_CHECK,
+            "ISSUE_CODES_FOR_CONVERSATION_HISTORY_CHECK": ISSUE_CODES_FOR_CONVERSATION_HISTORY_CHECK,
+            "ISSUE_IDENTIFICATION_GUIDES_BY_ISSUE_CODE": ISSUE_IDENTIFICATION_GUIDES_BY_ISSUE_CODE,
+        }
+    finally:
+        if original_head != base_commit:
+            _git(vet_repo, "checkout", "--quiet", original_head)
 
 
 # ---------------------------------------------------------------------------
