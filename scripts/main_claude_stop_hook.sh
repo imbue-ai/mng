@@ -94,9 +94,11 @@ trap '
 ' EXIT
 
 # ---------------------------------------------------------------------------
-# Stuck agent detection: if the stop hook has blocked 3 times at the same
-# commit, the agent is unable to make progress. Exit with an error and
-# notify the user to investigate manually.
+# Stuck agent detection for the FULL stop hook (gates + CI + PR).
+#
+# stop_hook_gates.sh has its own safety hatch for gate-only loops (used by
+# both this script and the plugin's standalone Stop hook). This separate
+# tracker covers failures in the CI/PR stages that happen AFTER gates pass.
 # ---------------------------------------------------------------------------
 STUCK_FILE=".claude/blocked_stop_commits"
 HASH=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
