@@ -6,7 +6,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from unittest.mock import patch
+
+import pytest
 
 from imbue.imbue_common.conftest_hooks import _acquire_global_test_lock
 from imbue.imbue_common.conftest_hooks import _compute_lock_deadline
@@ -81,59 +82,54 @@ def test_read_lock_info_non_dict_json(tmp_path: Path) -> None:
 # --- _compute_max_duration ---
 
 
-def test_max_duration_explicit_env_var() -> None:
-    with patch.dict(os.environ, {"PYTEST_MAX_DURATION": "42"}, clear=False):
-        assert _compute_max_duration() == 42.0
+def test_max_duration_explicit_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PYTEST_MAX_DURATION", "42")
+    assert _compute_max_duration() == 42.0
 
 
-def test_max_duration_release() -> None:
-    env = {"IS_RELEASE": "1"}
-    with patch.dict(os.environ, env, clear=False):
-        os.environ.pop("PYTEST_MAX_DURATION", None)
-        assert _compute_max_duration() == 600.0
+def test_max_duration_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("IS_RELEASE", "1")
+    monkeypatch.delenv("PYTEST_MAX_DURATION", raising=False)
+    assert _compute_max_duration() == 600.0
 
 
-def test_max_duration_acceptance() -> None:
-    env = {"IS_ACCEPTANCE": "1"}
-    with patch.dict(os.environ, env, clear=False):
-        os.environ.pop("PYTEST_MAX_DURATION", None)
-        os.environ.pop("IS_RELEASE", None)
-        assert _compute_max_duration() == 360.0
+def test_max_duration_acceptance(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("IS_ACCEPTANCE", "1")
+    monkeypatch.delenv("PYTEST_MAX_DURATION", raising=False)
+    monkeypatch.delenv("IS_RELEASE", raising=False)
+    assert _compute_max_duration() == 360.0
 
 
-def test_max_duration_ci() -> None:
-    env = {"CI": "1"}
-    with patch.dict(os.environ, env, clear=False):
-        os.environ.pop("PYTEST_MAX_DURATION", None)
-        os.environ.pop("IS_RELEASE", None)
-        os.environ.pop("IS_ACCEPTANCE", None)
-        assert _compute_max_duration() == 150.0
+def test_max_duration_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CI", "1")
+    monkeypatch.delenv("PYTEST_MAX_DURATION", raising=False)
+    monkeypatch.delenv("IS_RELEASE", raising=False)
+    monkeypatch.delenv("IS_ACCEPTANCE", raising=False)
+    assert _compute_max_duration() == 150.0
 
 
-def test_max_duration_local_default() -> None:
-    with patch.dict(os.environ, {}, clear=False):
-        os.environ.pop("PYTEST_MAX_DURATION", None)
-        os.environ.pop("IS_RELEASE", None)
-        os.environ.pop("IS_ACCEPTANCE", None)
-        os.environ.pop("CI", None)
-        assert _compute_max_duration() == 300.0
+def test_max_duration_local_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYTEST_MAX_DURATION", raising=False)
+    monkeypatch.delenv("IS_RELEASE", raising=False)
+    monkeypatch.delenv("IS_ACCEPTANCE", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    assert _compute_max_duration() == 300.0
 
 
 # --- _compute_lock_deadline ---
 
 
-def test_lock_deadline_none_without_env_var() -> None:
-    with patch.dict(os.environ, {}, clear=False):
-        os.environ.pop("PYTEST_MAX_DURATION", None)
-        assert _compute_lock_deadline(1000.0) is None
+def test_lock_deadline_none_without_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYTEST_MAX_DURATION", raising=False)
+    assert _compute_lock_deadline(1000.0) is None
 
 
-def test_lock_deadline_computed_with_env_var() -> None:
-    with patch.dict(os.environ, {"PYTEST_MAX_DURATION": "120"}, clear=False):
-        deadline = _compute_lock_deadline(1000.0)
-        assert deadline is not None
-        # 1000 + 120 + 60 (grace)
-        assert deadline == 1180.0
+def test_lock_deadline_computed_with_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PYTEST_MAX_DURATION", "120")
+    deadline = _compute_lock_deadline(1000.0)
+    assert deadline is not None
+    # 1000 + 120 + 60 (grace)
+    assert deadline == 1180.0
 
 
 # --- _try_break_stale_lock ---
