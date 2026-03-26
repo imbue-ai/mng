@@ -12,7 +12,7 @@ import pytest
 from loguru import logger
 
 from imbue.mng import hookimpl
-from imbue.mng.api.discover import discover_all_hosts_and_agents
+from imbue.mng.api.discover import discover_hosts_and_agents
 from imbue.mng.api.discover import warn_on_duplicate_host_names
 from imbue.mng.api.discovery_events import get_discovery_events_path
 from imbue.mng.api.list import AgentErrorInfo
@@ -650,15 +650,21 @@ def test_list_agents_with_include_filter_excludes_non_matching(
 
 
 # =============================================================================
-# discover_all_hosts_and_agents Tests
+# discover_hosts_and_agents Tests
 # =============================================================================
 
 
-def test_discover_all_hosts_and_agents_returns_empty_for_no_agents(
+def test_discover_hosts_and_agents_returns_empty_for_no_agents(
     temp_mng_ctx: MngContext,
 ) -> None:
-    """discover_all_hosts_and_agents should return empty dict when no agents exist."""
-    agents_by_host, providers = discover_all_hosts_and_agents(temp_mng_ctx)
+    """discover_hosts_and_agents should return empty dict when no agents exist."""
+    agents_by_host, providers = discover_hosts_and_agents(
+        temp_mng_ctx,
+        provider_names=None,
+        agent_identifiers=None,
+        include_destroyed=False,
+        reset_caches=False,
+    )
     assert isinstance(agents_by_host, dict)
     assert isinstance(providers, list)
     # At least the local provider should be present
@@ -837,17 +843,17 @@ def test_no_field_generators_produces_empty_plugin(
 
 
 # =============================================================================
-# discover_all_hosts_and_agents Tests
+# discover_hosts_and_agents Tests
 # =============================================================================
 
 
 @pytest.mark.tmux
-def test_discover_all_hosts_and_agents_groups_agents_by_host(
+def test_discover_hosts_and_agents_groups_agents_by_host(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
     local_host: Host,
 ) -> None:
-    """discover_all_hosts_and_agents should return agents grouped by their host reference."""
+    """discover_hosts_and_agents should return agents grouped by their host reference."""
     agent = local_host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
@@ -857,7 +863,13 @@ def test_discover_all_hosts_and_agents_groups_agents_by_host(
         ),
     )
 
-    agents_by_host, providers = discover_all_hosts_and_agents(temp_mng_ctx)
+    agents_by_host, providers = discover_hosts_and_agents(
+        temp_mng_ctx,
+        provider_names=None,
+        agent_identifiers=None,
+        include_destroyed=False,
+        reset_caches=False,
+    )
 
     local_host.destroy_agent(agent)
 
