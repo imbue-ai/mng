@@ -252,11 +252,13 @@ def launch_test_agent(
         initial_message=build_test_agent_prompt(test_node_id, pytest_flags, prompt_suffix),
     )
 
+    branch = f"mng-tmr/{agent_name_suffix}-{short_id}"
     return (
         TestAgentInfo(
             test_node_id=test_node_id,
             agent_id=create_result.agent.id,
             agent_name=create_result.agent.name,
+            branch_name=branch,
             created_at=time.monotonic(),
         ),
         create_result.host,
@@ -645,17 +647,6 @@ def try_read_agent_result(
         return None
 
 
-def _try_get_agent_branch(agent_id: AgentId, host: OnlineHostInterface) -> str | None:
-    """Try to get an agent's initial branch name from the host's data.json."""
-    data_path = host.host_dir / "agents" / str(agent_id) / "data.json"
-    try:
-        raw = host.read_text_file(data_path)
-        data = json.loads(raw)
-        return data.get("initial_branch")
-    except (HostError, OSError, json.JSONDecodeError, KeyError):
-        return None
-
-
 def _stop_agent_on_host(host: OnlineHostInterface, agent_id: AgentId, agent_name: AgentName) -> None:
     """Stop a single agent on the host."""
     try:
@@ -944,7 +935,6 @@ def _collect_agent_results(
                     AgentId(agent_id_str), hosts[agent_id_str]
                 )
                 if direct_result is not None:
-                    branch_name = _try_get_agent_branch(AgentId(agent_id_str), hosts[agent_id_str])
                     results.append(
                         TestMapReduceResult(
                             test_node_id=agent_info.test_node_id,
@@ -954,7 +944,7 @@ def _collect_agent_results(
                             tests_passing_before=direct_result.tests_passing_before,
                             tests_passing_after=direct_result.tests_passing_after,
                             summary_markdown=direct_result.summary_markdown,
-                            branch_name=branch_name,
+                            branch_name=agent_info.branch_name,
                             test_runs=direct_result.test_runs,
                         )
                     )
@@ -979,7 +969,7 @@ def _collect_agent_results(
                 tests_passing_before=test_result.tests_passing_before,
                 tests_passing_after=test_result.tests_passing_after,
                 summary_markdown=test_result.summary_markdown,
-                branch_name=detail.initial_branch,
+                branch_name=detail.initial_branch or agent_info.branch_name,
                 test_runs=test_result.test_runs,
             )
         )
@@ -1068,6 +1058,7 @@ def launch_integrator_agent(
             test_node_id="integrator",
             agent_id=create_result.agent.id,
             agent_name=create_result.agent.name,
+            branch_name=f"mng-tmr/integrated-{short_id}",
             created_at=time.monotonic(),
         ),
         create_result.host,
