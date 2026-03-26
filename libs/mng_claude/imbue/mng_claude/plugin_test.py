@@ -2352,10 +2352,8 @@ def test_on_after_provisioning_adopts_session_by_id(
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx, agent_config=config)
     _init_git_with_gitignore(agent.work_dir)
 
-    # Set up a fake ~/.claude/ dir with a session under a fake home directory
-    fake_home = tmp_path / "fake_home"
-    fake_claude_dir = fake_home / ".claude"
-    project_dir = fake_claude_dir / "projects" / "test-project"
+    # Set up a session under ~/.claude/ (HOME is already a temp dir via autouse fixture)
+    project_dir = Path.home() / ".claude" / "projects" / "test-project"
     project_dir.mkdir(parents=True)
     target_session_id = "adopt-test-session-id"
     (project_dir / f"{target_session_id}.jsonl").write_text('{"type":"message"}\n')
@@ -2369,10 +2367,7 @@ def test_on_after_provisioning_adopts_session_by_id(
         plugin_data={"adopt_session": (target_session_id,)},
     )
 
-    with (
-        patch.object(Path, "home", return_value=fake_home),
-        patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": ""}),
-    ):
+    with patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": ""}):
         agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
         agent.on_after_provisioning(host=host, options=options, mng_ctx=temp_mng_ctx)
 
@@ -2404,8 +2399,7 @@ def test_on_after_provisioning_raises_when_session_not_found(
     """on_after_provisioning should raise UserInputError when session ID is not found."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
 
-    fake_home = tmp_path / "fake_home"
-    (fake_home / ".claude" / "projects" / "some-project").mkdir(parents=True)
+    (Path.home() / ".claude" / "projects" / "some-project").mkdir(parents=True)
 
     agent_state_dir = agent._get_agent_dir()
     agent_state_dir.mkdir(parents=True, exist_ok=True)
@@ -2415,10 +2409,7 @@ def test_on_after_provisioning_raises_when_session_not_found(
         plugin_data={"adopt_session": ("nonexistent-session",)},
     )
 
-    with (
-        patch.object(Path, "home", return_value=fake_home),
-        patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": ""}),
-    ):
+    with patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": ""}):
         with pytest.raises(UserInputError, match="Session nonexistent-session not found"):
             agent.on_after_provisioning(host=host, options=options, mng_ctx=temp_mng_ctx)
 
@@ -2432,9 +2423,8 @@ def test_on_after_provisioning_finds_session_despite_claude_config_dir(
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx, agent_config=config)
     _init_git_with_gitignore(agent.work_dir)
 
-    # Session lives under the user's default ~/.claude/ dir
-    fake_home = tmp_path / "fake_home"
-    project_dir = fake_home / ".claude" / "projects" / "test-project"
+    # Session lives under ~/.claude/ (HOME is already a temp dir via autouse fixture)
+    project_dir = Path.home() / ".claude" / "projects" / "test-project"
     project_dir.mkdir(parents=True)
     target_session_id = "session-in-home-dir"
     (project_dir / f"{target_session_id}.jsonl").write_text('{"type":"message"}\n')
@@ -2451,10 +2441,7 @@ def test_on_after_provisioning_finds_session_despite_claude_config_dir(
         plugin_data={"adopt_session": (target_session_id,)},
     )
 
-    with (
-        patch.object(Path, "home", return_value=fake_home),
-        patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": str(agent_config_dir)}),
-    ):
+    with patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": str(agent_config_dir)}):
         agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
         agent.on_after_provisioning(host=host, options=options, mng_ctx=temp_mng_ctx)
 
