@@ -280,10 +280,7 @@ def test_classify_entry_no_remote_label_stays_in_still_cooking() -> None:
 
 
 def test_classify_entry_repo_not_in_loaded_dict_stays_in_still_cooking() -> None:
-    """Agents whose repo was never fetched (not in dict) are not PRS_FAILED.
-
-    This happens for modal-hosted agents where no local cwd was available for gh.
-    """
+    """Agents whose repo is not tracked in repo_pr_loaded are not PRS_FAILED."""
     entry = _make_entry(pr=None, labels={"remote": "git@github.com:org/repo.git"})
     assert _classify_entry(entry, {}) == BoardSection.STILL_COOKING
 

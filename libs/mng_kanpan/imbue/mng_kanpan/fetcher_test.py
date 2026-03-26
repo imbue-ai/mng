@@ -138,7 +138,7 @@ def test_fetch_github_data_fetches_per_repo(tmp_path: Path) -> None:
 
     call_count = 0
 
-    def mock_fetch_prs(cg: object, cwd: Path | None = None) -> FetchPrsResult:
+    def mock_fetch_prs(cg: object, cwd: Path | None = None, repo: str | None = None) -> FetchPrsResult:
         nonlocal call_count
         call_count += 1
         if cwd == dir_a:
@@ -171,7 +171,7 @@ def test_fetch_github_data_deduplicates_repos(tmp_path: Path) -> None:
 
     call_count = 0
 
-    def mock_fetch_prs(cg: object, cwd: Path | None = None) -> FetchPrsResult:
+    def mock_fetch_prs(cg: object, cwd: Path | None = None, repo: str | None = None) -> FetchPrsResult:
         nonlocal call_count
         call_count += 1
         return FetchPrsResult(prs=(), error=None)
@@ -207,7 +207,7 @@ def test_fetch_github_data_partial_failure(tmp_path: Path) -> None:
 
     pr = make_pr_info(number=1, head_branch="mng/feature")
 
-    def mock_fetch_prs(cg: object, cwd: Path | None = None) -> FetchPrsResult:
+    def mock_fetch_prs(cg: object, cwd: Path | None = None, repo: str | None = None) -> FetchPrsResult:
         if cwd == good_dir:
             return FetchPrsResult(prs=(pr,), error=None)
         return FetchPrsResult(prs=(), error="gh pr list failed: auth required")
@@ -225,18 +225,27 @@ def test_fetch_github_data_partial_failure(tmp_path: Path) -> None:
 
 
 def test_fetch_github_data_no_local_agents() -> None:
-    """Remote-only agents (even with remote label) produce empty GitHubData since gh needs a local cwd."""
+    """Remote-only agents use gh --repo to fetch PRs without a local cwd."""
     agent = make_agent_details(
         name="remote",
         work_dir=Path("/remote"),
         provider_name="modal",
         labels={"remote": "git@github.com:org/repo.git"},
     )
+    pr = make_pr_info(number=1, head_branch="mng/feature")
+    pr_result = FetchPrsResult(prs=(pr,), error=None)
+
     mng_ctx = MagicMock()
-    result = fetch_github_data(mng_ctx, [agent])
-    assert result.repo_pr_loaded == {}
-    assert result.pr_by_repo_branch == {}
-    assert result.errors == ()
+
+    def mock_fetch_prs(cg: object, cwd: Path | None = None, repo: str | None = None) -> FetchPrsResult:
+        assert cwd is None, "Should not use cwd for remote-only agents"
+        assert repo == "org/repo", "Should use --repo for remote-only agents"
+        return pr_result
+
+    with patch("imbue.mng_kanpan.fetcher.fetch_all_prs", side_effect=mock_fetch_prs):
+        result = fetch_github_data(mng_ctx, [agent])
+    assert result.repo_pr_loaded["org/repo"] is True
+    assert result.pr_by_repo_branch["org/repo"]["mng/feature"] == pr
 
 
 # === enrich_snapshot_with_github_data ===
