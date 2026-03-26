@@ -2,7 +2,7 @@
 
 Provides common test infrastructure:
 - Global test locking (prevents parallel pytest processes from conflicting)
-- Test suite timing limits (configurable via PYTEST_MAX_DURATION env var)
+- Test suite timing limits (configurable via PYTEST_MAX_DURATION_SECONDS env var)
 - xdist parallelism override (configurable via PYTEST_NUMPROCESSES env var)
 - Output file redirection (slow tests report, coverage report)
 - Shared pytest defaults (markers, filterwarnings, CLI args, coverage report config)
@@ -15,7 +15,7 @@ Environment variables:
   pyproject.toml addopts). Set to e.g. 16 on machines with many cores, or 0 to
   disable xdist. This overrides the -n value from pyproject.toml but NOT an
   explicit -n passed on the command line.
-- PYTEST_MAX_DURATION: Override the maximum allowed test suite duration in seconds.
+- PYTEST_MAX_DURATION_SECONDS: Override the maximum allowed test suite duration in seconds.
   Without this, defaults are chosen based on test type and environment (see
   _compute_max_duration for details).
 - MNG_TEST_PROFILE: Force a specific test profile (overrides branch detection).
@@ -215,18 +215,28 @@ def _kill_stale_process(pid: int) -> bool:
     Returns True if the signals were delivered (the process should be dying or
     already dead). Returns False if the process could not be signalled (e.g. due
     to insufficient permissions).
-
-    Does NOT wait for the process to fully exit; the caller should unlink the
-    lock file so that subsequent flock attempts operate on a fresh inode that
-    is independent of the dying process's lock.
     """
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.kill(pid, sig)
-        except ProcessLookupError:
-            return True
-        except PermissionError:
-            return False
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+
+    # Give the process a moment to shut down gracefully before escalating.
+    # Human-sanctioned use of time.sleep -- there is no event-based mechanism
+    # to wait for an arbitrary (non-child) process to exit.
+    time.sleep(2)
+
+    if not _is_process_alive(pid):
+        return True
+
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
     return True
 
 
@@ -270,8 +280,8 @@ def _compute_max_duration() -> float:
     - acceptance tests: run on all branches except release, have network/Modal/etc access
     - release tests: only run on release, comprehensive tests for release readiness
     """
-    if "PYTEST_MAX_DURATION" in os.environ:
-        return float(os.environ["PYTEST_MAX_DURATION"])
+    if "PYTEST_MAX_DURATION_SECONDS" in os.environ:
+        return float(os.environ["PYTEST_MAX_DURATION_SECONDS"])
     # Release tests have the highest limit since there can be many, and they can be slow
     if os.environ.get("IS_RELEASE", "0") == "1":
         return 10 * 60.0
@@ -288,12 +298,12 @@ def _compute_max_duration() -> float:
 def _compute_lock_deadline(start_time: float) -> float | None:
     """Compute the lock deadline as an absolute timestamp.
 
-    Returns a deadline only when PYTEST_MAX_DURATION is explicitly set, indicating
+    Returns a deadline only when PYTEST_MAX_DURATION_SECONDS is explicitly set, indicating
     that the caller is aware of a time budget (e.g. invoked from a hook or script).
     When no explicit budget is set, returns None so that other processes will not
     kill this one (though they can still clean up a dead PID).
     """
-    if "PYTEST_MAX_DURATION" not in os.environ:
+    if "PYTEST_MAX_DURATION_SECONDS" not in os.environ:
         return None
     max_duration = _compute_max_duration()
     return start_time + max_duration + _LOCK_DEADLINE_GRACE_SECONDS

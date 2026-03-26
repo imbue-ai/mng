@@ -83,33 +83,33 @@ def test_read_lock_info_non_dict_json(tmp_path: Path) -> None:
 
 
 def test_max_duration_explicit_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PYTEST_MAX_DURATION", "42")
+    monkeypatch.setenv("PYTEST_MAX_DURATION_SECONDS", "42")
     assert _compute_max_duration() == 42.0
 
 
 def test_max_duration_release(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("IS_RELEASE", "1")
-    monkeypatch.delenv("PYTEST_MAX_DURATION", raising=False)
+    monkeypatch.delenv("PYTEST_MAX_DURATION_SECONDS", raising=False)
     assert _compute_max_duration() == 600.0
 
 
 def test_max_duration_acceptance(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("IS_ACCEPTANCE", "1")
-    monkeypatch.delenv("PYTEST_MAX_DURATION", raising=False)
+    monkeypatch.delenv("PYTEST_MAX_DURATION_SECONDS", raising=False)
     monkeypatch.delenv("IS_RELEASE", raising=False)
     assert _compute_max_duration() == 360.0
 
 
 def test_max_duration_ci(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CI", "1")
-    monkeypatch.delenv("PYTEST_MAX_DURATION", raising=False)
+    monkeypatch.delenv("PYTEST_MAX_DURATION_SECONDS", raising=False)
     monkeypatch.delenv("IS_RELEASE", raising=False)
     monkeypatch.delenv("IS_ACCEPTANCE", raising=False)
     assert _compute_max_duration() == 150.0
 
 
 def test_max_duration_local_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("PYTEST_MAX_DURATION", raising=False)
+    monkeypatch.delenv("PYTEST_MAX_DURATION_SECONDS", raising=False)
     monkeypatch.delenv("IS_RELEASE", raising=False)
     monkeypatch.delenv("IS_ACCEPTANCE", raising=False)
     monkeypatch.delenv("CI", raising=False)
@@ -120,12 +120,12 @@ def test_max_duration_local_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_lock_deadline_none_without_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("PYTEST_MAX_DURATION", raising=False)
+    monkeypatch.delenv("PYTEST_MAX_DURATION_SECONDS", raising=False)
     assert _compute_lock_deadline(1000.0) is None
 
 
 def test_lock_deadline_computed_with_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PYTEST_MAX_DURATION", "120")
+    monkeypatch.setenv("PYTEST_MAX_DURATION_SECONDS", "120")
     deadline = _compute_lock_deadline(1000.0)
     assert deadline is not None
     # 1000 + 120 + 60 (grace)
