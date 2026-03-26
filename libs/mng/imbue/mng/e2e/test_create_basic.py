@@ -200,4 +200,4 @@ def test_create_headless(e2e: E2eSession) -> None:
 
     list_result = e2e.run("mng list", comment="Verify headless agent appears in list")
     expect(list_result).to_succeed()
-    expect(list_result.stdout).to_contain("my-task")
+    expect(list_result.stdout).to_match(r"my-task\s+(RUNNING|WAITING)")
