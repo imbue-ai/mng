@@ -255,6 +255,7 @@ current.tar.gz
 .minds/
 
 # Autofix session artifacts
+.autofix/
 .reviewer/outputs/
 .reviewer/settings.local.json
 
