@@ -248,7 +248,7 @@ tmr_*/
 
 # Offload caches and local files
 .offload/**
-test-results/**
+test-results
 current.tar.gz
 
 # Minds deploy-time build artifacts
@@ -269,3 +269,4 @@ current.tar.gz
 
 # ignore coverage files generated within subprojects
 cov.xml
+.autofix/
