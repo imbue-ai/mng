@@ -93,16 +93,17 @@ def create(
         with log_span("Calling on_host_created hooks"):
             mng_ctx.pm.hook.on_host_created(host=host, mng_ctx=mng_ctx)
 
-    # Prevent duplicate agent names on the same host. The tmux session name
-    # is derived from the agent name, so two agents with the same name would
-    # collide on the same tmux session.
-    if agent_options.name is not None:
-        for existing_agent in host.get_agents():
-            if existing_agent.name == agent_options.name:
-                raise DuplicateAgentNameError(agent_options.name, existing_agent.id)
-
     # while we are deploying an agent, lock the host:
     with host.lock_cooperatively():
+        # Prevent duplicate agent names on the same host. The tmux session name
+        # is derived from the agent name, so two agents with the same name would
+        # collide on the same tmux session. This check must be inside the lock to
+        # prevent TOCTOU races between concurrent create calls.
+        if agent_options.name is not None:
+            for existing_agent in host.get_agents():
+                if existing_agent.name == agent_options.name:
+                    raise DuplicateAgentNameError(agent_options.name, existing_agent.id)
+
         # Create the agent's work_dir on the host
         if create_work_dir:
             with log_span("Calling on_before_initial_file_copy hooks"):
