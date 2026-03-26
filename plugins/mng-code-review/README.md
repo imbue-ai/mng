@@ -2,7 +2,7 @@
 
 Automated code review enforcement for [mng](https://github.com/imbue-ai/mng) users.
 
-**This plugin enforces code quality by default.** When installed, a Stop hook blocks Claude from finishing until autofix and conversation review have been run. Enforcement is on by default but individual gates can be disabled per-session with the configuration skills below.
+**This plugin enforces code quality by default.** When installed, a Stop hook blocks Claude from finishing until autofix and conversation review have been run. Enforcement is on by default but can be disabled with `/mng-code-review:reviewer-disable`, or individual gates can be toggled with the configuration skills below.
 
 ## Install
 
@@ -15,6 +15,7 @@ claude plugin marketplace add imbue-ai/mng && claude plugin install mng-code-rev
 - **autofix** -- Iteratively find and fix code issues on a branch. Spawns fresh-context agents for each pass, presents fixes for review, and reverts any you reject.
 - **verify-architecture** -- Assess whether the approach on a branch fits existing codebase patterns. Generates independent solution proposals before examining the diff to avoid confirmation bias.
 - **verify-conversation** -- Review the conversation transcript for behavioral issues (misleading behavior, disobeyed instructions, feedback worth saving).
+- **reviewer-disable** -- Disable all review gates (autofix, CI, conversation review) at once.
 - **reviewer-autofix-enable / disable** -- Toggle the autofix gate.
 - **reviewer-autofix-all-issues / ignore-minor-issues** -- Control issue severity threshold for unattended autofix.
 - **reviewer-ci-enable / disable** -- Toggle the CI gate.
