@@ -241,16 +241,16 @@ def run_local_command_modern_version(
         on_complete_line_from_stdout = None
         on_complete_line_from_stderr = None
 
-    gatherer = OutputGatherer.build_from_popen(
-        process,
-        on_complete_line_from_stdout=on_complete_line_from_stdout,
-        on_complete_line_from_stderr=on_complete_line_from_stderr,
-        shutdown_event=shutdown_event,
-    )
+    with process:
+        gatherer = OutputGatherer.build_from_popen(
+            process,
+            on_complete_line_from_stdout=on_complete_line_from_stdout,
+            on_complete_line_from_stderr=on_complete_line_from_stderr,
+            shutdown_event=shutdown_event,
+        )
 
-    timeout_time = time.time() + timeout if timeout is not None else None
+        timeout_time = time.time() + timeout if timeout is not None else None
 
-    try:
         while not shutdown_event.wait(poll_time) and not _is_timeout(timeout_time):
             maybe_exit_code = process.poll()
             gatherer.gather_output()
@@ -283,8 +283,3 @@ def run_local_command_modern_version(
             result.check()
 
         return result
-    finally:
-        if process.stdout is not None:
-            process.stdout.close()
-        if process.stderr is not None:
-            process.stderr.close()
