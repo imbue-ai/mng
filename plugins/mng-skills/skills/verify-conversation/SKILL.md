@@ -70,9 +70,9 @@ Spawn a `review-conversation` Agent and tell it to:
 
 Also provide the agent with:
 
-3. The filter script path: `${CLAUDE_PLUGIN_ROOT}/scripts/filter_transcript.py`
-
-4. The list of session file paths to read, grouped by provenance:
+3. The issue categories path: `${CLAUDE_PLUGIN_ROOT}/agents/categories/conversation-issue-categories.md`
+4. The filter script path: `${CLAUDE_PLUGIN_ROOT}/scripts/filter_transcript.py`
+5. The list of session file paths to read, grouped by provenance:
    - `mng_tracked` files: label as "The sequence of tracked session files for this task"
    - `current` files: label as "The current session"
    - `mng_agent_dir` files: label as "All sessions found in this agent's directory"
