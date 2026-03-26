@@ -141,7 +141,7 @@ class SendMessageError(AgentError):
 class DuplicateAgentNameError(AgentError, MngError):
     """An agent with this name already exists on the host."""
 
-    user_help_text = "Choose a different name, or use --reuse to reuse the existing agent."
+    user_help_text = "Choose a different name. For 'mng create', you can also use --reuse to reuse the existing agent."
 
     def __init__(self, agent_name: AgentName, existing_agent_id: AgentId) -> None:
         self.agent_name = agent_name
