@@ -67,12 +67,6 @@ WORKDIR /code/mng/
 # install python dependencies
 RUN unset UV_INDEX_URL && uv sync --all-packages && uv tool install -e /code/mng/libs/mng && uv tool install modal
 
-# Make project dir and uv state writable by the test runner, then switch user.
-# sandbox_init_cmd (git apply, uv sync) runs as this user in Modal sandboxes.
-RUN chown -R mng-test-runner:mng-test-runner /code/mng/ /root/.local/ /root/.cache/
-USER mng-test-runner
-ENV HOME=/mng-test-runner-home
-
 # Run idly forever while being responsive to SIGTERM.
 # PID 1 must explicitly install signal handlers in order to respect signals.
 # `tail -f /dev/null` does not do this.
