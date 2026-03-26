@@ -31,19 +31,9 @@ Before doing any work:
 
 ## Instructions
 
-### 1. Ensure the generator is a no-op on the committed content
+### 1. Update the override script
 
-Confirm the generator reproduces the current committed files exactly:
-
-```bash
-uv run python scripts/generate_verify_skills.py --check
-```
-
-If this fails, the overrides are out of sync and need to be fixed -- that is the purpose of this skill. Read `scripts/verify_skill_overrides.py` to understand the existing overrides, then update them using the guidance below until the check passes.
-
-### 2. Update the override script to match desired changes
-
-Edit `scripts/verify_skill_overrides.py` to make the generator output match the `.md` file content you want:
+Edit `scripts/verify_skill_overrides.py` to make the generator output match the `.md` file content the user wants:
 
 - **If a category section's guide/examples/exceptions were changed**: use `REPLACE_GUIDE`, `REPLACE_EXAMPLES`, or `REPLACE_EXCEPTIONS` to set the complete desired content. REPLACE overrides completely discard whatever vet provides for that field, so include ALL desired content (not just the delta).
 - **If an existing APPEND override needs to become a REPLACE**: remove the APPEND entry and add a REPLACE entry with the full desired content.
@@ -51,14 +41,16 @@ Edit `scripts/verify_skill_overrides.py` to make the generator output match the 
 - **If content was only appended** (not replacing vet's base): use `APPEND_*` as before.
 - Keep overrides organized by the order categories appear in the output file.
 
-After each edit, regenerate and check:
+### 2. Verify your work
+
+Regenerate and confirm the generator reproduces the desired files exactly:
 
 ```bash
 uv run python scripts/generate_verify_skills.py
 uv run python scripts/generate_verify_skills.py --check
 ```
 
-Iterate until the check passes and the generated files match the desired content.
+If the check fails or the generated content doesn't match, iterate on the overrides.
 
 ### 3. Commit
 
