@@ -112,12 +112,14 @@ def _resolve_adopt_session(adopt_session_arg: str) -> tuple[str, Path]:
     # custom config dir that also has sessions.
     default_config_dir = Path.home() / ".claude"
     search_dirs: list[Path] = []
+    resolved_dirs: list[Path] = []
     env_config_dir_str = os.environ.get("CLAUDE_CONFIG_DIR")
     if env_config_dir_str:
         env_projects_dir = Path(env_config_dir_str) / "projects"
         search_dirs.append(env_projects_dir)
+        resolved_dirs.append(env_projects_dir.resolve())
     default_projects_dir = default_config_dir / "projects"
-    if default_projects_dir not in search_dirs:
+    if default_projects_dir.resolve() not in resolved_dirs:
         search_dirs.append(default_projects_dir)
 
     matches: list[Path] = []
