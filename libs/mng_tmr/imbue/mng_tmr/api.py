@@ -7,6 +7,7 @@ test, poll for completion, gather results, and pull code changes.
 import json
 import secrets
 import shutil
+import threading
 import time
 from pathlib import Path
 
@@ -72,20 +73,54 @@ _SHORT_ID_LENGTH = 6
 _MISSING_AGENT_MAX_ROUNDS = 30
 
 
-def try_list_agents(mng_ctx: MngContext) -> ListResult | None:
-    """List agents, returning None on transient errors.
+_LIST_AGENTS_TIMEOUT_SECONDS = 60.0
 
-    Human-sanctioned broad catch: polling must survive transient provider errors.
-    """
+
+def _list_agents_thread_target(
+    mng_ctx: MngContext,
+    result_holder: list[ListResult | None],
+    error_holder: list[Exception | None],
+) -> None:
+    """Thread target for try_list_agents. Catches all exceptions."""
     try:
-        return list_agents(
+        result_holder[0] = list_agents(
             mng_ctx=mng_ctx,
             is_streaming=False,
             error_behavior=ErrorBehavior.CONTINUE,
         )
+    # Human-sanctioned broad catch: thread must not propagate exceptions
     except Exception as exc:
-        logger.warning("Polling failed (will retry next cycle): {}", exc)
+        error_holder[0] = exc
+
+
+def try_list_agents(mng_ctx: MngContext) -> ListResult | None:
+    """List agents, returning None on transient errors or timeout.
+
+    Runs list_agents in a daemon thread with a 60s timeout to work around
+    Modal API hangs where discover_hosts_and_agents never returns.
+
+    Human-sanctioned broad catch: polling must survive transient provider errors.
+    """
+    result_holder: list[ListResult | None] = [None]
+    error_holder: list[Exception | None] = [None]
+
+    thread = threading.Thread(
+        target=_list_agents_thread_target,
+        args=(mng_ctx, result_holder, error_holder),
+        daemon=True,
+    )
+    thread.start()
+    thread.join(timeout=_LIST_AGENTS_TIMEOUT_SECONDS)
+
+    if thread.is_alive():
+        logger.warning("list_agents timed out after {:.0f}s (will retry next cycle)", _LIST_AGENTS_TIMEOUT_SECONDS)
         return None
+
+    if error_holder[0] is not None:
+        logger.warning("Polling failed (will retry next cycle): {}", error_holder[0])
+        return None
+
+    return result_holder[0]
 
 
 def should_pull_changes(result: TestMapReduceResult) -> bool:
