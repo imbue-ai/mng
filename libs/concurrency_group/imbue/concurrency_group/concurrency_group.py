@@ -135,8 +135,14 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
         try:
             with self._lock:
                 self._state = ConcurrencyGroupState.EXITING
+            if isinstance(exc_value, KeyboardInterrupt):
+                self.shutdown()
             self._exit(exc_value)
         except BaseException as exit_exception:
+            if isinstance(exc_value, KeyboardInterrupt):
+                # When the user presses Ctrl+C, suppress cleanup errors (strand timeouts, process
+                # failures, etc.) and let the original KeyboardInterrupt propagate cleanly.
+                return
             self._exit_exception = exit_exception
             raise
         finally:

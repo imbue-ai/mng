@@ -143,9 +143,7 @@ def setup_command_context(
     # Create a top-level ConcurrencyGroup for process management
     cg = ConcurrencyGroup(name=f"mng-{command_name}")
     cg.__enter__()
-    # We explicitly pass None to __exit__ so that Click exceptions (e.g. UsageError) don't get
-    # wrapped in ConcurrencyExceptionGroup, which would break Click's error handling.
-    ctx.call_on_close(lambda: cg.__exit__(None, None, None))
+    ctx.call_on_close(lambda: _close_concurrency_group(cg))
 
     # Load config (is_interactive will be resolved below)
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
@@ -504,6 +502,20 @@ def _apply_plugin_option_overrides(
         command_class=command_class,
         params=params,
     )
+
+
+def _close_concurrency_group(cg: ConcurrencyGroup) -> None:
+    """Close the top-level ConcurrencyGroup during Click context teardown.
+
+    When a KeyboardInterrupt is active (user pressed Ctrl+C), pass it to __exit__ so
+    it can set the shutdown event and suppress cleanup errors. Otherwise pass None so
+    Click exceptions (e.g. UsageError) don't get wrapped in ConcurrencyExceptionGroup.
+    """
+    exc_info = sys.exc_info()
+    if isinstance(exc_info[1], KeyboardInterrupt):
+        cg.__exit__(*exc_info)
+    else:
+        cg.__exit__(None, None, None)
 
 
 def _run_single_script(script: str, cg: ConcurrencyGroup) -> tuple[str, int, str, str]:

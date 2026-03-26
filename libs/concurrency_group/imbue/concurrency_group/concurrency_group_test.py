@@ -484,3 +484,48 @@ def test_new_resources_cannot_be_created_when_ancestor_has_failed_strands() -> N
                     with pytest.raises(ConcurrencyExceptionGroup) as exception_info_thread:
                         cg_inner.start_new_thread(target=lambda: 1)
     assert exception_info_thread.value.only_exception_is_instance_of(AncestorConcurrentFailure)
+
+
+# KeyboardInterrupt handling tests
+
+
+def test_keyboard_interrupt_sets_shutdown_event_and_propagates_cleanly() -> None:
+    """When KeyboardInterrupt is the exit exception, the shutdown event is set and
+    the interrupt propagates without being wrapped in ConcurrencyExceptionGroup."""
+    with pytest.raises(KeyboardInterrupt):
+        with ConcurrencyGroup(name="outer") as cg:
+            assert not cg.is_shutting_down()
+            raise KeyboardInterrupt()
+    assert cg.is_shutting_down()
+
+
+def test_keyboard_interrupt_suppresses_strand_timeout_errors() -> None:
+    """Strand timeout errors during cleanup are suppressed when KeyboardInterrupt is active,
+    so users don't see scary ConcurrencyExceptionGroup tracebacks on Ctrl+C."""
+    blocked = Event()
+    with pytest.raises(KeyboardInterrupt):
+        with ConcurrencyGroup(name="outer", shutdown_timeout_seconds=TINY_SLEEP) as cg:
+            cg.start_new_thread(target=blocked.wait)
+            raise KeyboardInterrupt()
+    # The KeyboardInterrupt propagated cleanly -- no ConcurrencyExceptionGroup.
+    assert cg.is_shutting_down()
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_keyboard_interrupt_suppresses_strand_failure_errors() -> None:
+    """Strand failure errors during cleanup are suppressed when KeyboardInterrupt is active."""
+    with pytest.raises(KeyboardInterrupt):
+        with ConcurrencyGroup(name="outer") as cg:
+            cg.start_new_thread(target=_raise_intentional_error)
+            raise KeyboardInterrupt()
+    assert cg.is_shutting_down()
+
+
+def test_keyboard_interrupt_propagates_to_nested_groups() -> None:
+    """Shutdown event propagates to child concurrency groups on KeyboardInterrupt."""
+    with pytest.raises(KeyboardInterrupt):
+        with ConcurrencyGroup(name="outer") as cg_outer:
+            with cg_outer.make_concurrency_group(name="inner") as cg_inner:
+                raise KeyboardInterrupt()
+    assert cg_outer.is_shutting_down()
+    assert cg_inner.is_shutting_down()
