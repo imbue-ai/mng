@@ -16,6 +16,7 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.config.data_types import WorkDirExtraPathMode
 from imbue.mngr.config.data_types import get_or_create_user_id
 from imbue.mngr.config.data_types import merge_cli_args
 from imbue.mngr.config.data_types import merge_dict_fields
@@ -664,6 +665,47 @@ def test_mngr_config_pre_command_scripts_default_is_empty_dict(mngr_test_prefix:
     """MngrConfig should have empty pre_command_scripts by default."""
     config = MngrConfig(prefix=mngr_test_prefix)
     assert config.pre_command_scripts == {}
+
+
+# =============================================================================
+# Tests for MngrConfig.work_dir_extra_paths
+# =============================================================================
+
+
+def test_mngr_config_work_dir_extra_paths_default_is_empty_dict(mngr_test_prefix: str) -> None:
+    """MngrConfig should have empty work_dir_extra_paths by default."""
+    config = MngrConfig(prefix=mngr_test_prefix)
+    assert config.work_dir_extra_paths == {}
+
+
+def test_mngr_config_merge_with_merges_work_dir_extra_paths(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should merge work_dir_extra_paths dicts with override winning per key."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix,
+        work_dir_extra_paths={".venv": WorkDirExtraPathMode.SHARE, ".test_output": WorkDirExtraPathMode.COPY},
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix,
+        work_dir_extra_paths={".venv": WorkDirExtraPathMode.COPY},
+    )
+    merged = base.merge_with(override)
+    assert merged.work_dir_extra_paths[".venv"] == WorkDirExtraPathMode.COPY
+    assert merged.work_dir_extra_paths[".test_output"] == WorkDirExtraPathMode.COPY
+
+
+def test_mngr_config_merge_with_adds_new_work_dir_extra_paths(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should add new work_dir_extra_paths from override."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix,
+        work_dir_extra_paths={".venv": WorkDirExtraPathMode.SHARE},
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix,
+        work_dir_extra_paths={"node_modules": WorkDirExtraPathMode.SHARE},
+    )
+    merged = base.merge_with(override)
+    assert ".venv" in merged.work_dir_extra_paths
+    assert "node_modules" in merged.work_dir_extra_paths
 
 
 # =============================================================================

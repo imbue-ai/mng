@@ -279,7 +279,7 @@ step "7/9" "Replacing mng -> mngr in file contents..."
 modified=0
 while IFS= read -r -d '' file; do
     case "$file" in
-        scripts/migrate_*) continue ;;
+        scripts/migrate_*|test_meta_ratchets.py) continue ;;
     esac
     [ -L "$file" ] && continue
     mime=$(file --brief --mime-encoding "$file" 2>/dev/null || echo "unknown")
@@ -336,16 +336,6 @@ if command -v uv &>/dev/null; then
     ok "uv.lock regenerated"
 else
     skip "uv not found, skipping lock regeneration"
-fi
-
-# ── Sanity check ─────────────────────────────────────────────────
-
-echo ""
-conflict_files=$(grep -rl '<<<<<<<' libs/ apps/ scripts/ test_meta_ratchets.py 2>/dev/null || true)
-if [ -n "$conflict_files" ]; then
-    echo -e "${YELLOW}WARNING: Conflict markers found in:${NC}"
-    echo "$conflict_files" | sed 's/^/  /'
-    echo -e "  These files need manual resolution."
 fi
 
 echo -e "\n${GREEN}${BOLD}Code migration complete.${NC}"

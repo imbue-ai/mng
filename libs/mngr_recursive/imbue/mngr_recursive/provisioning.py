@@ -252,7 +252,7 @@ def _install_mngr_editable_local(
 
     install_parts = [f"{_UV_PATH_PREFIX}{uv_env}cd {quoted_root} && uv tool install -e libs/mngr"]
     for lib_name in lib_names:
-        if lib_name != "mngr" and lib_name.startswith("mngr_"):
+        if lib_name != "imbue-mngr" and lib_name.startswith("mngr_"):
             install_parts.append(f"--with-editable libs/{lib_name}")
 
     install_cmd = " ".join(install_parts)
@@ -271,7 +271,7 @@ def _install_mngr_editable_remote(
 ) -> None:
     """Install mngr in editable mode on a remote host by uploading a tarball."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        tarball_path = Path(tmpdir) / "mngr-repo.tar.gz"
+        tarball_path = Path(tmpdir) / "imbue-mngr-repo.tar.gz"
 
         # Create tarball of the monorepo using git archive
         with log_span("Packaging mngr monorepo for transfer"):
@@ -308,7 +308,7 @@ def _install_mngr_editable_remote(
             lib_names = ls_result.stdout.strip().split()
             install_parts = [f"{_UV_PATH_PREFIX}{uv_env}cd {remote_repo_dir} && uv tool install -e libs/mngr"]
             for lib_name in lib_names:
-                if lib_name != "mngr" and lib_name.startswith("mngr_"):
+                if lib_name != "imbue-mngr" and lib_name.startswith("mngr_"):
                     install_parts.append(f"--with-editable libs/{lib_name}")
 
             install_cmd = " ".join(install_parts)
