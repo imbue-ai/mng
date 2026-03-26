@@ -259,6 +259,8 @@ current.tar.gz
 .reviewer/outputs/
 .reviewer/settings.local.json
 .reviewer/.stop_hook_consecutive_blocks
+.reviewer/code-issue-categories.md
+.reviewer/conversation-issue-categories.md
 .reviews/
 
 # Stuck agent tracking (stop hook escape valve)

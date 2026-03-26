@@ -42,7 +42,7 @@ Repeat up to 10 times:
 
 1. Record the *full* current HEAD as `pre_iteration_head`.
 2. Print a message telling the user that issues for this iteration will be saved to: `.reviewer/outputs/autofix/issues/{pre_iteration_head}.jsonl`
-3. Spawn a single `verify-and-fix` Agent, providing the base branch (`{base_branch}`), the *full* current HEAD hash (`{pre_iteration_head}`), and the issue categories path: `${CLAUDE_PLUGIN_ROOT}/agents/categories/code-issue-categories.md`.
+3. Spawn a single `verify-and-fix` Agent, providing the base branch (`{base_branch}`), the *full* current HEAD hash (`{pre_iteration_head}`), and the issue categories path: `.reviewer/code-issue-categories.md` if it exists, otherwise `${CLAUDE_PLUGIN_ROOT}/agents/categories/code-issue-categories.md`.
 4. Wait for the agent to finish.
 5. Check if HEAD moved: compare `git rev-parse HEAD` to `pre_iteration_head`.
 6. If HEAD did not move, no fixes were made. The branch is clean (or remaining issues are unfixable). Stop looping.
