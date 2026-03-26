@@ -103,7 +103,9 @@ def _is_transient_ssh_error(exception: BaseException) -> bool:
 
     Matches:
     - OSError with "Socket is closed" (stale socket from pyinfra)
-    - SSHException (e.g. "SSH session not active" when transport dies)
+    - SSHException (e.g. "SSH session not active" when transport dies),
+      including ChannelException (server refused to open a new channel,
+      e.g. MaxSessions limit -- the transport may still be alive)
     - EOFError (remote end closed connection)
     """
     if isinstance(exception, OSError) and "Socket is closed" in str(exception):
