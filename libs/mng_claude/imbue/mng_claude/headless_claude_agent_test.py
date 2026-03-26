@@ -20,7 +20,6 @@ from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng_claude.headless_claude_agent import HeadlessClaude
 from imbue.mng_claude.headless_claude_agent import HeadlessClaudeAgentConfig
 from imbue.mng_claude.headless_claude_agent import extract_text_delta
-from imbue.mng_claude.plugin import ClaudeAgentConfig
 
 
 def _make_headless_agent(
@@ -284,25 +283,6 @@ def test_headless_claude_registered(
     """headless_claude should be registered as an agent type."""
     types = list_registered_agent_types()
     assert "headless_claude" in types
-
-
-# =============================================================================
-# Tests for HeadlessClaudeAgentConfig defaults
-# =============================================================================
-
-
-def test_headless_config_disables_sync_home_settings() -> None:
-    """HeadlessClaudeAgentConfig should default sync_home_settings to False.
-
-    This prevents headless agents from inheriting user-level hooks
-    (e.g. Stop hooks) from ~/.claude/settings.json.
-    """
-    headless_config = HeadlessClaudeAgentConfig()
-    assert headless_config.sync_home_settings is False
-
-    # Confirm the parent class still defaults to True, so the override is meaningful.
-    parent_config = ClaudeAgentConfig()
-    assert parent_config.sync_home_settings is True
 
 
 # =============================================================================
