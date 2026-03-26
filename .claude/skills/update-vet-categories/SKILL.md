@@ -54,4 +54,4 @@ If the check fails or the generated content doesn't match, iterate on the overri
 
 ### 3. Commit
 
-Commit both the override script changes and the regenerated category files together in a single commit.
+Commit the override script changes. The category files themselves should be unchanged (the whole point is making the generator reproduce them).
