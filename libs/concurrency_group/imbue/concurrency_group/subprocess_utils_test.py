@@ -1,6 +1,7 @@
-import os
+import gc
 import subprocess
 import time
+import warnings
 from io import BytesIO
 from threading import Event
 
@@ -356,26 +357,16 @@ def test_gather_output_handles_none_reads() -> None:
     assert stderr_output == b""
 
 
-def test_run_local_command_does_not_leak_file_descriptors() -> None:
-    """Verify stdout/stderr pipes are closed after command completes to prevent FD leaks."""
-
-    def count_open_fds() -> int:
-        # Works on both macOS (/dev/fd) and Linux (/proc/self/fd)
-        for fd_dir in ("/dev/fd", f"/proc/{os.getpid()}/fd"):
-            if os.path.isdir(fd_dir):
-                return len(os.listdir(fd_dir))
-        pytest.skip("Cannot count open file descriptors on this platform")
-
-    # Warm up (first call may open cached resources)
-    run_local_command_modern_version(["echo", "warmup"])
-
-    baseline = count_open_fds()
-
-    for _ in range(50):
+def test_run_local_command_closes_subprocess_pipes() -> None:
+    """Verify stdout/stderr pipes are closed after command completes, not left for GC."""
+    gc.collect()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ResourceWarning)
         run_local_command_modern_version(["echo", "hello"])
+        gc.collect()
 
-    after = count_open_fds()
-
-    # If pipes were leaking, we'd see ~100 extra FDs (2 per subprocess).
-    # Allow a small margin for transient FDs unrelated to our code.
-    assert after - baseline <= 5, f"FD leak detected: {baseline} -> {after} (delta {after - baseline})"
+    resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
+    assert resource_warnings == [], (
+        f"Subprocess pipes not closed explicitly; got {len(resource_warnings)} ResourceWarning(s): "
+        + ", ".join(str(w.message) for w in resource_warnings)
+    )
