@@ -255,6 +255,7 @@ current.tar.gz
 .minds/
 
 # Autofix session artifacts
+.autofix/
 .reviewer/outputs/
 .reviewer/settings.local.json
 
@@ -263,6 +264,9 @@ current.tar.gz
 
 # Demo recordings (asciinema .cast, .txt, and scripts)
 .demos/
+
+# Conversation review artifacts
+.reviews/
 
 # for git worktrees from other repos
 .external_worktrees/
