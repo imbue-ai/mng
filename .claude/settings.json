@@ -43,7 +43,8 @@
     }
   },
   "enabledPlugins": {
-    "mng-skills@mng-marketplace": true
+    "mng-code-review@mng-marketplace": true,
+    "mng-dev-tools@mng-marketplace": true
   },
   "model": "opus[1m]",
   "effortLevel": "high",

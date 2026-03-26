@@ -4,13 +4,18 @@
     "name": "Imbue"
   },
   "metadata": {
-    "description": "Code review, architecture verification, and development workflow tools for mng users"
+    "description": "Code review enforcement and development workflow tools for mng users"
   },
   "plugins": [
     {
-      "name": "mng-skills",
-      "source": "./plugins/mng-skills",
-      "description": "Code review, architecture verification, conversation analysis, and development workflow tools for mng users"
+      "name": "mng-code-review",
+      "source": "./plugins/mng-code-review",
+      "description": "Automated code review enforcement. Runs autofix, architecture verification, and conversation review -- and blocks sessions from finishing until they pass."
+    },
+    {
+      "name": "mng-dev-tools",
+      "source": "./plugins/mng-dev-tools",
+      "description": "Development workflow tools: issue identification, FIXME management, documentation writing, and terminal demos."
     }
   ]
 }
