@@ -25,8 +25,6 @@ def test_start_cli_options_fields() -> None:
         host=(),
         include=(),
         exclude=(),
-        snapshot=None,
-        latest=True,
         output_format="human",
         quiet=False,
         verbose=0,
