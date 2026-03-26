@@ -492,6 +492,46 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
         snapshot=provided_snapshot,
     )
 
+    try:
+        _run_tmr_pipeline(
+            opts,
+            mng_ctx,
+            output_opts,
+            source_dir,
+            config,
+            testing_flags,
+            timestamp,
+            e2e_run_prefix,
+            base_commit,
+            source_host,
+            label_options,
+            test_node_ids,
+            provided_snapshot,
+            env_options,
+        )
+    except KeyboardInterrupt:
+        write_human_line("\nInterrupted.")
+        _print_run_commands(e2e_run_prefix)
+        raise
+
+
+def _run_tmr_pipeline(
+    opts: TmrCliOptions,
+    mng_ctx: MngContext,
+    output_opts: OutputOptions,
+    source_dir: Path,
+    config: TmrLaunchConfig,
+    testing_flags: tuple[str, ...],
+    timestamp: str,
+    e2e_run_prefix: str,
+    base_commit: str,
+    source_host: OnlineHostInterface,
+    label_options: AgentLabelOptions,
+    test_node_ids: list[str],
+    provided_snapshot: SnapshotName | None,
+    env_options: AgentEnvironmentOptions,
+) -> None:
+    """Run the main TMR pipeline (launch, poll, gather, integrate, report)."""
     # Step 6: Compute output directory and html_path before launching
     if opts.output_html is not None:
         html_path = Path(opts.output_html)
@@ -577,12 +617,16 @@ def tmr(ctx: click.Context, **kwargs: object) -> None:
     generate_html_report(results, html_path, integrator=integrator_result, test_artifacts_dir=output_dir)
     _emit_report_path(html_path, output_opts)
 
-    # Print useful commands for managing this run's agents
+    _print_run_commands(e2e_run_prefix)
+
+
+def _print_run_commands(run_name: str) -> None:
+    """Print useful commands for managing a TMR run's agents."""
     write_human_line("")
     write_human_line("List agents from this run:")
-    write_human_line("  mng ls --include 'labels.tmr_run_name == \"{}\"'", e2e_run_prefix)
+    write_human_line("  mng ls --include 'labels.tmr_run_name == \"{}\"'", run_name)
     write_human_line("Reintegrate (after sending followup messages to agents):")
-    write_human_line("  mng tmr --reintegrate {}", e2e_run_prefix)
+    write_human_line("  mng tmr --reintegrate {}", run_name)
 
 
 CommandHelpMetadata(
