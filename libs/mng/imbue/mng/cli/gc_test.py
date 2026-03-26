@@ -564,4 +564,9 @@ def test_gc_dry_run(
         catch_exceptions=True,
     )
     assert result.exit_code == 0
-    assert "Cleaning" in result.output or "Garbage Collection" in result.output
+    assert "Cleaning work directories" in result.output
+    assert "Cleaning machines" in result.output
+    assert "Cleaning snapshots" in result.output
+    assert "Cleaning volumes" in result.output
+    assert "Cleaning logs" in result.output
+    assert "Cleaning build cache" in result.output
