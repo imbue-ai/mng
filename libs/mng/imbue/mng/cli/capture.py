@@ -10,7 +10,6 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.stdin_utils import resolve_stdin_placeholder
 from imbue.mng.config.data_types import CommonCliOptions
 
 
@@ -46,11 +45,9 @@ def capture(ctx: click.Context, **kwargs: Any) -> None:
         command_class=CaptureCliOptions,
     )
 
-    agent_identifier = resolve_stdin_placeholder(opts.agent)
-
     result = find_agent_for_command(
         mng_ctx=mng_ctx,
-        agent_identifier=agent_identifier,
+        agent_identifier=opts.agent,
         command_usage="capture",
         host_filter=None,
         is_start_desired=opts.start,
@@ -76,7 +73,7 @@ def capture(ctx: click.Context, **kwargs: Any) -> None:
 CommandHelpMetadata(
     key="capture",
     one_line_description="Capture and display an agent's tmux pane content",
-    synopsis="mng capture [AGENT|-] [--full] [--start/--no-start]",
+    synopsis="mng capture [AGENT] [--full] [--start/--no-start]",
     description="""Captures the current tmux pane content for the specified agent and
 prints it to stdout. Useful for debugging agent state without connecting
 to the agent's terminal.
