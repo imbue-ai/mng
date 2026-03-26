@@ -13,11 +13,6 @@ The issue category files in `.claude/agents/categories/` are generated from vet 
 
 The workflow is: the user edits the `.md` files to say what they want, then you (the agent) update the override script so the generator reproduces those edits.
 
-Override actions available:
-- `APPEND_GUIDE` / `APPEND_EXAMPLES` / `APPEND_EXCEPTIONS` -- add content after vet's base
-- `REPLACE_GUIDE` / `REPLACE_EXAMPLES` / `REPLACE_EXCEPTIONS` -- completely replace vet's base content for that field (use when you want full control over the output regardless of what vet provides)
-- `ADD_CATEGORY` -- add an entirely new category (via `NEW_CATEGORIES` dict)
-
 ## Safety Checks
 
 Before doing any work:
@@ -33,13 +28,7 @@ Before doing any work:
 
 ### 1. Update the override script
 
-Edit `scripts/verify_skill_overrides.py` to make the generator output match the `.md` file content the user wants:
-
-- **If a category section's guide/examples/exceptions were changed**: use `REPLACE_GUIDE`, `REPLACE_EXAMPLES`, or `REPLACE_EXCEPTIONS` to set the complete desired content. REPLACE overrides completely discard whatever vet provides for that field, so include ALL desired content (not just the delta).
-- **If an existing APPEND override needs to become a REPLACE**: remove the APPEND entry and add a REPLACE entry with the full desired content.
-- **If a new category needs to be added**: add it to `NEW_CATEGORIES` with the guide text and the `insert_after` anchor.
-- **If content was only appended** (not replacing vet's base): use `APPEND_*` as before.
-- Keep overrides organized by the order categories appear in the output file.
+Read `scripts/verify_skill_overrides.py` to understand the existing overrides and the available override actions (`OverrideAction` enum). Then edit it to make the generator output match the `.md` file content the user wants. Keep overrides organized by the order categories appear in the output file.
 
 ### 2. Verify your work
 
