@@ -1498,6 +1498,12 @@ class Host(BaseHost, OnlineHostInterface):
             quoted = shlex.quote(str(source_abs))
             check_parts.append(f"if [ -e {quoted} ] || [ -L {quoted} ]; then echo {shlex.quote(rel_path_str)}; fi")
         result = source_host.execute_command("; ".join(check_parts))
+        if not result.success:
+            logger.warning(
+                "work_dir_extra_paths: failed to check source paths (stderr: {}), skipping all extra paths",
+                result.stderr.strip(),
+            )
+            return
         existing_paths = set(result.stdout.strip().split("\n")) if result.stdout.strip() else set()
 
         # Route each existing path to symlink or rsync
