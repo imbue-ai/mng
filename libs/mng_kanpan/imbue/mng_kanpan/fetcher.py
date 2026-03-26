@@ -139,7 +139,7 @@ def enrich_snapshot_with_github_data(snapshot: BoardSnapshot, remote: GitHubData
     for entry in snapshot.entries:
         agent_repo = repo_path_from_labels(entry.column_data.labels)
         pr = _lookup_pr(remote, agent_repo, entry.branch)
-        agent_prs_loaded = (remote.repo_pr_loaded.get(agent_repo) is True) if agent_repo else False
+        agent_prs_loaded = agent_repo is not None and remote.repo_pr_loaded.get(agent_repo) is True
         create_pr_url = (
             _build_create_pr_url(agent_repo, entry.branch)
             if agent_prs_loaded and entry.branch and pr is None
@@ -205,7 +205,7 @@ def fetch_board_snapshot(
         commits_ahead = _get_commits_ahead(local_work_dir, cg) if local_work_dir is not None else None
         agent_repo = _get_agent_repo_path(agent)
         pr = _lookup_pr(remote, agent_repo, branch)
-        agent_prs_loaded = (remote.repo_pr_loaded.get(agent_repo) is True) if agent_repo else False
+        agent_prs_loaded = agent_repo is not None and remote.repo_pr_loaded.get(agent_repo) is True
         create_pr_url = (
             _build_create_pr_url(agent_repo, branch) if agent_prs_loaded and branch and pr is None else None
         )
