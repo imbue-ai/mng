@@ -25,9 +25,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=config_utils.sh
 source "$SCRIPT_DIR/config_utils.sh"
 
-HASH="${1:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
-
 REVIEWER_SETTINGS=".reviewer/settings.json"
+
+# By default, only fire on mng-managed sessions (MAIN_CLAUDE_SESSION_ID is set
+# by mng when it launches agents). Set enforce_on_all_sessions to true in
+# .reviewer/settings.json to enforce on standalone Claude Code sessions too.
+ENFORCE_ALL=$(read_json_config "$REVIEWER_SETTINGS" "enforce_on_all_sessions" "false")
+if [[ "$ENFORCE_ALL" != "true" ]] && [[ -z "${MAIN_CLAUDE_SESSION_ID:-}" ]]; then
+    exit 0
+fi
+
+HASH="${1:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 
 # ---------------------------------------------------------------------------
 # Safety hatch: prevent infinite stop-hook loops.
