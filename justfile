@@ -33,7 +33,7 @@ test-offload args="":
 
     # Invalidate offload's image cache when build inputs change.
     # Offload only caches by image ID and doesn't track Dockerfile or base commit changes.
-    CACHE_KEY=$(cat .offload-base-commit libs/mng/imbue/mng/resources/Dockerfile | shasum -a 256 | cut -d' ' -f1)
+    CACHE_KEY=$(cat .offload-base-commit libs/mng/imbue/mng/resources/Dockerfile offload-modal.toml | shasum -a 256 | cut -d' ' -f1)
     CACHE_KEY_FILE=".offload-cache-key"
     if [ -f "$CACHE_KEY_FILE" ] && [ "$(cat "$CACHE_KEY_FILE")" = "$CACHE_KEY" ]; then
         echo "[test-offload] Image cache key matches, reusing cached image."
