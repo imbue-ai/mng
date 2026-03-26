@@ -1,15 +1,15 @@
 <!-- This file is auto-generated. Do not edit directly. -->
 <!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-# mng watch
+# mng notify
 
 **Synopsis:**
 
 ```text
-mng watch
+mng notify
 ```
 
-Watch agents and notify when they transition to WAITING.
+Notify when agents transition to WAITING.
 
 Sends a desktop notification when any agent transitions from RUNNING to WAITING.
 
@@ -29,12 +29,12 @@ Or use a custom command (MNG_AGENT_NAME is set in the environment):
 [plugins.notifications]
     custom_terminal_command = "my-terminal -e mng connect $MNG_AGENT_NAME"
 
-Press Ctrl+C to stop watching.
+Press Ctrl+C to stop.
 
 **Usage:**
 
 ```text
-mng watch [OPTIONS]
+mng notify [OPTIONS]
 ```
 **Options:**
 
@@ -62,8 +62,8 @@ mng watch [OPTIONS]
 
 ## Examples
 
-**Watch all agents**
+**Notify on all agents**
 
 ```bash
-$ mng watch
+$ mng notify
 ```

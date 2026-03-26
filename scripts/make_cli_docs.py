@@ -65,7 +65,7 @@ SECONDARY_COMMANDS = {
     "transcript",
     "tutor",
     "wait",
-    "watch",
+    "notify",
 }
 ALIAS_COMMANDS = {
     "archive",

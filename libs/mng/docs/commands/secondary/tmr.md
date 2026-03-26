@@ -16,7 +16,7 @@ This command implements a map-reduce pattern for tests:
 1. Collects tests using pytest --collect-only, passing through all arguments.
 2. Launches one agent per test. Each agent runs the test and, if it fails,
    attempts to diagnose and fix either the test code or the implementation.
-3. Polls agents until all finish (stops agents when they enter WAITING state).
+3. Polls agents until all finish or individually time out (per-agent timeout).
    An HTML report is updated continuously during polling.
 4. For successful fixes, pulls the agent's code changes into branches
    named mng-tmr/*.
@@ -38,6 +38,7 @@ Use --use-snapshot with remote providers to build and provision one host first,
 snapshot it, then launch all remaining agents from the snapshot (much faster).
 Use --env to pass environment variables and --label to tag all agents.
 Use --prompt-suffix to append custom instructions to the agent prompt.
+Use --max-agents to limit how many agents run simultaneously (0 = no limit).
 
 Each agent writes its result to $MNG_AGENT_STATE_DIR/plugin/test-map-reduce/result.json
 with a structured JSON containing: changes (list of kind/status/summary), errored flag,
@@ -83,13 +84,16 @@ mng tmr [OPTIONS] [PYTEST_ARGS]...
 | `--prompt-suffix` | text | Additional text to append to the agent prompt | None |
 | `--use-snapshot` | boolean | Build one agent first, snapshot its host, then launch remaining agents from the snapshot (faster for remote providers) | `False` |
 | `--snapshot` | text | Use an existing snapshot/image ID for all agents (skips building; implies --use-snapshot behavior) | None |
-| `--max-parallel` | integer | Maximum number of agents to launch concurrently | `4` |
+| `--max-parallel` | integer | Maximum number of agents to launch concurrently (launch-time parallelism) | `4` |
+| `--max-agents` | integer | Maximum number of agents running at any one time (0 = no limit). When set, agents are launched incrementally as earlier ones finish. | `0` |
 | `--launch-delay` | float | Seconds to wait between launching each agent (avoids provider rate limits) | `2.0` |
 | `--poll-interval` | float | Seconds between polling cycles when waiting for agents to finish | `10.0` |
-| `--timeout` | float | Maximum seconds to wait for agents after launch (stops all pending agents when reached) | `3600.0` |
+| `--timeout` | float | Maximum seconds each agent can run before being stopped (per-agent timeout) | `3600.0` |
+| `--result-check-interval` | float | Seconds between direct result file checks for agents whose status may be stale | `300.0` |
 | `--integrator-timeout` | float | Maximum seconds to wait for the integrator agent to merge fix branches | `3600.0` |
 | `--output-html` | path | Path for the HTML report [default: tmr_<timestamp>/index.html] | None |
 | `--source` | directory | Source directory for test collection and agent work dirs [default: current directory] | None |
+| `--reintegrate` | text | Re-read outcomes from a previous TMR run (by run name), re-run integrator, and regenerate report. Skips test collection and agent launching. | None |
 
 ## See Also
 
@@ -133,6 +137,12 @@ $ mng tmr --provider modal --use-snapshot tests/
 
 ```bash
 $ mng tmr --env API_KEY=xxx --label batch=run1
+```
+
+**Limit to 4 concurrent agents**
+
+```bash
+$ mng tmr --max-agents 4 tests/
 ```
 
 **Custom poll interval**
