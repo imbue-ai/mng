@@ -249,7 +249,6 @@ tmr_*/
 # Offload caches and local files
 .offload/**
 test-results
-test-results/**
 current.tar.gz
 
 # Minds deploy-time build artifacts
@@ -259,6 +258,8 @@ current.tar.gz
 .autofix/
 .reviewer/outputs/
 .reviewer/settings.local.json
+.reviewer/.stop_hook_consecutive_blocks
+.reviews/
 
 # Stuck agent tracking (stop hook escape valve)
 .claude/blocked_stop_commits
@@ -272,3 +273,4 @@ current.tar.gz
 
 # ignore coverage files generated within subprojects
 cov.xml
+.reviews/
