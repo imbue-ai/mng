@@ -88,7 +88,7 @@ CATEGORY_EXTENSIONS: list[Override] = [
 - A class mixes two different use cases that could be separated into two classes.
 - A function that returns a value that can be either a valid result or an error state (e.g. None, False, -1) instead of raising an exception for the error case. This is bad because the caller can forget to check for the error state.
 - A class that has a "name" attribute that is just a string, instead of having a proper Name class (eg, that inherits from NonEmptyString).
-- A class with a bare string or uuid as an "id" attribute, instead of having a proper ID class
+- A class with a bare string or uuid as an "id" attribute, instead of having a proper ID class.
 - An if/elif/.../else construct that dispatches on the value of an enum, instead of using a match statement.""",
     ),
     Override(
