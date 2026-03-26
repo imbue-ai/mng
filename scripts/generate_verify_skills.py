@@ -2,14 +2,14 @@
 
 Requires --vet-repo or VET_REPO env var.
 
-These are the DEFAULT categories shipped with the mng-code-review plugin.
+These are the DEFAULT categories shipped with the imbue-code-review plugin.
 Users customize their categories by copying the defaults to
 .reviewer/code-issue-categories.md and .reviewer/conversation-issue-categories.md
 and editing them directly.
 
 Output:
-  plugins/mng-code-review/agents/categories/code-issue-categories.md
-  plugins/mng-code-review/agents/categories/conversation-issue-categories.md
+  plugins/imbue-code-review/agents/categories/code-issue-categories.md
+  plugins/imbue-code-review/agents/categories/conversation-issue-categories.md
 
 Usage:
     uv run python scripts/generate_verify_skills.py --vet-repo /path/to/vet
@@ -32,10 +32,10 @@ REPO_ROOT = SCRIPT_DIR.parent
 
 # Output paths (vet defaults, checked in)
 BRANCH_CATEGORIES_PATH = (
-    REPO_ROOT / "plugins" / "mng-code-review" / "agents" / "categories" / "code-issue-categories.md"
+    REPO_ROOT / "plugins" / "imbue-code-review" / "agents" / "categories" / "code-issue-categories.md"
 )
 CONVERSATION_CATEGORIES_PATH = (
-    REPO_ROOT / "plugins" / "mng-code-review" / "agents" / "categories" / "conversation-issue-categories.md"
+    REPO_ROOT / "plugins" / "imbue-code-review" / "agents" / "categories" / "conversation-issue-categories.md"
 )
 
 

@@ -4,12 +4,12 @@
     "name": "Imbue"
   },
   "metadata": {
-    "description": "Code review enforcement tools for mng users"
+    "description": "Code review enforcement tools by Imbue"
   },
   "plugins": [
     {
-      "name": "mng-code-review",
-      "source": "./plugins/mng-code-review",
+      "name": "imbue-code-review",
+      "source": "./plugins/imbue-code-review",
       "description": "Automated code review enforcement. Runs autofix, architecture verification, and conversation review -- and blocks sessions from finishing until they pass."
     }
   ]

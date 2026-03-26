@@ -19,7 +19,7 @@ set -euo pipefail
 #
 # This script is used by:
 #   - main_claude_stop_hook.sh (the full mng stop hook orchestrator)
-#   - The mng-code-review Claude Code plugin (as a standalone Stop hook)
+#   - The imbue-code-review Claude Code plugin (as a standalone Stop hook)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=config_utils.sh

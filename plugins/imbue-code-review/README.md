@@ -1,30 +1,30 @@
-# mng-code-review
+# imbue-code-review
 
-Automated code review enforcement for [mng](https://github.com/imbue-ai/mng) users.
+Automated code review enforcement for Claude Code. When enabled, a Stop hook blocks Claude from finishing until autofix, architecture verification, and conversation review have been run.
 
-When installed, a Stop hook can block Claude from finishing until autofix, architecture verification, and conversation review have been run. **The hook is off by default** -- you need to enable it by configuring `stop_hook.enabled_when` in `.reviewer/settings.json` or `.reviewer/settings.local.json`.
+**The hook is off by default.** Enable it after installing.
 
 ## Install
 
 ```
-claude plugin marketplace add imbue-ai/mng && claude plugin install mng-code-review@imbue-mng
+claude plugin marketplace add imbue-ai/mng && claude plugin install imbue-code-review@imbue-mng
 ```
 
 ## Enabling the stop hook
 
-After installing, enable the stop hook by running:
+After installing, enable enforcement:
 
 ```
-/mng-code-review:reviewer-enable
+/imbue-code-review:reviewer-enable
 ```
 
-This enables enforcement for all sessions. To only enforce on mng-managed agent sessions:
+The argument is an optional shell expression controlling when enforcement fires. For example, to only enforce when a specific env var is set:
 
 ```
-/mng-code-review:reviewer-enable test -n "${MNG_AGENT_STATE_DIR:-}"
+/imbue-code-review:reviewer-enable test -n "${MY_AGENT_ENV_VAR:-}"
 ```
 
-The argument is a shell expression evaluated before each stop hook invocation. Individual gates can be disabled with `/mng-code-review:reviewer-disable`.
+Individual gates can be disabled with `/imbue-code-review:reviewer-disable`.
 
 ## Skills
 
@@ -34,7 +34,9 @@ The argument is a shell expression evaluated before each stop hook invocation. I
 
 ## Configuration
 
+- **reviewer-enable** -- Enable the stop hook. Optionally takes a shell expression for when to enforce.
 - **reviewer-disable** -- Disable all review gates at once.
+- **reviewer-init-categories** -- Copy the default issue categories to `.reviewer/` for customization.
 - **reviewer-autofix-enable / disable** -- Toggle the autofix gate.
 - **reviewer-autofix-all-issues / ignore-minor-issues** -- Control issue severity threshold for unattended autofix.
 - **reviewer-ci-enable / disable** -- Toggle the CI gate.
@@ -49,9 +51,12 @@ Gates checked:
 - **Autofix** -- per-commit (must re-run after each new commit)
 - **Architecture verification** -- per-branch (runs once, persists across commits)
 - **Conversation review** -- per-commit
-- **CI** -- handled by the full mng stop hook, not this plugin
 
 A safety hatch prevents infinite loops: after 3 consecutive blocks at the same commit, the hook lets the agent through and clears the tracker.
+
+## Issue categories
+
+The plugin ships default issue categories. To customize them for your project, run `/imbue-code-review:reviewer-init-categories` to copy the defaults to `.reviewer/code-issue-categories.md` and `.reviewer/conversation-issue-categories.md`, then edit directly. The skills check `.reviewer/` first, falling back to plugin defaults.
 
 ## Agents
 
