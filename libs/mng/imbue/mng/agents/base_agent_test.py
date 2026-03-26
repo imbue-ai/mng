@@ -1007,11 +1007,11 @@ class _StubHost:
         self.written_files.append((path, content))
 
 
-def _create_agent_with_stub_host(
+def _create_named_agent_with_stub_host(
     temp_mng_ctx: MngContext,
     stub: _StubHost,
+    name: AgentName,
     cls: type[BaseAgent] = BaseAgent,
-    name: AgentName = AgentName("stub-agent"),
     **kwargs: Any,
 ) -> BaseAgent:
     """Create an agent with a stub host for command recording.
@@ -1033,6 +1033,15 @@ def _create_agent_with_stub_host(
         agent_config=AgentTypeConfig(command=CommandString("sleep 1000")),
         **kwargs,
     )
+
+
+def _create_agent_with_stub_host(
+    temp_mng_ctx: MngContext,
+    stub: _StubHost,
+    cls: type[BaseAgent] = BaseAgent,
+    **kwargs: Any,
+) -> BaseAgent:
+    return _create_named_agent_with_stub_host(temp_mng_ctx, stub, AgentName("stub-agent"), cls, **kwargs)
 
 
 def test_send_tmux_literal_keys_short_message_uses_send_keys(
@@ -1125,7 +1134,7 @@ def test_send_tmux_literal_keys_long_message_sanitizes_slash_in_session_name(
 ) -> None:
     """Session names with '/' should produce flat temp file paths (no nested dirs)."""
     stub = _StubHost()
-    agent = _create_agent_with_stub_host(temp_mng_ctx, stub, name=AgentName("foo/bar"))
+    agent = _create_named_agent_with_stub_host(temp_mng_ctx, stub, AgentName("foo/bar"))
 
     long_message = "x" * 1024
     agent._send_tmux_literal_keys("mng-test:0", long_message)
