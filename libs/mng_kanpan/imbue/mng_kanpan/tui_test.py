@@ -1105,7 +1105,7 @@ def test_first_load_pr_failure_shows_prs_not_loaded() -> None:
     snapshot = BoardSnapshot(
         entries=(entry,),
         errors=("gh pr list failed: auth required",),
-        repo_pr_loaded={},
+        repo_pr_loaded={"org/repo": False},
         fetch_time_seconds=1.0,
     )
     walker, _ = _build_board_widgets(snapshot, _BOARD_COLUMN_DEFS)
