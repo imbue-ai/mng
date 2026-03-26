@@ -240,22 +240,36 @@ def _git(vet_repo: Path, *args: str) -> str:
 
 def _warn_if_behind_origin(vet_repo: Path, base_commit: str) -> None:
     """Warn if the pinned base commit is behind vet's origin/main."""
-    try:
-        origin_main = _git(vet_repo, "rev-parse", "origin/main")
-    except subprocess.CalledProcessError:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    vet = str(vet_repo)
+
+    origin_result = subprocess.run(
+        ["git", "-C", vet, "rev-parse", "origin/main"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if origin_result.returncode != 0:
         return
+    origin_main = origin_result.stdout.strip()
     if origin_main == base_commit:
         return
-    try:
-        _git(vet_repo, "merge-base", "--is-ancestor", base_commit, origin_main)
-    except subprocess.CalledProcessError:
-        return
-    # base_commit is an ancestor of origin/main, so it's behind.
-    print(
-        f"warning: pinned vet base ({base_commit[:12]}) is behind origin/main ({origin_main[:12]}). "
-        f"Consider updating scripts/vet_base_commit.",
-        file=sys.stderr,
+
+    is_ancestor = (
+        subprocess.run(
+            ["git", "-C", vet, "merge-base", "--is-ancestor", base_commit, origin_main],
+            capture_output=True,
+            env=env,
+        ).returncode
+        == 0
     )
+
+    if is_ancestor:
+        print(
+            f"warning: pinned vet base ({base_commit[:12]}) is behind origin/main ({origin_main[:12]}). "
+            f"Consider updating scripts/vet_base_commit.",
+            file=sys.stderr,
+        )
 
 
 def load_vet(vet_repo: Path) -> dict:
