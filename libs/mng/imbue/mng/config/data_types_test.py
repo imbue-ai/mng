@@ -169,6 +169,61 @@ def test_agent_type_config_merge_with_concatenates_permissions() -> None:
     assert merged.permissions == [Permission("read"), Permission("write")]
 
 
+def test_agent_type_config_merge_with_preserves_subclass_fields() -> None:
+    """AgentTypeConfig.merge_with on a subclass should preserve subclass-specific fields."""
+
+    class _TestConfig(AgentTypeConfig):
+        """Test config subclass."""
+
+        custom_flag: bool = Field(default=False)
+
+    base = _TestConfig.model_construct(
+        custom_flag=True,
+        cli_args=("--base",),
+    )
+    # Override only has cli_args set (simulates a secondary config file)
+    override = _TestConfig.model_construct(
+        cli_args=("--override",),
+    )
+    merged = base.merge_with(override)
+    assert isinstance(merged, _TestConfig)
+    assert merged.cli_args == ("--base", "--override")
+    # custom_flag from base should be preserved since override didn't set it
+    assert merged.custom_flag is True
+
+
+def test_agent_type_config_merge_with_overrides_subclass_fields_when_set() -> None:
+    """AgentTypeConfig.merge_with should override subclass fields that were explicitly set."""
+
+    class _TestConfig(AgentTypeConfig):
+        """Test config subclass."""
+
+        custom_flag: bool = Field(default=False)
+
+    base = _TestConfig(custom_flag=True)
+    override = _TestConfig.model_construct(custom_flag=False)
+    merged = base.merge_with(override)
+    assert isinstance(merged, _TestConfig)
+    assert merged.custom_flag is False
+
+
+def test_agent_type_config_merge_with_accepts_base_class_override() -> None:
+    """AgentTypeConfig.merge_with on a subclass should accept a base-class override."""
+
+    class _TestConfig(AgentTypeConfig):
+        """Test config subclass."""
+
+        custom_flag: bool = Field(default=False)
+
+    base = _TestConfig(custom_flag=True, cli_args=("--base",))
+    # Override is a base AgentTypeConfig (e.g., from a secondary config without parent_type)
+    override = AgentTypeConfig.model_construct(cli_args=("--override",))
+    merged = base.merge_with(override)
+    assert isinstance(merged, _TestConfig)
+    assert merged.cli_args == ("--base", "--override")
+    assert merged.custom_flag is True
+
+
 def test_merge_cli_args_concatenates_both_when_present() -> None:
     """merge_cli_args should concatenate when both present."""
     result = merge_cli_args(("--arg1",), ("--arg2",))
