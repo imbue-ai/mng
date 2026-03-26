@@ -2439,3 +2439,25 @@ def test_apply_work_dir_extra_paths_nested_path_creates_parents(
     target = work_dir / "deep" / "nested"
     assert target.is_symlink()
     assert target.resolve() == nested.resolve()
+
+
+def test_apply_work_dir_extra_paths_share_same_host_replaces_stale_symlink(
+    local_host: Host,
+    source_and_work_dirs: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """Share mode should replace a symlink that points to the wrong target."""
+    source_dir, work_dir = source_and_work_dirs
+    (source_dir / ".venv").mkdir()
+
+    # Create a stale symlink pointing to a different location
+    stale_target = tmp_path / "old_venv"
+    stale_target.mkdir()
+    (work_dir / ".venv").symlink_to(stale_target)
+    assert (work_dir / ".venv").resolve() == stale_target.resolve()
+
+    local_host._apply_work_dir_extra_paths(local_host, source_dir, work_dir, {".venv": WorkDirExtraPathMode.SHARE})
+
+    target = work_dir / ".venv"
+    assert target.is_symlink()
+    assert target.resolve() == (source_dir / ".venv").resolve()
