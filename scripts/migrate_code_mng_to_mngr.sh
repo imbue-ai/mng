@@ -42,9 +42,11 @@ echo -e "${BOLD}mng -> mngr code migration${NC}"
 # Stale .pyc files with old module paths prevent old directories
 # from being removed and cause import errors.
 
-echo -e "\n${BOLD}Cleaning __pycache__ directories...${NC}"
+echo -e "\n${BOLD}Cleaning build artifacts...${NC}"
 find "$REPO_ROOT" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-ok "Cleaned __pycache__"
+find "$REPO_ROOT" -type d -name htmlcov -exec rm -rf {} + 2>/dev/null || true
+find "$REPO_ROOT" -name coverage.xml -delete 2>/dev/null || true
+ok "Cleaned __pycache__, htmlcov, coverage.xml"
 
 # ── Helper: perl script for content replacement ───────────────────
 # Written to a temp file to avoid shell escaping issues with negative

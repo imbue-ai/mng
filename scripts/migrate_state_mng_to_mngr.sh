@@ -76,14 +76,11 @@ migrate_dir() {
 # Stale .pyc files with old module paths (imbue.mng) cause import
 # errors and false diffs. Remove them all up front.
 
-step 1 "Cleaning __pycache__ directories..."
-pycache_count=$(find "$REPO_ROOT" -type d -name __pycache__ 2>/dev/null | wc -l | tr -d ' ')
+step 1 "Cleaning build artifacts..."
 find "$REPO_ROOT" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-if [ "$pycache_count" -gt 0 ]; then
-    ok "Removed $pycache_count __pycache__ directories"
-else
-    ok "No __pycache__ directories found"
-fi
+find "$REPO_ROOT" -type d -name htmlcov -exec rm -rf {} + 2>/dev/null || true
+find "$REPO_ROOT" -name coverage.xml -delete 2>/dev/null || true
+ok "Cleaned __pycache__, htmlcov, coverage.xml"
 
 # ── 2. Remove mng binary ──────────────────────────────────────────
 
