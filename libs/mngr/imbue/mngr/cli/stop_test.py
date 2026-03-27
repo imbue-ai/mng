@@ -21,6 +21,7 @@ def test_stop_cli_options_fields() -> None:
         agents=("agent1", "agent2"),
         agent_list=("agent3",),
         stop_all=False,
+        force=False,
         dry_run=True,
         archive=False,
         sessions=(),
@@ -43,6 +44,7 @@ def test_stop_cli_options_fields() -> None:
     assert opts.agents == ("agent1", "agent2")
     assert opts.agent_list == ("agent3",)
     assert opts.stop_all is False
+    assert opts.force is False
     assert opts.dry_run is True
     assert opts.sessions == ()
 
@@ -196,6 +198,7 @@ def test_stop_cli_options_accepts_all_optional_fields() -> None:
         agents=("a1", "a2", "a3"),
         agent_list=("a4",),
         stop_all=True,
+        force=True,
         dry_run=False,
         archive=True,
         sessions=("mngr-session-1", "mngr-session-2"),
@@ -217,6 +220,7 @@ def test_stop_cli_options_accepts_all_optional_fields() -> None:
     )
     assert opts.agents == ("a1", "a2", "a3")
     assert opts.stop_all is True
+    assert opts.force is True
     assert opts.sessions == ("mngr-session-1", "mngr-session-2")
     assert opts.include == ("state == 'RUNNING'",)
     assert opts.exclude == ("name == 'keep-me'",)
@@ -277,6 +281,58 @@ def test_stop_output_result_format_template(capsys: pytest.CaptureFixture[str]) 
     _output_result(["template-agent"], output_opts)
     captured = capsys.readouterr()
     assert "template-agent" in captured.out
+
+
+# =============================================================================
+# --force tests
+# =============================================================================
+
+
+def test_stop_force_suppresses_not_found_error(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--force should suppress AgentNotFoundError and exit 0."""
+    result = cli_runner.invoke(
+        stop,
+        ["nonexistent-agent-88432", "--force"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert "No running agents found to stop" in result.output
+
+
+def test_stop_without_force_raises_not_found_error(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Without --force, a nonexistent agent should raise an error."""
+    result = cli_runner.invoke(
+        stop,
+        ["nonexistent-agent-88433"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code != 0
+
+
+def test_stop_force_all_no_agents(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--force --all with no running agents exits 0."""
+    result = cli_runner.invoke(
+        stop,
+        ["--all", "--force"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert "No running agents found to stop" in result.output
 
 
 # =============================================================================
