@@ -601,6 +601,91 @@ class Host(BaseHost, OnlineHostInterface):
         #  then, just to be good, we should probably clean up after ourselves (the outputs and lock file)
         return self.execute_idempotent_command(command, user=user, cwd=cwd, env=env, timeout_seconds=timeout_seconds)
 
+    def read_file(self, path: Path) -> bytes:
+        """Read a file and return its contents as bytes.
+
+        Raises FileNotFoundError if the file does not exist.
+        """
+        # this shortcut reduces the number of file descriptors opened on local hosts and speeds things up considerably
+        if self.is_local:
+            return path.read_bytes()
+        else:
+            output = io.BytesIO()
+            self._get_file(str(path), output)
+            return output.getvalue()
+
+    # it'd be really nice to change the default for is_atomic to True, but it's actually a non-trivial performance impact the way it is implemented right now...
+    def write_file(self, path: Path, content: bytes, mode: str | None = None, is_atomic: bool = False) -> None:
+        """Write bytes content to a file, creating parent directories as needed."""
+        if is_atomic:
+            write_path = path.parent / f".{path.name}.{uuid4().hex}.tmp"
+        else:
+            write_path = path
+
+        # Try to write first, only create parent directory if the write fails.
+        # This avoids an extra subprocess call for mkdir -p on every write.
+        if self.is_local:
+            try:
+                write_path.write_bytes(content)
+            except FileNotFoundError:
+                # Parent directory doesn't exist, create it and retry
+                write_path.parent.mkdir(parents=True, exist_ok=True)
+                write_path.write_bytes(content)
+        else:
+            try:
+                is_success = self._put_file(io.BytesIO(content), str(write_path))
+            except IOError:
+                # pyinfra/paramiko raises IOError when the parent directory doesn't exist
+                is_success = False
+            if not is_success:
+                # May have failed because parent directory doesn't exist, create it and retry
+                parent_dir = str(write_path.parent)
+                result = self.execute_idempotent_command(f"mkdir -p '{parent_dir}'")
+                if not result.success:
+                    raise MngrError(
+                        f"Failed to create parent directory '{parent_dir}' on host {self.id} because: {result.stderr}"
+                    )
+                is_success = self._put_file(io.BytesIO(content), str(write_path))
+                if not is_success:
+                    raise MngrError(f"Failed to write file '{str(write_path)}' on host {self.id}'")
+        if write_path != path:
+            # Move temp file to final location atomically
+            result = self.execute_idempotent_command(f"mv '{str(write_path)}' '{str(path)}'")
+            if not result.success:
+                raise MngrError(
+                    f"Failed to move temp file to final location on host {self.id} because: {result.stderr}"
+                )
+        if mode is not None:
+            self.execute_idempotent_command(f"chmod {mode} '{str(path)}'")
+
+    def read_text_file(self, path: Path, encoding: str = "utf-8") -> str:
+        """Read a file and return its contents as a string.
+
+        Raises FileNotFoundError if the file does not exist.
+        """
+        return self.read_file(path).decode(encoding)
+
+    def write_text_file(
+        self,
+        path: Path,
+        content: str,
+        encoding: str = "utf-8",
+        mode: str | None = None,
+    ) -> None:
+        """Write string content to a file, creating parent directories as needed."""
+        self.write_file(path, content.encode(encoding), mode=mode)
+
+    def _get_file_mtime(self, path: Path) -> datetime | None:
+        """Get the mtime of a file on the host."""
+        if self.is_local:
+            try:
+                mtime = path.stat().st_mtime
+                return datetime.fromtimestamp(mtime, tz=timezone.utc)
+            except (FileNotFoundError, OSError):
+                return None
+        result = self.execute_idempotent_command(
+            f"stat -c %Y '{str(path)}' 2>/dev/null || stat -f %m '{str(path)}' 2>/dev/null"
+        )
         if result.success and result.stdout.strip():
             try:
                 mtime = int(result.stdout.strip())
