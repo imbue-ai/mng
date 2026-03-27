@@ -60,7 +60,7 @@ fi
 
 echo -e "\n${BOLD}Cleaning build artifacts...${NC}"
 if [ "$DRY_RUN" = true ]; then
-    for pat in __pycache__ htmlcov .pytest_cache .test_output .reviewer; do
+    for pat in __pycache__ htmlcov .pytest_cache .test_output; do
         count=$(find "$REPO_ROOT" -type d -name "$pat" 2>/dev/null | wc -l | tr -d ' ')
         [ "$count" -gt 0 ] && dry "would remove $count $pat directories"
     done
@@ -75,7 +75,8 @@ else
     find "$REPO_ROOT" -type d -name .test_output -exec rm -rf {} + 2>/dev/null || true
     find "$REPO_ROOT" -name coverage.xml -delete 2>/dev/null || true
     find "$REPO_ROOT" -name '.coverage' -delete 2>/dev/null || true
-    find "$REPO_ROOT" -type d -name '.reviewer' -exec rm -rf {} + 2>/dev/null || true
+    find "$REPO_ROOT" -path '*/.reviewer/outputs' -exec rm -rf {} + 2>/dev/null || true
+    find "$REPO_ROOT" -name '.stop_hook_consecutive_blocks' -delete 2>/dev/null || true
     ok "Cleaned build artifacts"
 fi
 
