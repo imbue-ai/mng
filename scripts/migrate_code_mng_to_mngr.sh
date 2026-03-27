@@ -8,7 +8,12 @@
 # For open MRs: run this script on your branch, then merge in the new main.
 # After a merge with main: just run this script again to rename incoming code.
 #
+# Usage:
+#   scripts/migrate_code_mng_to_mngr.sh              # run migration
+#   scripts/migrate_code_mng_to_mngr.sh --dry-run    # preview without changes
+#
 # What this does:
+#   0. Cleans build artifacts (__pycache__, htmlcov, etc.)
 #   1. Moves orphaned files from old paths (libs/mng/*) to new paths (libs/mngr/*)
 #   2. Renames .mng/ -> .mngr/ in the repo root
 #   3. Renames lib directories (libs/mng -> libs/mngr, libs/mng_* -> libs/mngr_*)
@@ -29,32 +34,54 @@ cd "$REPO_ROOT"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
+
+DRY_RUN=false
+if [[ "${1:-}" == "--dry-run" ]]; then
+    DRY_RUN=true
+fi
 
 step() { echo -e "\n${BOLD}[$1] $2${NC}"; }
 ok()   { echo -e "  ${GREEN}$*${NC}"; }
 skip() { echo -e "  ${YELLOW}skip: $*${NC}"; }
+dry()  { echo -e "  ${CYAN}[dry-run] $*${NC}"; }
 
-echo -e "${BOLD}mng -> mngr code migration${NC}"
+if [ "$DRY_RUN" = true ]; then
+    echo -e "${BOLD}mng -> mngr code migration ${YELLOW}(DRY RUN)${NC}"
+else
+    echo -e "${BOLD}mng -> mngr code migration${NC}"
+fi
 
-# ── 0. Clean __pycache__ directories ─────────────────────────────
+# ── 0. Clean build artifacts ─────────────────────────────────────
 # Stale .pyc files with old module paths prevent old directories
 # from being removed and cause import errors.
 
 echo -e "\n${BOLD}Cleaning build artifacts...${NC}"
-find "$REPO_ROOT" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-find "$REPO_ROOT" -type d -name htmlcov -exec rm -rf {} + 2>/dev/null || true
-find "$REPO_ROOT" -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
-find "$REPO_ROOT" -type d -name .test_output -exec rm -rf {} + 2>/dev/null || true
-find "$REPO_ROOT" -name coverage.xml -delete 2>/dev/null || true
-ok "Cleaned __pycache__, htmlcov, .pytest_cache, .test_output, coverage.xml"
+if [ "$DRY_RUN" = true ]; then
+    for pat in __pycache__ htmlcov .pytest_cache .test_output; do
+        count=$(find "$REPO_ROOT" -type d -name "$pat" 2>/dev/null | wc -l | tr -d ' ')
+        [ "$count" -gt 0 ] && dry "would remove $count $pat directories"
+    done
+    count=$(find "$REPO_ROOT" -name coverage.xml 2>/dev/null | wc -l | tr -d ' ')
+    [ "$count" -gt 0 ] && dry "would remove $count coverage.xml files"
+else
+    find "$REPO_ROOT" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+    find "$REPO_ROOT" -type d -name htmlcov -exec rm -rf {} + 2>/dev/null || true
+    find "$REPO_ROOT" -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
+    find "$REPO_ROOT" -type d -name .test_output -exec rm -rf {} + 2>/dev/null || true
+    find "$REPO_ROOT" -name coverage.xml -delete 2>/dev/null || true
+    ok "Cleaned __pycache__, htmlcov, .pytest_cache, .test_output, coverage.xml"
+fi
 
 # Remove empty leftover directories from the old mng names
 for d in libs/mng libs/mng_*; do
     [ -d "$d" ] || continue
     if find "$d" -type f | read -r; then
         echo -e "  ${YELLOW}WARNING: $d is not empty and may need manual cleanup${NC}"
+    elif [ "$DRY_RUN" = true ]; then
+        dry "would remove empty $d"
     else
         rm -rf "$d"
         ok "Removed empty $d"
@@ -64,12 +91,14 @@ done
 # ── Helper: perl script for content replacement ───────────────────
 # Written to a temp file to avoid shell escaping issues with negative
 # lookahead (zsh eats ! in command-line perl -e).
+# Respects MIGRATE_DRY_RUN env var: prints changed files without writing.
 
 RENAME_PL=$(mktemp)
 trap 'rm -f "$RENAME_PL"' EXIT
 cat > "$RENAME_PL" << 'PERL_SCRIPT'
 use strict;
 use warnings;
+my $dry_run = $ENV{MIGRATE_DRY_RUN} // 0;
 for my $file (@ARGV) {
     open my $fh, '<', $file or next;
     my $content = do { local $/; <$fh> };
@@ -79,21 +108,27 @@ for my $file (@ARGV) {
     $content =~ s/Mng(?!r)/Mngr/g;
     $content =~ s/mng(?!r)/mngr/g;
     if ($content ne $orig) {
-        open my $out, '>', $file or next;
-        print $out $content;
-        close $out;
+        if ($dry_run) {
+            print "  \033[0;36m[dry-run] would modify: $file\033[0m\n";
+        } else {
+            open my $out, '>', $file or next;
+            print $out $content;
+            close $out;
+        }
     }
 }
 PERL_SCRIPT
 
 # ── Helper: perl script for imbue- prefix on PyPI names ──────────
 # Idempotent: won't double-prefix imbue-mngr -> imbue-imbue-mngr.
+# Respects MIGRATE_DRY_RUN env var.
 
 PYPI_PL=$(mktemp)
 trap 'rm -f "$RENAME_PL" "$PYPI_PL"' EXIT
 cat > "$PYPI_PL" << 'PERL_SCRIPT'
 use strict;
 use warnings;
+my $dry_run = $ENV{MIGRATE_DRY_RUN} // 0;
 for my $file (@ARGV) {
     open my $fh, '<', $file or next;
     my $content = do { local $/; <$fh> };
@@ -122,12 +157,21 @@ for my $file (@ARGV) {
     # CLI binary entry point must stay "mngr", not "imbue-mngr"
     $content =~ s/^imbue-mngr = "imbue\.mngr\./mngr = "imbue.mngr./mg;
     if ($content ne $orig) {
-        open my $out, '>', $file or next;
-        print $out $content;
-        close $out;
+        if ($dry_run) {
+            print "  \033[0;36m[dry-run] would modify: $file\033[0m\n";
+        } else {
+            open my $out, '>', $file or next;
+            print $out $content;
+            close $out;
+        }
     }
 }
 PERL_SCRIPT
+
+# Export dry-run flag for perl scripts
+if [ "$DRY_RUN" = true ]; then
+    export MIGRATE_DRY_RUN=1
+fi
 
 # ── 1. Move orphaned files from old paths ─────────────────────────
 # After merging main, git may leave new files at old paths like
@@ -145,18 +189,24 @@ for old_root in libs/mng/imbue/mng libs/mng_*/imbue/mng_*; do
     find "$old_root" -type f | while IFS= read -r f; do
         rel="${f#"$old_root"/}"
         newf="$new_root/$rel"
-        mkdir -p "$(dirname "$newf")"
-        mv "$f" "$newf"
-        git add "$newf" 2>/dev/null || true
-        git rm --cached "$f" 2>/dev/null || true
+        if [ "$DRY_RUN" = true ]; then
+            dry "would move: $f -> $newf"
+        else
+            mkdir -p "$(dirname "$newf")"
+            mv "$f" "$newf"
+            git add "$newf" 2>/dev/null || true
+            git rm --cached "$f" 2>/dev/null || true
+        fi
         moved=$((moved + 1))
     done
 done
 # Clean up empty old directories
-for d in libs/mng libs/mng_*; do
-    [ -d "$d" ] && find "$d" -depth -type d -empty -delete 2>/dev/null
-    [ -d "$d" ] && rmdir "$d" 2>/dev/null || true
-done
+if [ "$DRY_RUN" = false ]; then
+    for d in libs/mng libs/mng_*; do
+        [ -d "$d" ] && find "$d" -depth -type d -empty -delete 2>/dev/null
+        [ -d "$d" ] && rmdir "$d" 2>/dev/null || true
+    done
+fi
 if [ "$moved" -gt 0 ]; then
     ok "Moved $moved files from old paths"
 else
@@ -174,14 +224,22 @@ if [ -d ".mng" ] && [ ! -d ".mngr" ]; then
         target=$(readlink "$file")
         if [[ "$target" == *mng* && "$target" != *mngr* ]]; then
             newtarget="${target//mng/mngr}"
-            rm "$file"
-            ln -s "$newtarget" "$file"
-            git add "$file"
-            ok "fixed symlink $file -> $newtarget"
+            if [ "$DRY_RUN" = true ]; then
+                dry "would fix symlink $file -> $newtarget"
+            else
+                rm "$file"
+                ln -s "$newtarget" "$file"
+                git add "$file"
+                ok "fixed symlink $file -> $newtarget"
+            fi
         fi
     done
-    git mv ".mng" ".mngr"
-    ok ".mng -> .mngr"
+    if [ "$DRY_RUN" = true ]; then
+        dry "would rename .mng -> .mngr"
+    else
+        git mv ".mng" ".mngr"
+        ok ".mng -> .mngr"
+    fi
 elif [ -d ".mngr" ]; then
     skip ".mngr already exists"
 else
@@ -202,8 +260,12 @@ for dir in libs/mng libs/mng_*; do
     newbase="${base/mng/mngr}"
     newdir="libs/$newbase"
     if [ ! -d "$newdir" ]; then
-        git mv "$dir" "$newdir"
-        ok "$dir -> $newdir"
+        if [ "$DRY_RUN" = true ]; then
+            dry "would rename $dir -> $newdir"
+        else
+            git mv "$dir" "$newdir"
+            ok "$dir -> $newdir"
+        fi
     else
         skip "$newdir already exists"
     fi
@@ -214,8 +276,12 @@ done
 step "4/9" "Renaming Python package directories..."
 
 if [ -d "libs/mngr/imbue/mng" ] && [ ! -d "libs/mngr/imbue/mngr" ]; then
-    git mv "libs/mngr/imbue/mng" "libs/mngr/imbue/mngr"
-    ok "libs/mngr/imbue/mng -> libs/mngr/imbue/mngr"
+    if [ "$DRY_RUN" = true ]; then
+        dry "would rename libs/mngr/imbue/mng -> libs/mngr/imbue/mngr"
+    else
+        git mv "libs/mngr/imbue/mng" "libs/mngr/imbue/mngr"
+        ok "libs/mngr/imbue/mng -> libs/mngr/imbue/mngr"
+    fi
 elif [ -d "libs/mngr/imbue/mngr" ]; then
     skip "libs/mngr/imbue/mngr already exists"
 fi
@@ -227,8 +293,12 @@ for dir in libs/mngr_*/imbue/mng_*; do
     newbase="${base/mng_/mngr_}"
     newdir="$parent/$newbase"
     if [ "$dir" != "$newdir" ] && [ ! -d "$newdir" ]; then
-        git mv "$dir" "$newdir"
-        ok "$dir -> $newdir"
+        if [ "$DRY_RUN" = true ]; then
+            dry "would rename $dir -> $newdir"
+        else
+            git mv "$dir" "$newdir"
+            ok "$dir -> $newdir"
+        fi
     fi
 done
 
@@ -248,19 +318,27 @@ for file in "${symlinks[@]+"${symlinks[@]}"}"; do
         newbase=$(basename "$file")
         newbase="${newbase//mng/mngr}"
         newfile="$(dirname "$file")/$newbase"
-        rm "$file"
-        git rm --cached "$file" 2>/dev/null || true
-        ln -s "$newtarget" "$newfile"
-        git add "$newfile"
-        ok "$file -> $newfile (target: $newtarget)"
+        if [ "$DRY_RUN" = true ]; then
+            dry "would fix symlink $file -> $newfile (target: $newtarget)"
+        else
+            rm "$file"
+            git rm --cached "$file" 2>/dev/null || true
+            ln -s "$newtarget" "$newfile"
+            git add "$newfile"
+            ok "$file -> $newfile (target: $newtarget)"
+        fi
         fixed_links=$((fixed_links + 1))
     elif [[ "$(basename "$file")" == *mng* && "$(basename "$file")" != *mngr* ]]; then
         newbase=$(basename "$file")
         newbase="${newbase//mng/mngr}"
         newfile="$(dirname "$file")/$newbase"
         if [ "$file" != "$newfile" ]; then
-            git mv "$file" "$newfile"
-            ok "$file -> $newfile"
+            if [ "$DRY_RUN" = true ]; then
+                dry "would rename $file -> $newfile"
+            else
+                git mv "$file" "$newfile"
+                ok "$file -> $newfile"
+            fi
             fixed_links=$((fixed_links + 1))
         fi
     fi
@@ -290,8 +368,12 @@ for file in "${files_to_rename[@]+"${files_to_rename[@]}"}"; do
     newbase="${base//mng/mngr}"
     newfile="$dir/$newbase"
     if [ "$file" != "$newfile" ] && [ ! -e "$newfile" ]; then
-        git mv "$file" "$newfile"
-        ok "$file -> $newfile"
+        if [ "$DRY_RUN" = true ]; then
+            dry "would rename $file -> $newfile"
+        else
+            git mv "$file" "$newfile"
+            ok "$file -> $newfile"
+        fi
     fi
 done
 
@@ -354,7 +436,9 @@ ok "Documentation"
 # ── 9. Regenerate uv.lock ────────────────────────────────────────
 
 step "9/9" "Regenerating uv.lock..."
-if command -v uv &>/dev/null; then
+if [ "$DRY_RUN" = true ]; then
+    dry "would regenerate uv.lock"
+elif command -v uv &>/dev/null; then
     uv lock
     ok "uv.lock regenerated"
 else
@@ -362,6 +446,10 @@ else
 fi
 
 echo -e "\n${GREEN}${BOLD}Code migration complete.${NC}"
-echo -e "Next steps:"
-echo -e "  1. Review changes: git diff --stat"
-echo -e "  2. Commit: git add -A && git commit -m 'Rename mng -> mngr'"
+if [ "$DRY_RUN" = true ]; then
+    echo -e "${YELLOW}This was a dry run. No changes were made.${NC}"
+else
+    echo -e "Next steps:"
+    echo -e "  1. Review changes: git diff --stat"
+    echo -e "  2. Commit: git add -A && git commit -m 'Rename mng -> mngr'"
+fi
