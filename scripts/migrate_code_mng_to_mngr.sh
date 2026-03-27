@@ -84,6 +84,31 @@ else
     ok "Cleaned build artifacts"
 fi
 
+# ── Helper: clean and remove old libs/mng* directories ────────────
+cleanup_old_mng_dirs() {
+    for d in libs/mng libs/mng_*; do
+        [ -d "$d" ] || continue
+        find "$d" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+        find "$d" -type d -name htmlcov -exec rm -rf {} + 2>/dev/null || true
+        find "$d" -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
+        find "$d" -type d -name .test_output -exec rm -rf {} + 2>/dev/null || true
+        find "$d" -name coverage.xml -delete 2>/dev/null || true
+        find "$d" -name '.coverage' -delete 2>/dev/null || true
+        find "$d" -path '*/.reviewer/outputs' -exec rm -rf {} + 2>/dev/null || true
+        find "$d" -name '.stop_hook_consecutive_blocks' -delete 2>/dev/null || true
+        find "$d" -depth -type d -empty -delete 2>/dev/null || true
+        if [ -d "$d" ]; then
+            if find "$d" -type f | read -r; then
+                echo -e "  ${YELLOW}WARNING: $d still has non-artifact files -- keeping it${NC}"
+            else
+                rm -rf "$d"
+                ok "Removed $d"
+            fi
+        else
+            ok "Removed $d"
+        fi
+    done
+}
 
 # ── Helper: perl script for content replacement ───────────────────
 # Written to a temp file to avoid shell escaping issues with negative
@@ -344,34 +369,8 @@ elif [ "$moved" -eq 0 ]; then
     ok "No orphaned files"
 fi
 
-# Clean up leftover libs/mng* directories.
-# After artifact cleanup and git mv, these should only contain build artifacts.
-# Re-run artifact cleanup specifically in these dirs, then remove if empty.
-for d in libs/mng libs/mng_*; do
-    [ -d "$d" ] || continue
-    # Clean known artifacts inside this specific directory
-    find "$d" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-    find "$d" -type d -name htmlcov -exec rm -rf {} + 2>/dev/null || true
-    find "$d" -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
-    find "$d" -type d -name .test_output -exec rm -rf {} + 2>/dev/null || true
-    find "$d" -name coverage.xml -delete 2>/dev/null || true
-    find "$d" -name '.coverage' -delete 2>/dev/null || true
-    find "$d" -path '*/.reviewer/outputs' -exec rm -rf {} + 2>/dev/null || true
-    find "$d" -name '.stop_hook_consecutive_blocks' -delete 2>/dev/null || true
-    # Remove empty directories left behind
-    find "$d" -depth -type d -empty -delete 2>/dev/null || true
-    # Now check if anything remains
-    if [ -d "$d" ]; then
-        if find "$d" -type f | read -r; then
-            echo -e "  ${YELLOW}WARNING: $d still has non-artifact files -- keeping it${NC}"
-        else
-            rm -rf "$d"
-            ok "Removed $d"
-        fi
-    else
-        ok "Removed $d"
-    fi
-done
+# Clean up old dirs (first pass -- second pass runs after uv lock)
+cleanup_old_mng_dirs
 
 # ── 5. Fix symlinks with stale targets ───────────────────────────
 
@@ -632,6 +631,9 @@ elif command -v uv &>/dev/null; then
 else
     skip "uv not found, skipping lock regeneration"
 fi
+
+# Final cleanup: re-run after uv lock which can recreate __pycache__
+cleanup_old_mng_dirs
 
 echo -e "\n${GREEN}${BOLD}Code migration complete.${NC}"
 if [ "$DRY_RUN" = true ]; then
