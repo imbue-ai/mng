@@ -50,6 +50,7 @@ from imbue.mngr.config.data_types import WorkDirExtraPathMode
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import BaseMngrError
+from imbue.mngr.errors import DuplicateAgentNameError
 from imbue.mngr.errors import HostAuthenticationError
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import HostDataSchemaError
@@ -2196,6 +2197,12 @@ class Host(BaseHost, OnlineHostInterface):
         are safe to repeat.
         """
         with log_span("Renaming agent", agent_id=str(agent.id), old_name=str(agent.name), new_name=str(new_name)):
+            # Prevent same-host name collisions (the tmux session name is derived
+            # from the agent name, so duplicates would share a session).
+            for existing_agent in self.get_agents():
+                if existing_agent.name == new_name and existing_agent.id != agent.id:
+                    raise DuplicateAgentNameError(new_name, existing_agent.id)
+
             old_name = agent.name
             data_path = self._get_agent_state_dir(agent) / "data.json"
 
