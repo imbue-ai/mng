@@ -8,12 +8,12 @@ This is a one-shot script. Run it once after the first imbue-mngr-* release
 to claim the old names and redirect users.
 
 Usage:
-    uv run scripts/release_tombstones.py              # build and publish
-    uv run scripts/release_tombstones.py --dry-run     # build only, don't publish
+    uv run scripts/release_tombstones.py                # trigger the publish workflow
+    uv run scripts/release_tombstones.py --dry-run      # build locally, don't publish
+    uv run scripts/release_tombstones.py --build-to DIR # build into DIR (used by CI)
 """
 
 import argparse
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,15 +39,15 @@ TOMBSTONES: Final[dict[str, str]] = {
 }
 
 # ---------------------------------------------------------------------------
-# TODO: Fill in the correct versions before running this script.
+# Fill in the correct versions before running this script.
 #
 # Each tombstone version must be higher than the last published version of
 # that old package on PyPI (so that `pip install --upgrade` picks it up).
 # The dependency version should be the first imbue-mngr-* release version.
 #
-# Set each value to "<tombstone_version>,<new_package_version>".
-# Example: "0.1.9,0.2.0" means publish the tombstone at 0.1.9, depending
-# on imbue-mngr==0.2.0.
+# Format: (tombstone_version, new_package_version).
+# Example: ("0.1.9", "0.2.0") means publish the tombstone at 0.1.9,
+# depending on imbue-mngr==0.2.0.
 # ---------------------------------------------------------------------------
 VERSIONS: Final[dict[str, tuple[str, str]]] = {
     "mng": ("TODO", "TODO"),
@@ -58,6 +58,8 @@ VERSIONS: Final[dict[str, tuple[str, str]]] = {
     "mng-pair": ("TODO", "TODO"),
     "mng-tutor": ("TODO", "TODO"),
 }
+
+PUBLISH_WORKFLOW: Final[str] = "publish-tombstones.yml"
 
 
 def _check_versions() -> None:
@@ -104,46 +106,53 @@ def _make_pyproject(old_name: str, new_name: str, tombstone_version: str, new_ve
     """)
 
 
-def _build_tombstone(old_name: str, new_name: str, dist_dir: Path) -> None:
-    """Create a temporary package tree and build it into dist_dir."""
-    tombstone_version, new_version = VERSIONS[old_name]
-    with tempfile.TemporaryDirectory() as tmp:
-        pkg_dir = Path(tmp)
-        (pkg_dir / "README.md").write_text(_make_readme(old_name, new_name))
-        (pkg_dir / "pyproject.toml").write_text(_make_pyproject(old_name, new_name, tombstone_version, new_version))
-        subprocess.run(
-            ["pyproject-build", str(pkg_dir), "-o", str(dist_dir)],
-            check=True,
-        )
+def build_tombstones(dist_dir: Path) -> None:
+    """Build all tombstone packages into dist_dir."""
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    for old_name, new_name in sorted(TOMBSTONES.items()):
+        print(f"  Building {old_name} -> {new_name}")
+        tombstone_version, new_version = VERSIONS[old_name]
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg_dir = Path(tmp)
+            (pkg_dir / "README.md").write_text(_make_readme(old_name, new_name))
+            (pkg_dir / "pyproject.toml").write_text(
+                _make_pyproject(old_name, new_name, tombstone_version, new_version)
+            )
+            subprocess.run(
+                ["pyproject-build", str(pkg_dir), "-o", str(dist_dir)],
+                check=True,
+            )
+    print(f"\nBuilt {len(TOMBSTONES)} tombstone packages.")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build and publish tombstone packages for old mng-* PyPI names.")
-    parser.add_argument("--dry-run", action="store_true", help="Build only, don't publish to PyPI")
+    parser.add_argument("--dry-run", action="store_true", help="Build locally to verify, don't publish")
+    parser.add_argument("--build-to", metavar="DIR", help="Build packages into DIR (used by CI workflow)")
     args = parser.parse_args()
 
     _check_versions()
 
-    dist_dir = Path(tempfile.mkdtemp(prefix="tombstones-dist-"))
-    print(f"Building tombstone packages into {dist_dir}\n")
-
-    for old_name, new_name in sorted(TOMBSTONES.items()):
-        print(f"  Building {old_name} -> {new_name}")
-        _build_tombstone(old_name, new_name, dist_dir)
-
-    print(f"\nBuilt {len(TOMBSTONES)} tombstone packages.")
-
-    if args.dry_run:
-        print(f"\n(dry run -- packages are in {dist_dir})")
+    # --build-to: just build into the given directory (used by the CI workflow)
+    if args.build_to is not None:
+        build_tombstones(Path(args.build_to))
         return
 
-    print("\nPublishing to PyPI...")
+    # --dry-run: build into a temp directory for local verification
+    if args.dry_run:
+        with tempfile.TemporaryDirectory(prefix="tombstones-dist-") as tmp:
+            build_tombstones(Path(tmp))
+            print(f"\n(dry run -- packages were in {tmp})")
+        return
+
+    # Default: trigger the GitHub Actions workflow for trusted publishing
+    print("Triggering publish-tombstones workflow...")
     subprocess.run(
-        ["twine", "upload", str(dist_dir / "*")],
+        ["gh", "workflow", "run", PUBLISH_WORKFLOW],
         check=True,
     )
-    print("Done. Tombstone packages published.")
-    shutil.rmtree(dist_dir)
+    print("Workflow triggered. Watch it at:")
+    print("  https://github.com/imbue-ai/mngr/actions/workflows/publish-tombstones.yml")
 
 
 if __name__ == "__main__":
