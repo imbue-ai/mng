@@ -516,6 +516,7 @@ for f in \
     libs/mngr_recursive/imbue/mngr_recursive/provisioning_test.py \
     libs/mngr/imbue/mngr/uv_tool.py \
     libs/mngr/imbue/mngr/uv_tool_test.py \
+    libs/mngr_schedule/imbue/mngr_schedule/implementations/modal/deploy.py \
     scripts/utils.py \
     scripts/release.py \
     scripts/verify_publish.py; do
