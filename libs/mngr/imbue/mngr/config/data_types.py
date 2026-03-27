@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shlex
+from enum import auto
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -17,6 +18,7 @@ from pydantic_core import CoreSchema
 from pydantic_core import core_schema
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import ConfigParseError
@@ -89,6 +91,16 @@ def merge_dict_fields(base: dict[K, V], override: dict[K, V] | None) -> dict[K, 
     if override is not None:
         return {**base, **override}
     return base
+
+
+# === Enums ===
+
+
+class WorkDirExtraPathMode(UpperCaseStrEnum):
+    """Transfer mode for extra paths in new work directories."""
+
+    SHARE = auto()
+    COPY = auto()
 
 
 # === Value Types ===
@@ -166,31 +178,37 @@ class AgentTypeConfig(FrozenModel):
 
         Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
-        Scalar fields: override wins if not None
-        Lists: concatenate both lists
+        Uses model_fields_set to determine which fields were explicitly set in
+        the override config, so that subclass-specific fields (e.g., ClaudeAgentConfig's
+        trust_working_directory) are correctly preserved during merges.
+
+        Scalar fields: override wins if explicitly set
+        Tuples (cli_args): concatenate
+        Lists (permissions): concatenate if explicitly set
         """
-        # Ensure override is same type or subclass of self's type
-        if not isinstance(override, self.__class__):
-            raise ConfigParseError(f"Cannot merge {self.__class__.__name__} with different agent config type")
+        # Allow override to be the same class or a base class of self (e.g., when
+        # a secondary config file defines the same custom type without repeating
+        # parent_type, it gets parsed as the base AgentTypeConfig). Reject
+        # sibling subclasses (e.g., ClaudeAgentConfig vs CodexAgentConfig).
+        if not isinstance(self, type(override)):
+            raise ConfigParseError(f"Cannot merge {self.__class__.__name__} with {type(override).__name__}")
 
-        # Merge parent_type (scalar - override wins if not None)
-        merged_parent_type = override.parent_type if override.parent_type is not None else self.parent_type
+        explicitly_set = override.model_fields_set
+        if not explicitly_set:
+            return self
 
-        # Merge command (scalar - override wins if not None)
-        merged_command = override.command if override.command is not None else self.command
+        override_values = override.model_dump()
+        updates: list[tuple[str, Any]] = []
 
-        # Merge cli_args (concatenate both tuples)
-        merged_cli_args = merge_cli_args(self.cli_args, override.cli_args)
+        for field_name in explicitly_set:
+            if field_name == "cli_args":
+                updates.append((field_name, merge_cli_args(self.cli_args, override.cli_args)))
+            elif field_name == "permissions":
+                updates.append((field_name, merge_list_fields(self.permissions, override_values[field_name])))
+            else:
+                updates.append((field_name, override_values[field_name]))
 
-        # Merge permissions (list - concatenate if override is not None)
-        merged_permissions = merge_list_fields(self.permissions, override.permissions)
-
-        return self.__class__(
-            parent_type=merged_parent_type,
-            command=merged_command,
-            cli_args=merged_cli_args,
-            permissions=merged_permissions,
-        )
+        return self.model_copy_update(*updates)
 
 
 class ProviderInstanceConfig(FrozenModel):
@@ -368,6 +386,12 @@ class MngrConfig(FrozenModel):
         default_factory=lambda: list(("HISTFILE", "PROFILE", "VIRTUAL_ENV")),
         description="Environment variables to unset when creating agent tmux sessions",
     )
+    work_dir_extra_paths: dict[str, WorkDirExtraPathMode] = Field(
+        default_factory=dict,
+        description="Paths to transfer into new work directories, mapped to transfer mode. "
+        "'SHARE': symlink on same host, copy on different host. "
+        "'COPY': always copy via rsync.",
+    )
     pager: str | None = Field(
         default=None,
         description="Pager command for help output (e.g., 'less'). If None, uses PAGER env var or 'less' as fallback.",
@@ -466,6 +490,9 @@ class MngrConfig(FrozenModel):
 
         # Merge unset_vars (list - concatenate if override is not None)
         merged_unset_vars = merge_list_fields(self.unset_vars, override.unset_vars)
+
+        # Merge work_dir_extra_paths (dict - override keys take precedence)
+        merged_work_dir_extra_paths = merge_dict_fields(self.work_dir_extra_paths, override.work_dir_extra_paths)
 
         # Merge enabled_backends (list - override wins if not None/empty, otherwise keep base)
         merged_enabled_backends = override.enabled_backends if override.enabled_backends else self.enabled_backends
@@ -589,6 +616,7 @@ class MngrConfig(FrozenModel):
             default_host_dir=merged_default_host_dir,
             pager=merged_pager,
             unset_vars=merged_unset_vars,
+            work_dir_extra_paths=merged_work_dir_extra_paths,
             enabled_backends=merged_enabled_backends,
             agent_types=merged_agent_types,
             providers=merged_providers,
@@ -638,6 +666,14 @@ class MngrContext(FrozenModel):
     concurrency_group: ConcurrencyGroup = Field(
         default_factory=lambda: ConcurrencyGroup(name="default"),
         description="Top-level concurrency group for managing spawned processes",
+    )
+    is_full_discovery: bool = Field(
+        default=False,
+        description="When True, always query all providers during discovery (skip event-stream optimization)",
+    )
+    project_root: Path | None = Field(
+        default=None,
+        description="Project root directory (--context or git worktree root)",
     )
 
     def get_plugin_config(self, name: str, config_type: type[PluginConfigT]) -> PluginConfigT:
@@ -708,6 +744,7 @@ class CommonCliOptions(FrozenModel):
     """
 
     headless: bool = False
+    safe: bool = False
     output_format: str
     quiet: bool
     verbose: int

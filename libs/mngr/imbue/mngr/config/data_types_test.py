@@ -169,6 +169,43 @@ def test_agent_type_config_merge_with_concatenates_permissions() -> None:
     assert merged.permissions == [Permission("read"), Permission("write")]
 
 
+def test_agent_type_config_merge_with_preserves_subclass_fields() -> None:
+    """AgentTypeConfig.merge_with on a subclass should preserve subclass-specific fields."""
+    base = _TestAgentTypeConfig.model_construct(
+        custom_flag=True,
+        cli_args=("--base",),
+    )
+    # Override only has cli_args set (simulates a secondary config file)
+    override = _TestAgentTypeConfig.model_construct(
+        cli_args=("--override",),
+    )
+    merged = base.merge_with(override)
+    assert isinstance(merged, _TestAgentTypeConfig)
+    assert merged.cli_args == ("--base", "--override")
+    # custom_flag from base should be preserved since override didn't set it
+    assert merged.custom_flag is True
+
+
+def test_agent_type_config_merge_with_overrides_subclass_fields_when_set() -> None:
+    """AgentTypeConfig.merge_with should override subclass fields that were explicitly set."""
+    base = _TestAgentTypeConfig(custom_flag=True)
+    override = _TestAgentTypeConfig.model_construct(custom_flag=False)
+    merged = base.merge_with(override)
+    assert isinstance(merged, _TestAgentTypeConfig)
+    assert merged.custom_flag is False
+
+
+def test_agent_type_config_merge_with_accepts_base_class_override() -> None:
+    """AgentTypeConfig.merge_with on a subclass should accept a base-class override."""
+    base = _TestAgentTypeConfig(custom_flag=True, cli_args=("--base",))
+    # Override is a base AgentTypeConfig (e.g., from a secondary config without parent_type)
+    override = AgentTypeConfig.model_construct(cli_args=("--override",))
+    merged = base.merge_with(override)
+    assert isinstance(merged, _TestAgentTypeConfig)
+    assert merged.cli_args == ("--base", "--override")
+    assert merged.custom_flag is True
+
+
 def test_merge_cli_args_concatenates_both_when_present() -> None:
     """merge_cli_args should concatenate when both present."""
     result = merge_cli_args(("--arg1",), ("--arg2",))
@@ -664,6 +701,47 @@ def test_mngr_config_pre_command_scripts_default_is_empty_dict(mngr_test_prefix:
     """MngrConfig should have empty pre_command_scripts by default."""
     config = MngrConfig(prefix=mngr_test_prefix)
     assert config.pre_command_scripts == {}
+
+
+# =============================================================================
+# Tests for MngrConfig.work_dir_extra_paths
+# =============================================================================
+
+
+def test_mngr_config_work_dir_extra_paths_default_is_empty_dict(mngr_test_prefix: str) -> None:
+    """MngrConfig should have empty work_dir_extra_paths by default."""
+    config = MngrConfig(prefix=mngr_test_prefix)
+    assert config.work_dir_extra_paths == {}
+
+
+def test_mngr_config_merge_with_merges_work_dir_extra_paths(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should merge work_dir_extra_paths dicts with override winning per key."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix,
+        work_dir_extra_paths={".venv": WorkDirExtraPathMode.SHARE, ".test_output": WorkDirExtraPathMode.COPY},
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix,
+        work_dir_extra_paths={".venv": WorkDirExtraPathMode.COPY},
+    )
+    merged = base.merge_with(override)
+    assert merged.work_dir_extra_paths[".venv"] == WorkDirExtraPathMode.COPY
+    assert merged.work_dir_extra_paths[".test_output"] == WorkDirExtraPathMode.COPY
+
+
+def test_mngr_config_merge_with_adds_new_work_dir_extra_paths(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should add new work_dir_extra_paths from override."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix,
+        work_dir_extra_paths={".venv": WorkDirExtraPathMode.SHARE},
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix,
+        work_dir_extra_paths={"node_modules": WorkDirExtraPathMode.SHARE},
+    )
+    merged = base.merge_with(override)
+    assert ".venv" in merged.work_dir_extra_paths
+    assert "node_modules" in merged.work_dir_extra_paths
 
 
 # =============================================================================

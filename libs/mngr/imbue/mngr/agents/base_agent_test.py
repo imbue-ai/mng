@@ -1010,6 +1010,7 @@ class _StubHost:
 def _create_agent_with_stub_host(
     temp_mngr_ctx: MngrContext,
     stub: _StubHost,
+    name: AgentName,
     cls: type[BaseAgent] = BaseAgent,
     **kwargs: Any,
 ) -> BaseAgent:
@@ -1022,7 +1023,7 @@ def _create_agent_with_stub_host(
     """
     return cls.model_construct(
         id=AgentId.generate(),
-        name=AgentName("stub-agent"),
+        name=name,
         agent_type=AgentTypeName("test"),
         work_dir=Path("/tmp/stub-work"),
         create_time=datetime.now(timezone.utc),
@@ -1032,6 +1033,15 @@ def _create_agent_with_stub_host(
         agent_config=AgentTypeConfig(command=CommandString("sleep 1000")),
         **kwargs,
     )
+
+
+def _create_agent_with_stub_host(
+    temp_mngr_ctx: MngrContext,
+    stub: _StubHost,
+    cls: type[BaseAgent] = BaseAgent,
+    **kwargs: Any,
+) -> BaseAgent:
+    return _create_named_agent_with_stub_host(temp_mngr_ctx, stub, AgentName("stub-agent"), cls, **kwargs)
 
 
 def test_send_tmux_literal_keys_short_message_uses_send_keys(

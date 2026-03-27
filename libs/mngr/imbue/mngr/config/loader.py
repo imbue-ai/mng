@@ -201,6 +201,7 @@ def load_config(
     config_dict["is_error_reporting_enabled"] = config.is_error_reporting_enabled
     config_dict["is_allowed_in_pytest"] = config.is_allowed_in_pytest
     config_dict["pre_command_scripts"] = config.pre_command_scripts
+    config_dict["work_dir_extra_paths"] = config.work_dir_extra_paths
     config_dict["default_destroyed_host_persisted_seconds"] = config.default_destroyed_host_persisted_seconds
 
     # Allow plugins to modify config_dict before validation
@@ -223,6 +224,7 @@ def load_config(
         is_interactive=is_interactive,
         profile_dir=profile_dir,
         concurrency_group=concurrency_group,
+        project_root=project_root,
     )
 
 
@@ -374,7 +376,12 @@ def _parse_agent_types(
     agent_types: dict[AgentTypeName, AgentTypeConfig] = {}
 
     for name, raw_config in raw_types.items():
-        config_class = get_agent_config_class(name)
+        # Custom types with a parent_type should use the parent's config class,
+        # since the parent type defines the valid fields (e.g., ClaudeAgentConfig
+        # has trust_working_directory). Without this, unregistered custom type names
+        # fall back to the base AgentTypeConfig which rejects parent-specific fields.
+        parent_type = raw_config.get("parent_type")
+        config_class = get_agent_config_class(parent_type if parent_type is not None else name)
         _check_unknown_fields(raw_config, config_class, f"agent_types.{name}", strict=strict)
         normalized_config = _normalize_cli_args_for_construct(raw_config)
         agent_types[AgentTypeName(name)] = config_class.model_construct(**normalized_config)
@@ -570,6 +577,7 @@ def parse_config(
     kwargs["is_error_reporting_enabled"] = raw.pop("is_error_reporting_enabled", None)
     kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", None)
     kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", None)
+    kwargs["work_dir_extra_paths"] = raw.pop("work_dir_extra_paths", None)
     kwargs["default_destroyed_host_persisted_seconds"] = raw.pop("default_destroyed_host_persisted_seconds", None)
 
     if len(raw) > 0:

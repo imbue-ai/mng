@@ -2357,9 +2357,8 @@ def test_on_after_provisioning_adopts_session_by_id(
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx, agent_config=config)
     _init_git_with_gitignore(agent.work_dir)
 
-    # Set up a fake Claude config dir with a session
-    fake_claude_dir = tmp_path / "fake_claude"
-    project_dir = fake_claude_dir / "projects" / "test-project"
+    # Set up a session under ~/.claude/ (HOME is already a temp dir via autouse fixture)
+    project_dir = Path.home() / ".claude" / "projects" / "test-project"
     project_dir.mkdir(parents=True)
     target_session_id = "adopt-test-session-id"
     (project_dir / f"{target_session_id}.jsonl").write_text('{"type":"message"}\n')
@@ -2380,8 +2379,10 @@ def test_on_after_provisioning_adopts_session_by_id(
     # Session ID should be written
     assert (agent_state_dir / "claude_session_id").read_text() == target_session_id
 
-    # Project dir should be copied into per-agent config dir with correct content
-    dest_project_dir = agent.get_claude_config_dir() / "projects" / "test-project"
+    # Session should be placed in the project dir matching the agent's work_dir,
+    # not the source project dir name. This is how Claude Code finds sessions.
+    expected_project_name = encode_claude_project_dir_name(agent.work_dir)
+    dest_project_dir = agent.get_claude_config_dir() / "projects" / expected_project_name
     dest_session_file = dest_project_dir / f"{target_session_id}.jsonl"
     assert dest_session_file.exists(), f"Session file not found at {dest_session_file}"
     assert dest_session_file.read_text() == '{"type":"message"}\n'
@@ -2390,8 +2391,7 @@ def test_on_after_provisioning_adopts_session_by_id(
     assert dest_memory_file.read_text() == "# Memory\n"
 
     # Regression: verify the session file is discoverable the same way Claude Code
-    # finds it at runtime: `find "$CLAUDE_CONFIG_DIR" -name "$SESSION_ID"`.
-    # This was broken when rsync silently failed to copy the project directory.
+    # finds it at runtime: `find "$CLAUDE_CONFIG_DIR" -name "$SESSION_ID.jsonl"`.
     claude_config_dir = agent.get_claude_config_dir()
     matches = list(claude_config_dir.rglob(target_session_id + ".jsonl"))
     assert len(matches) == 1, (
@@ -2405,8 +2405,7 @@ def test_on_after_provisioning_raises_when_session_not_found(
     """on_after_provisioning should raise UserInputError when session ID is not found."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
-    fake_claude_dir = tmp_path / "fake_claude"
-    (fake_claude_dir / "projects" / "some-project").mkdir(parents=True)
+    (Path.home() / ".claude" / "projects" / "some-project").mkdir(parents=True)
 
     agent_state_dir = agent._get_agent_dir()
     agent_state_dir.mkdir(parents=True, exist_ok=True)
@@ -2416,7 +2415,7 @@ def test_on_after_provisioning_raises_when_session_not_found(
         plugin_data={"adopt_session": ("nonexistent-session",)},
     )
 
-    with patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": str(fake_claude_dir)}):
+    with patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": ""}):
         with pytest.raises(UserInputError, match="Session nonexistent-session not found"):
             agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
@@ -2450,8 +2449,9 @@ def test_on_after_provisioning_adopts_session_from_jsonl_path(
     # Session ID should be the stem of the file
     assert (agent_state_dir / "claude_session_id").read_text() == "abc123-def456"
 
-    # Project dir should be copied
-    dest_project_dir = agent.get_claude_config_dir() / "projects" / "some-project"
+    # Project dir should be copied into the agent's work_dir-based project dir
+    expected_project_name = encode_claude_project_dir_name(agent.work_dir)
+    dest_project_dir = agent.get_claude_config_dir() / "projects" / expected_project_name
     assert (dest_project_dir / "abc123-def456.jsonl").exists()
 
 

@@ -7,6 +7,7 @@ from typing import Any
 import pluggy
 import pytest
 from loguru import logger
+from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.config.data_types import CommandDefaults
@@ -303,6 +304,44 @@ def test_parse_agent_types_warns_on_unknown_fields_when_not_strict(log_warnings:
     assert result[AgentTypeName("claude")].cli_args == ("--verbose",)
     assert "bogus_option" not in raw["claude"]
     assert any("bogus_option" in msg and "agent_types.claude" in msg for msg in log_warnings)
+
+
+class _TestParentConfig(AgentTypeConfig):
+    """Test config subclass with an extra field for loader tests."""
+
+    extra_field: bool = Field(default=False)
+
+
+def test_parse_agent_types_uses_parent_type_config_class() -> None:
+    """Custom types with parent_type should use the parent's config class for field validation."""
+    reset_agent_config_registry()
+    try:
+        register_agent_config("test-parent", _TestParentConfig)
+
+        # A custom type referencing parent_type should accept the parent's fields
+        raw = {"worker": {"parent_type": "test-parent", "extra_field": True, "cli_args": "--verbose"}}
+        result = _parse_agent_types(raw)
+
+        worker_config = result[AgentTypeName("worker")]
+        assert isinstance(worker_config, _TestParentConfig)
+        assert worker_config.extra_field is True
+        assert worker_config.cli_args == ("--verbose",)
+        assert worker_config.parent_type == AgentTypeName("test-parent")
+    finally:
+        reset_agent_config_registry()
+
+
+def test_parse_agent_types_rejects_unknown_fields_even_with_parent_type() -> None:
+    """Custom types with parent_type should still reject truly unknown fields."""
+    reset_agent_config_registry()
+    try:
+        register_agent_config("test-parent", AgentTypeConfig)
+
+        raw = {"worker": {"parent_type": "test-parent", "totally_bogus": True}}
+        with pytest.raises(ConfigParseError, match="Unknown fields in agent_types.worker.*totally_bogus"):
+            _parse_agent_types(raw)
+    finally:
+        reset_agent_config_registry()
 
 
 # =============================================================================
@@ -614,6 +653,8 @@ def test_parse_config_accepts_every_mngr_config_field() -> None:
     assert result.headless is True
     assert result.unset_vars == ["TEST_VAR"]
     assert result.enabled_backends == [ProviderBackendName("local")]
+    assert ".venv" in result.work_dir_extra_paths
+    assert ".test_output" in result.work_dir_extra_paths
 
 
 def test_load_config_threads_every_field_from_toml(
@@ -654,6 +695,8 @@ def test_load_config_threads_every_field_from_toml(
     assert config.default_destroyed_host_persisted_seconds == 12345.0
     assert "TEST_VAR" in config.unset_vars
     assert ProviderBackendName("local") in config.enabled_backends
+    assert ".venv" in config.work_dir_extra_paths
+    assert ".test_output" in config.work_dir_extra_paths
 
 
 # Sample values used by the regression tests above. When adding a new field to
@@ -670,6 +713,7 @@ _SAMPLE_CONFIG_VALUES: dict[str, Any] = {
     "commands": {"create": {"name": "test"}},
     "create_templates": {"modal": {"new_host": "modal"}},
     "pre_command_scripts": {"create": ["echo hello"]},
+    "work_dir_extra_paths": {".venv": "SHARE", ".test_output": "COPY"},
     "logging": {"file_level": "DEBUG"},
     "is_remote_agent_installation_allowed": False,
     "connect_command": "my-connect",
@@ -699,6 +743,10 @@ name = "test"
 
 [pre_command_scripts]
 create = ["echo hello"]
+
+[work_dir_extra_paths]
+".venv" = "SHARE"
+".test_output" = "COPY"
 
 [logging]
 file_level = "DEBUG"

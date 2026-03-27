@@ -31,7 +31,7 @@ mngr c my-task
 
 # for the rest of this doc, we'll use the explicit form (specifying "create") just to be extra clear,
 # but you might want to use the short form in your day-to-day work for speed and convenience.
-# you can (and should) create aliases and templated as well (see TEMPLATES, ALIASES, AND SHORTCUTS below)
+# you can (and should) create aliases and templates as well (see TEMPLATES, ALIASES, AND SHORTCUTS below)
 
 # you can also specify a different agent (ex: codex)
 mngr create my-task codex
@@ -187,7 +187,7 @@ mngr create my-task --provider modal --no-start-on-boot
 mngr create my-task --env DEBUG=true
 # (--env-file loads from a file, --pass-env forwards a variable from your current shell)
 
-# it is *strongly encouraged* to use either use --env-file or --pass-env, especially for any sensitive environment variables (like API keys) rather than --env, because that way they won't end up in your shell history or in your config files by accident. For example:
+# it is *strongly encouraged* to either use --env-file or --pass-env, especially for any sensitive environment variables (like API keys) rather than --env, because that way they won't end up in your shell history or in your config files by accident. For example:
 export API_KEY=abc123
 mngr create my-task --pass-env API_KEY
 # that command passes the API_KEY environment variable from your current shell into the agent's environment, without you having to specify the value on the command line.
@@ -1102,7 +1102,7 @@ mngr list --fields "name,state,host.name"
 mngr stop agent-1
 # the host stays running as long as at least one agent is active.
 
-# TODO: many more examples of to add here of why this is useful!
+# TODO: many more examples to add here of why this is useful!
 
 ##############################################################################
 # RUNNING NON-AGENT PROCESSES
@@ -1156,7 +1156,7 @@ done
 
 ##############################################################################
 # SETTING-ONLY OPTIONS
-#   Some behavior can only be chnaged from the settings (not from the CLI)
+#   Some behavior can only be changed from the settings (not from the CLI)
 #   These options are typically less commonly used or more advanced
 ##############################################################################
 
