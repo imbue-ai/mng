@@ -14,8 +14,8 @@ import uvicorn
 from loguru import logger
 
 from imbue.imbue_common.logging import log_span
-from imbue.mng_llm import resources as llm_resources
-from imbue.mng_llm.resources.webchat_agents import AgentsPlugin
+from imbue.mngr_llm import resources as llm_resources
+from imbue.mngr_llm.resources.webchat_agents import AgentsPlugin
 from llm_webchat.config import Config
 from llm_webchat.config import load_config
 from llm_webchat.plugins import get_plugin_manager
