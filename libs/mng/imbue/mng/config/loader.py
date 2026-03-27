@@ -42,6 +42,7 @@ from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.utils.env_utils import parse_bool_env
 from imbue.mng.utils.file_utils import atomic_write
+from imbue.mng.utils.git_utils import find_git_worktree_root
 from imbue.mng.utils.logging import LoggingConfig
 
 # Environment variable prefix for command config overrides.
@@ -217,6 +218,11 @@ def load_config(
                 "Running mng within pytest is not allowed by the current configuration. This can happen when tests are poorly written, and load the .mng/settings.toml file from the root of the mng project"
             )
 
+    # Resolve project root for use as cwd in pre-command scripts.
+    # Note: MNG_PROJECT_DIR is NOT used here because it points to the config
+    # directory (containing settings.toml), not the project root.
+    project_root = context_dir or find_git_worktree_root(start=None, cg=concurrency_group)
+
     # Return MngContext containing both config and plugin manager
     return MngContext(
         config=final_config,
@@ -224,6 +230,7 @@ def load_config(
         is_interactive=is_interactive,
         profile_dir=profile_dir,
         concurrency_group=concurrency_group,
+        project_root=project_root,
     )
 
 
