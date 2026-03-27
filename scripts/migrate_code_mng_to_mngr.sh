@@ -14,10 +14,10 @@
 #
 # What this does:
 #   0. Cleans build artifacts (__pycache__, htmlcov, etc.)
-#   1. Moves orphaned files from old paths (libs/mng/*) to new paths (libs/mngr/*)
-#   2. Renames .mng/ -> .mngr/ in the repo root
-#   3. Renames lib directories (libs/mng -> libs/mngr, libs/mng_* -> libs/mngr_*)
-#   4. Renames Python package directories within libs
+#   1. Renames .mng/ -> .mngr/ in the repo root
+#   2. Renames lib directories (libs/mng -> libs/mngr, libs/mng_* -> libs/mngr_*)
+#   3. Renames Python package directories within libs
+#   4. Moves orphaned files from old paths (post-merge stragglers)
 #   5. Fixes symlinks with stale targets
 #   6. Renames individual files with 'mng' in their basename
 #   7. Replaces mng -> mngr in all tracked file contents
@@ -169,69 +169,9 @@ if [ "$DRY_RUN" = true ]; then
     export MIGRATE_DRY_RUN=1
 fi
 
-# ── 1. Move orphaned files from old paths ─────────────────────────
-# After merging main, git may leave new files at old paths like
-# libs/mng/imbue/mng/... with "file location" conflict suggestions.
+# ── 1. Rename .mng/ directory ─────────────────────────────────────
 
-step "1/9" "Moving orphaned files from old paths..."
-
-moved=0
-for old_root in libs/mng/imbue/mng libs/mng_*/imbue/mng_*; do
-    [ -d "$old_root" ] || continue
-    # Compute the new root by replacing mng with mngr
-    new_root="${old_root//mng_/mngr_}"
-    new_root="${new_root//\/mng\//\/mngr\/}"
-    new_root="${new_root//libs\/mng\//libs\/mngr\/}"
-    # Only move files if the destination already exists (post-merge case).
-    # If it doesn't exist, step 3 will handle the rename via git mv.
-    [ -d "$new_root" ] || continue
-    count=$(find "$old_root" -type f | wc -l | tr -d ' ')
-    if [ "$DRY_RUN" = true ]; then
-        dry "would move $count files from $old_root -> $new_root"
-    else
-        find "$old_root" -type f | while IFS= read -r f; do
-            rel="${f#"$old_root"/}"
-            newf="$new_root/$rel"
-            mkdir -p "$(dirname "$newf")"
-            mv "$f" "$newf"
-            git add "$newf" 2>/dev/null || true
-            git rm --cached --quiet "$f" 2>/dev/null || true
-        done
-    fi
-    moved=$((moved + count))
-done
-# Clean up empty old directories
-if [ "$DRY_RUN" = false ]; then
-    for d in libs/mng libs/mng_*; do
-        [ -d "$d" ] && find "$d" -depth -type d -empty -delete 2>/dev/null
-        [ -d "$d" ] && rmdir "$d" 2>/dev/null || true
-    done
-fi
-if [ "$moved" -gt 0 ] && [ "$DRY_RUN" = false ]; then
-    ok "Moved $moved files from old paths"
-elif [ "$moved" -eq 0 ]; then
-    ok "No orphaned files at old paths"
-fi
-
-# Remove leftover libs/mng* directories.
-# After artifact cleanup, orphaned file moves, and git mv renames,
-# these should be empty (or contain only gitignored artifacts).
-for d in libs/mng libs/mng_*; do
-    [ -d "$d" ] || continue
-    if [ "$DRY_RUN" = true ]; then
-        dry "would remove $d (after previous steps clean it out)"
-    elif find "$d" -type f | read -r; then
-        # In real mode, if still non-empty after all cleanup, warn
-        echo -e "  ${YELLOW}WARNING: $d is not empty after cleanup -- keeping it${NC}"
-    else
-        rm -rf "$d"
-        ok "Removed $d"
-    fi
-done
-
-# ── 2. Rename .mng/ directory ─────────────────────────────────────
-
-step "2/9" "Renaming .mng/ directory..."
+step "1/9" "Renaming .mng/ directory..."
 
 if [ -d ".mng" ] && [ ! -d ".mngr" ]; then
     # Fix symlinks inside .mng/ BEFORE the directory rename
@@ -257,14 +197,12 @@ if [ -d ".mng" ] && [ ! -d ".mngr" ]; then
         ok ".mng -> .mngr"
     fi
 elif [ -d ".mngr" ]; then
-    skip ".mngr already exists"
-else
-    skip "no .mng directory found"
+    ok "Already renamed"
 fi
 
-# ── 3. Rename lib directories (top level) ─────────────────────────
+# ── 2. Rename lib directories (top level) ─────────────────────────
 
-step "3/9" "Renaming lib directories..."
+step "2/9" "Renaming lib directories..."
 
 renamed_libs=0
 for dir in libs/mng libs/mng_*; do
@@ -290,9 +228,9 @@ if [ "$renamed_libs" -eq 0 ]; then
     ok "All lib directories already renamed"
 fi
 
-# ── 4. Rename Python package directories inside libs ──────────────
+# ── 3. Rename Python package directories inside libs ──────────────
 
-step "4/9" "Renaming Python package directories..."
+step "3/9" "Renaming Python package directories..."
 
 renamed_pkgs=0
 if [ -d "libs/mngr/imbue/mng" ] && [ ! -d "libs/mngr/imbue/mngr" ]; then
@@ -324,6 +262,54 @@ done
 if [ "$renamed_pkgs" -eq 0 ]; then
     ok "All package directories already renamed"
 fi
+
+# ── 4. Move orphaned files from old paths ─────────────────────────
+# After merging main, git may leave new files at old paths like
+# libs/mng/imbue/mng/... with "file location" conflict suggestions.
+# This runs AFTER directory renames so git mv handles the bulk.
+
+step "4/9" "Moving orphaned files from old paths..."
+
+moved=0
+for old_root in libs/mng/imbue/mng libs/mng_*/imbue/mng_*; do
+    [ -d "$old_root" ] || continue
+    new_root="${old_root//mng_/mngr_}"
+    new_root="${new_root//\/mng\//\/mngr\/}"
+    new_root="${new_root//libs\/mng\//libs\/mngr\/}"
+    [ -d "$new_root" ] || continue
+    count=$(find "$old_root" -type f | wc -l | tr -d ' ')
+    if [ "$DRY_RUN" = true ]; then
+        dry "would move $count files from $old_root -> $new_root"
+    else
+        find "$old_root" -type f | while IFS= read -r f; do
+            rel="${f#"$old_root"/}"
+            newf="$new_root/$rel"
+            mkdir -p "$(dirname "$newf")"
+            mv "$f" "$newf"
+            git add "$newf" 2>/dev/null || true
+            git rm --cached --quiet "$f" 2>/dev/null || true
+        done
+    fi
+    moved=$((moved + count))
+done
+if [ "$moved" -gt 0 ] && [ "$DRY_RUN" = false ]; then
+    ok "Moved $moved files from old paths"
+elif [ "$moved" -eq 0 ]; then
+    ok "No orphaned files"
+fi
+
+# Clean up empty leftover libs/mng* directories
+for d in libs/mng libs/mng_*; do
+    [ -d "$d" ] || continue
+    if [ "$DRY_RUN" = true ]; then
+        dry "would remove $d"
+    elif find "$d" -type f | read -r; then
+        echo -e "  ${YELLOW}WARNING: $d is not empty after cleanup -- keeping it${NC}"
+    else
+        rm -rf "$d"
+        ok "Removed $d"
+    fi
+done
 
 # ── 5. Fix symlinks with stale targets ───────────────────────────
 
