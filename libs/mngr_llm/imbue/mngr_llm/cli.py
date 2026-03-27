@@ -34,6 +34,14 @@ def llmweb() -> None:
     main()
 
 
+@click.command("llmweb2", hidden=True)
+def llmweb2() -> None:
+    """Run the llm-webchat based web server (internal)."""
+    from imbue.mng_llm.resources.webchat_server import main
+
+    main()
+
+
 # -- llmdb: click Group with subcommands --
 # Subcommand names are allowed to have hyphens since only top-level
 # command names participate in MNGR_COMMANDS_* env var parsing.
@@ -117,5 +125,6 @@ def get_all_commands() -> Sequence[click.Command]:
     return [
         llmconversations,
         llmweb,
+        llmweb2,
         llmdb,
     ]

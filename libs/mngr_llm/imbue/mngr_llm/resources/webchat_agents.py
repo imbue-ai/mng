@@ -1,0 +1,104 @@
+"""Agents endpoint for the webchat server.
+
+Provides a ``/api/agents`` endpoint that runs ``mng list`` on demand and
+returns the current agent list. Designed to be registered on the
+llm-webchat FastAPI application via the pluggy ``endpoint`` hook.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from typing import Any
+from typing import Final
+
+from fastapi import FastAPI
+from fastapi import Request
+from fastapi.responses import JSONResponse
+from loguru import logger
+from pydantic import Field
+
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.frozen_model import FrozenModel
+from llm_webchat.hookspecs import hookimpl
+
+_FETCH_TIMEOUT_SECONDS: Final[float] = 60.0
+_FETCH_WARN_THRESHOLD_SECONDS: Final[float] = 15.0
+
+
+def _get_mng_command() -> list[str]:
+    """Return the mng command parts, respecting MNG_RECURSIVE_COMMAND if set."""
+    recursive_command = os.environ.get("MNG_RECURSIVE_COMMAND", "")
+    if recursive_command:
+        return recursive_command.split()
+    return ["mng"]
+
+
+def _fetch_agent_list(host_name: str) -> list[dict[str, Any]]:
+    """Run ``mng list --format json --quiet`` and return the parsed agent list.
+
+    Filters to the given host if non-empty. Returns an empty list on any error.
+    """
+    start = time.monotonic()
+    try:
+        with ConcurrencyGroup(name="agents-fetch") as cg:
+            result = cg.run_process_to_completion(
+                [*_get_mng_command(), "list", "--format", "json", "--quiet"],
+                timeout=_FETCH_TIMEOUT_SECONDS,
+                is_checked_after=False,
+            )
+    except Exception as e:
+        logger.debug("Failed to run mng list: {}", e)
+        return []
+
+    elapsed = time.monotonic() - start
+    if elapsed > _FETCH_WARN_THRESHOLD_SECONDS:
+        logger.warning("mng list took {:.1f}s (expected <{:.0f}s)", elapsed, _FETCH_WARN_THRESHOLD_SECONDS)
+
+    if result.is_timed_out:
+        logger.warning("mng list timed out after {}s", _FETCH_TIMEOUT_SECONDS)
+        return []
+
+    if result.returncode != 0:
+        logger.debug("mng list failed (exit {}): {}", result.returncode, result.stderr.strip())
+        return []
+
+    stdout = result.stdout.strip()
+    if not stdout:
+        return []
+
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse mng list JSON output: {}", e)
+        return []
+
+    agents_raw: list[dict[str, Any]] = data.get("agents", [])
+
+    if host_name:
+        agents_raw = [a for a in agents_raw if a.get("host", {}).get("name", "") == host_name]
+
+    return agents_raw
+
+
+def _list_agents_endpoint(request: Request) -> JSONResponse:
+    """Handler for GET /api/agents."""
+    host_name: str = request.app.state.agents_host_name
+    agents = _fetch_agent_list(host_name)
+    return JSONResponse(content={"agents": agents})
+
+
+class AgentsPlugin(FrozenModel):
+    """Pluggy plugin that registers the /api/agents endpoint."""
+
+    host_name: str = Field(default="", description="Host name to filter agents by")
+
+    @hookimpl
+    def endpoint(self, app: FastAPI) -> None:
+        app.state.agents_host_name = self.host_name
+        app.add_api_route(
+            "/api/agents",
+            _list_agents_endpoint,
+            methods=["GET"],
+        )
