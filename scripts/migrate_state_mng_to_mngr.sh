@@ -188,21 +188,28 @@ fi
 
 # ── 1. Clean build artifacts ─────────────────────────────────────
 
-step 1 "Cleaning build artifacts..."
+step 1 "Cleaning build artifacts in old mng directories..."
+# Only clean artifacts under dirs with "mng" (not "mngr") in their path,
+# so we don't nuke valid caches in already-renamed directories.
 if [ "$DRY_RUN" = true ]; then
     for pat in __pycache__ htmlcov .pytest_cache .test_output; do
-        count=$(find "$REPO_ROOT" -type d -name "$pat" 2>/dev/null | wc -l | tr -d ' ')
-        [ "$count" -gt 0 ] && dry "would remove $count $pat directories"
+        count=$(find "$REPO_ROOT"/libs/mng "$REPO_ROOT"/libs/mng_* -type d -name "$pat" 2>/dev/null | wc -l | tr -d ' ')
+        [ "$count" -gt 0 ] && dry "would remove $count $pat directories under libs/mng*"
     done
-    count=$(find "$REPO_ROOT" -name coverage.xml 2>/dev/null | wc -l | tr -d ' ')
-    [ "$count" -gt 0 ] && dry "would remove $count coverage.xml files"
+    count=$(find "$REPO_ROOT"/libs/mng "$REPO_ROOT"/libs/mng_* -name coverage.xml 2>/dev/null | wc -l | tr -d ' ')
+    [ "$count" -gt 0 ] && dry "would remove $count coverage.xml files under libs/mng*"
 else
-    find "$REPO_ROOT" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-    find "$REPO_ROOT" -type d -name htmlcov -exec rm -rf {} + 2>/dev/null || true
-    find "$REPO_ROOT" -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
-    find "$REPO_ROOT" -type d -name .test_output -exec rm -rf {} + 2>/dev/null || true
-    find "$REPO_ROOT" -name coverage.xml -delete 2>/dev/null || true
-    ok "Cleaned __pycache__, htmlcov, .pytest_cache, .test_output, coverage.xml"
+    for d in "$REPO_ROOT"/libs/mng "$REPO_ROOT"/libs/mng_*; do
+        [ -d "$d" ] || continue
+        find "$d" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+        find "$d" -type d -name htmlcov -exec rm -rf {} + 2>/dev/null || true
+        find "$d" -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
+        find "$d" -type d -name .test_output -exec rm -rf {} + 2>/dev/null || true
+        find "$d" -name coverage.xml -delete 2>/dev/null || true
+        find "$d" -name '.coverage' -delete 2>/dev/null || true
+        find "$d" -path '*/.reviewer/outputs' -exec rm -rf {} + 2>/dev/null || true
+    done
+    ok "Cleaned build artifacts in old mng directories"
 fi
 
 # Remove empty leftover directories from the old mng names
