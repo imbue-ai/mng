@@ -140,8 +140,8 @@ for my $file (@ARGV) {
     $content =~ s/(?<!imbue-)"mngr(?=[=><~!])/"imbue-mngr/g;
     # Plugin dep names: "mngr-claude==", "mngr-modal", etc
     $content =~ s/(?<!imbue-)"mngr-(?=\w+)/"imbue-mngr-/g;
-    # TOML name field: name = "mngr"
-    $content =~ s/^(name\s*=\s*)"mngr"/$1"imbue-mngr"/mg;
+    # Standalone "mngr" in TOML arrays/values
+    $content =~ s/(?<!imbue-)"mngr"/"imbue-mngr"/g;
     # uv sources keys at start of line
     $content =~ s/^mngr(?=-| = \{)/imbue-mngr/mg;
     # CI step names: Build mngr -> Build imbue-mngr
@@ -194,6 +194,8 @@ for my $file (@ARGV) {
     $content =~ s/uv tool run --from (?<!imbue-)mngr /uv tool run --from imbue-mngr /g;
     # uvx mngr -> uvx --from imbue-mngr mngr
     $content =~ s/uvx (?<!imbue-)mngr\b/uvx --from imbue-mngr mngr/g;
+    # Fix false positives: dir_name must stay "mngr"
+    $content =~ s/dir_name="imbue-mngr"/dir_name="mngr"/g;
     if ($content ne $orig) {
         $count++;
         unless ($dry_run) {
@@ -461,7 +463,7 @@ step "8/9" "Adding imbue- prefix to PyPI package names..."
 # TOML/config patterns (broad "mngr" matching, only safe for config files)
 mapfile -t toml_files < <(
     for f in libs/*/pyproject.toml apps/*/pyproject.toml; do [ -f "$f" ] && echo "$f"; done
-    for f in scripts/utils.py .github/workflows/*.yml; do [ -f "$f" ] && echo "$f"; done
+    for f in .github/workflows/*.yml; do [ -f "$f" ] && echo "$f"; done
 )
 mapfile -t toml_files < <(printf '%s\n' "${toml_files[@]}" | sort -u)
 perl "$PYPI_TOML_PL" "${toml_files[@]+"${toml_files[@]}"}"
