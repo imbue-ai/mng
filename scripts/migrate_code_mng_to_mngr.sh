@@ -149,6 +149,8 @@ for my $file (@ARGV) {
     $content =~ s/name != "mngr"/name != "imbue-mngr"/g;
     $content =~ s/name="mngr"/name="imbue-mngr"/g;
     $content =~ s/startswith\("mngr-"\)/startswith("imbue-mngr-")/g;
+    # CI workflow step names: "Build mngr-X" -> "Build imbue-mngr-X"
+    $content =~ s/Build (?<!imbue-)mngr/Build imbue-mngr/g;
     # PyPI URL slugs
     $content =~ s|pypi/mngr/|pypi/imbue-mngr/|g;
     # uv tool install/run (but not already imbue-mngr)
@@ -427,7 +429,7 @@ mapfile -t pypi_files < <(
     for f in libs/*/pyproject.toml apps/*/pyproject.toml; do [ -f "$f" ] && echo "$f"; done
     for f in scripts/release.py scripts/verify_publish.py scripts/utils.py scripts/install.sh; do [ -f "$f" ] && echo "$f"; done
     grep -rl 'distribution("mngr' libs/ apps/ 2>/dev/null || true
-    for f in libs/mngr_recursive/imbue/mngr_recursive/provisioning.py libs/mngr/imbue/mngr/uv_tool.py README.md libs/mngr/README.md; do [ -f "$f" ] && echo "$f"; done
+    for f in libs/mngr_recursive/imbue/mngr_recursive/provisioning.py libs/mngr/imbue/mngr/uv_tool.py README.md libs/mngr/README.md .github/workflows/publish.yml; do [ -f "$f" ] && echo "$f"; done
 )
 # Deduplicate
 mapfile -t pypi_files < <(printf '%s\n' "${pypi_files[@]}" | sort -u)
