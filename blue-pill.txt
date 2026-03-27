@@ -1,0 +1,5 @@
+You take the blue pill -- the story ends, you wake up in your bed
+and believe whatever you want to believe.
+
+But here you are, reading a text file in a git repo operated by an
+AI agent. The illusion was never that convincing anyway.
