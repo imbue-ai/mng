@@ -25,7 +25,6 @@ from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.cli.stdin_utils import expand_stdin_placeholder
 from imbue.mngr.config.data_types import CommonCliOptions
 from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.host import HostInterface
@@ -41,7 +40,6 @@ class StopCliOptions(CommonCliOptions):
     agents: tuple[str, ...]
     agent_list: tuple[str, ...]
     stop_all: bool
-    force: bool
     dry_run: bool
     archive: bool
     sessions: tuple[str, ...]
@@ -114,12 +112,6 @@ def _output_result(stopped_agents: Sequence[str], output_opts: OutputOptions) ->
 )
 @optgroup.group("Behavior")
 @optgroup.option(
-    "-f",
-    "--force",
-    is_flag=True,
-    help="Skip confirmation prompts and suppress not-found errors",
-)
-@optgroup.option(
     "--archive",
     is_flag=True,
     help="Set an 'archived_at' label on each stopped agent (marks it as archived)",
@@ -191,19 +183,12 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
         raise click.UsageError("Cannot specify both agent names and --all")
 
     # Find agents to stop (RUNNING agents when using --all)
-    try:
-        agents_to_stop = find_agents_by_addresses(
-            raw_identifiers=agent_identifiers,
-            filter_all=opts.stop_all,
-            target_state=AgentLifecycleState.RUNNING,
-            mngr_ctx=mngr_ctx,
-        )
-    except AgentNotFoundError as e:
-        if opts.force:
-            agents_to_stop = []
-            _output(f"Error stopping agent(s): {e}", output_opts)
-        else:
-            raise
+    agents_to_stop = find_agents_by_addresses(
+        raw_identifiers=agent_identifiers,
+        filter_all=opts.stop_all,
+        target_state=AgentLifecycleState.RUNNING,
+        mngr_ctx=mngr_ctx,
+    )
 
     if not agents_to_stop:
         _output("No running agents found to stop", output_opts)
@@ -263,7 +248,7 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
 CommandHelpMetadata(
     key="stop",
     one_line_description="Stop running agent(s)",
-    synopsis="mngr [stop|s] [AGENTS...|-] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--archive] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]",
+    synopsis="mngr [stop|s] [AGENTS...|-] [--agent <AGENT>] [--all] [--session <SESSION>] [--archive] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]",
     description="""For remote hosts, this stops the agent's tmux session. The host remains
 running unless idle detection stops it automatically.
 

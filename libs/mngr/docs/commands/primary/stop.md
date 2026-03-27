@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mngr [stop|s] [AGENTS...|-] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--archive] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]
+mngr [stop|s] [AGENTS...|-] [--agent <AGENT>] [--all] [--session <SESSION>] [--archive] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]
 ```
 
 Stop running agent(s).
@@ -49,7 +49,6 @@ mngr stop [OPTIONS] [AGENTS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `-f`, `--force` | boolean | Skip confirmation prompts and suppress not-found errors | `False` |
 | `--archive` | boolean | Set an 'archived_at' label on each stopped agent (marks it as archived) | `False` |
 | `--dry-run` | boolean | Show what would be stopped without actually stopping | `False` |
 | `--snapshot-mode` | choice (`auto` &#x7C; `always` &#x7C; `never`) | Control snapshot creation when stopping: auto (snapshot if needed), always, or never [future] | None |
