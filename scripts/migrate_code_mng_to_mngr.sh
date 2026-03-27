@@ -75,26 +75,6 @@ else
     ok "Cleaned __pycache__, htmlcov, .pytest_cache, .test_output, coverage.xml"
 fi
 
-# Remove leftover directories from the old mng names (empty after artifact cleanup)
-for d in libs/mng libs/mng_*; do
-    [ -d "$d" ] || continue
-    # Check for real files, excluding build artifacts that would have been cleaned
-    has_real_files=$(find "$d" -type f \
-        -not -path '*/__pycache__/*' \
-        -not -path '*/htmlcov/*' \
-        -not -path '*/.pytest_cache/*' \
-        -not -path '*/.test_output/*' \
-        -not -name 'coverage.xml' \
-        -print -quit 2>/dev/null || true)
-    if [ -n "$has_real_files" ]; then
-        echo -e "  ${YELLOW}WARNING: $d has non-artifact files and may need manual cleanup${NC}"
-    elif [ "$DRY_RUN" = true ]; then
-        dry "would remove $d (only build artifacts)"
-    else
-        rm -rf "$d"
-        ok "Removed $d"
-    fi
-done
 
 # ── Helper: perl script for content replacement ───────────────────
 # Written to a temp file to avoid shell escaping issues with negative
@@ -229,6 +209,30 @@ if [ "$moved" -gt 0 ] && [ "$DRY_RUN" = false ]; then
 elif [ "$moved" -eq 0 ]; then
     ok "No orphaned files at old paths"
 fi
+
+# Remove leftover libs/mng* directories.
+# After step 0 (artifacts) and step 1 (orphaned files), these should be empty.
+# In dry-run, exclude both artifacts and files that step 1 would have moved.
+for d in libs/mng libs/mng_*; do
+    [ -d "$d" ] || continue
+    has_real_files=$(find "$d" -type f \
+        -not -path '*/__pycache__/*' \
+        -not -path '*/htmlcov/*' \
+        -not -path '*/.pytest_cache/*' \
+        -not -path '*/.test_output/*' \
+        -not -name 'coverage.xml' \
+        -not -path '*/imbue/mng/*' \
+        -not -path '*/imbue/mng_*/*' \
+        -print -quit 2>/dev/null || true)
+    if [ -n "$has_real_files" ]; then
+        echo -e "  ${YELLOW}WARNING: $d has unexpected files and may need manual cleanup${NC}"
+    elif [ "$DRY_RUN" = true ]; then
+        dry "would remove $d"
+    else
+        rm -rf "$d"
+        ok "Removed $d"
+    fi
+done
 
 # ── 2. Rename .mng/ directory ─────────────────────────────────────
 
