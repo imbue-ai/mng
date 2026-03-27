@@ -265,6 +265,18 @@ if [ -d ".mng" ] && [ ! -d ".mngr" ]; then
         git mv ".mng" ".mngr"
         ok ".mng -> .mngr"
     fi
+elif [ -d ".mngr" ] && [ -d ".mng" ]; then
+    # Both exist (e.g. after merging main reintroduces .mng/).
+    # Copy any untracked files (local config like settings.local.toml)
+    # from .mng/ to .mngr/ before removing .mng/.
+    if [ "$DRY_RUN" = true ]; then
+        dry "would copy untracked files from .mng/ to .mngr/ and remove .mng/"
+    else
+        cp -a -n .mng/. .mngr/ 2>/dev/null || true
+        git rm -rf .mng 2>/dev/null || true
+        rm -rf .mng
+        ok "Merged .mng/ into .mngr/ and removed .mng/"
+    fi
 elif [ -d ".mngr" ]; then
     ok "Already renamed"
 fi
@@ -293,6 +305,17 @@ for dir in libs/mng libs/mng_*; do
         else
             git mv "$dir" "$newdir"
             ok "$dir -> $newdir"
+        fi
+        renamed_libs=$((renamed_libs + 1))
+    elif [ -d "$dir" ] && [ -d "$newdir" ]; then
+        # Both exist (after merging main reintroduces old paths).
+        # The new dir has the correct content; remove the old one.
+        if [ "$DRY_RUN" = true ]; then
+            dry "would remove reintroduced $dir (already have $newdir)"
+        else
+            git rm -rf "$dir" 2>/dev/null || true
+            rm -rf "$dir"
+            ok "Removed reintroduced $dir"
         fi
         renamed_libs=$((renamed_libs + 1))
     fi
