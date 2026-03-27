@@ -192,7 +192,7 @@ for old_root in libs/mng/imbue/mng libs/mng_*/imbue/mng_*; do
             mkdir -p "$(dirname "$newf")"
             mv "$f" "$newf"
             git add "$newf" 2>/dev/null || true
-            git rm --cached "$f" 2>/dev/null || true
+            git rm --cached --quiet "$f" 2>/dev/null || true
         done
     fi
     moved=$((moved + count))
