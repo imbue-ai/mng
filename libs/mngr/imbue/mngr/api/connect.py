@@ -10,6 +10,7 @@ from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import NestedTmuxError
+from imbue.mngr.hosts.host import get_agent_state_dir_path
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.utils.interactive_subprocess import run_interactive_subprocess
@@ -191,14 +192,26 @@ def connect_to_agent(
 
     session_name = f"{mngr_ctx.config.prefix}{agent.name}"
 
+    # Set agent environment variables so the connect command and any new
+    # panes/shells have access to agent paths. These are normally set during
+    # create but not during connect, which breaks reconnection after migration.
+    agent_state_dir = get_agent_state_dir_path(host.host_dir, agent.id)
+    agent_env = {
+        "MNGR_HOST_DIR": str(host.host_dir),
+        "MNGR_AGENT_ID": str(agent.id),
+        "MNGR_AGENT_NAME": str(agent.name),
+        "MNGR_AGENT_STATE_DIR": str(agent_state_dir),
+        "MNGR_AGENT_WORK_DIR": str(agent.work_dir),
+        "LLM_USER_PATH": str(agent_state_dir / "llm_data"),
+    }
+
     if host.is_local:
         # Detect nested tmux: if $TMUX is set, we're inside a tmux session
-        env = os.environ
+        env = dict(os.environ)
+        env.update(agent_env)
         if os.environ.get("TMUX"):
             if not mngr_ctx.config.is_nested_tmux_allowed:
                 raise NestedTmuxError(session_name)
-            # Copy and remove TMUX so tmux allows the nested attachment
-            env = dict(os.environ)
             del env["TMUX"]
         os.execvpe("tmux", ["tmux", "attach", "-t", session_name], env)
     else:
