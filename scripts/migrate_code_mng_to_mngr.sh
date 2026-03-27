@@ -568,8 +568,9 @@ for my $file (@ARGV) {
     $content =~ s/--with mngr-(\w+)==/--with imbue-mngr-$1==/g;
     # Fix false positive: dir_name must stay "mngr"
     $content =~ s/dir_name="imbue-mngr"/dir_name="mngr"/g;
-    # Fix false positive: resolve_mngr_install_mode takes a package slug, not PyPI name
-    $content =~ s/_resolve_mngr_install_mode\(mode, "imbue-mngr-/_resolve_mngr_install_mode(mode, "mngr-/g;
+    # NOTE: resolve_mngr_install_mode takes a PyPI distribution name (used by
+    # importlib.metadata.distribution()), so it SHOULD have the imbue- prefix.
+    # A previous version of this script incorrectly treated this as a false positive.
     # Fix false positive: path segments (/ "mngr-xxx") must stay "mngr-xxx"
     $content =~ s|/ "imbue-mngr-|/ "mngr-|g;
     if ($content ne $orig) {
