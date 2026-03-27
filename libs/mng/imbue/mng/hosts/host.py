@@ -249,7 +249,8 @@ class Host(BaseHost, OnlineHostInterface):
         """
         with self._notify_on_connection_error():
             try:
-                return self._run_shell_command_with_transient_retry(
+                self._ensure_connected()
+                return self.connector.host.run_shell_command(
                     command,
                     _timeout=_timeout,
                     _success_exit_codes=_success_exit_codes,
@@ -279,27 +280,6 @@ class Host(BaseHost, OnlineHostInterface):
                     raise
             except (EOFError, SSHException) as e:
                 raise HostConnectionError("Could not execute command due to connection error") from e
-
-    @_retry_on_transient_ssh_error
-    def _run_shell_command_with_transient_retry(
-        self,
-        command: StringCommand,
-        **kwargs: Any,
-    ) -> tuple[bool, CommandOutput]:
-        self._ensure_connected()
-        try:
-            return self.connector.host.run_shell_command(command, **kwargs)
-        except OSError as e:
-            if "Socket is closed" in str(e):
-                logger.debug("Socket closed while running command, disconnecting for retry")
-                self.connector.host.disconnect()
-                raise
-            else:
-                raise
-        except (SSHException, EOFError) as e:
-            logger.debug("SSH error while running command: {}, disconnecting for retry", e)
-            self.connector.host.disconnect()
-            raise
 
     def _get_file(
         self,
