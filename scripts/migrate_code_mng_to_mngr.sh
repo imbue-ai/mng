@@ -394,7 +394,9 @@ while IFS= read -r -d '' file; do
     perl "$RENAME_PL" "$file" && modified=$((modified + 1))
 done < <(git ls-files -z)
 
-ok "Processed $modified files"
+if [ "$DRY_RUN" = false ]; then
+    ok "Processed $modified files"
+fi
 
 # ── 8. Add imbue- prefix to all PyPI package names ────────────────
 
@@ -405,18 +407,15 @@ for f in libs/*/pyproject.toml apps/*/pyproject.toml; do
     [ -f "$f" ] || continue
     perl "$PYPI_PL" "$f"
 done
-ok "pyproject.toml files"
 
 # Release scripts
 for f in scripts/release.py scripts/verify_publish.py scripts/utils.py; do
     [ -f "$f" ] || continue
     perl "$PYPI_PL" "$f"
 done
-ok "Release scripts"
 
 # install.sh
 [ -f "scripts/install.sh" ] && perl "$PYPI_PL" scripts/install.sh
-ok "install.sh"
 
 # Python source files with importlib.metadata or package name checks
 for f in $(grep -rl 'distribution("mngr' libs/ apps/ 2>/dev/null || true); do
@@ -425,13 +424,15 @@ done
 for f in libs/mngr_recursive/imbue/mngr_recursive/provisioning.py libs/mngr/imbue/mngr/uv_tool.py; do
     [ -f "$f" ] && perl "$PYPI_PL" "$f"
 done
-ok "Python source files"
 
 # README docs
 for f in README.md libs/mngr/README.md; do
     [ -f "$f" ] && perl "$PYPI_PL" "$f"
 done
-ok "Documentation"
+
+if [ "$DRY_RUN" = false ]; then
+    ok "PyPI names updated"
+fi
 
 # ── 9. Regenerate uv.lock ────────────────────────────────────────
 
