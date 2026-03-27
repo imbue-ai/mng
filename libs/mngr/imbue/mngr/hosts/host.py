@@ -549,7 +549,7 @@ class Host(BaseHost, OnlineHostInterface):
     # Convenience methods (built on core primitives)
     # =========================================================================
 
-    def execute_command(
+    def execute_idempotent_command(
         self,
         command: str,
         user: str | None = None,
@@ -578,6 +578,28 @@ class Host(BaseHost, OnlineHostInterface):
                 stderr=output.stderr,
                 success=success,
             )
+
+    def execute_stateful_command(
+            self,
+            command: str,
+            user: str | None = None,
+            cwd: Path | None = None,
+            env: Mapping[str, str] | None = None,
+            timeout_seconds: float | None = None,
+    ) -> CommandResult:
+        """
+        Execute a shell command on this host *that cannot be retried* and return the result.
+
+        Prefer to use execute_idempotent_command whenever possible, as it is a much simpler abstraction and more robust.
+        This is really here if you *must* do something which cannot be made idempotent.
+        It automatically handles making the command idempotent, but it's much slower and more complex.
+        """
+        # FIXME: actually implement this. It's rather complex:
+        #  we need to create a unique lock file, ship the command over, and run an idempotent command that waits for it to be finished
+        #  once the command finishes, we can run idempotent commands to fetch the resulting stdout, stderr, and exit code
+        #  (which means we need a wrapper that appropriately saves that data somewhere that we can retrieve it)
+        #  then, just to be good, we should probably clean up after ourselves (the outputs and lock file)
+        return self.execute_idempotent_command(command, user=user, cwd=cwd, env=env, timeout_seconds=timeout_seconds)
 
     def read_file(self, path: Path) -> bytes:
         """Read a file and return its contents as bytes.
@@ -618,7 +640,7 @@ class Host(BaseHost, OnlineHostInterface):
             if not is_success:
                 # May have failed because parent directory doesn't exist, create it and retry
                 parent_dir = str(write_path.parent)
-                result = self.execute_command(f"mkdir -p '{parent_dir}'")
+                result = self.execute_idempotent_command(f"mkdir -p '{parent_dir}'")
                 if not result.success:
                     raise MngrError(
                         f"Failed to create parent directory '{parent_dir}' on host {self.id} because: {result.stderr}"
@@ -628,13 +650,13 @@ class Host(BaseHost, OnlineHostInterface):
                     raise MngrError(f"Failed to write file '{str(write_path)}' on host {self.id}'")
         if write_path != path:
             # Move temp file to final location atomically
-            result = self.execute_command(f"mv '{str(write_path)}' '{str(path)}'")
+            result = self.execute_idempotent_command(f"mv '{str(write_path)}' '{str(path)}'")
             if not result.success:
                 raise MngrError(
                     f"Failed to move temp file to final location on host {self.id} because: {result.stderr}"
                 )
         if mode is not None:
-            self.execute_command(f"chmod {mode} '{str(path)}'")
+            self.execute_idempotent_command(f"chmod {mode} '{str(path)}'")
 
     def read_text_file(self, path: Path, encoding: str = "utf-8") -> str:
         """Read a file and return its contents as a string.
@@ -661,7 +683,7 @@ class Host(BaseHost, OnlineHostInterface):
                 return datetime.fromtimestamp(mtime, tz=timezone.utc)
             except (FileNotFoundError, OSError):
                 return None
-        result = self.execute_command(f"stat -c %Y '{str(path)}' 2>/dev/null || stat -f %m '{str(path)}' 2>/dev/null")
+        result = self.execute_idempotent_command(f"stat -c %Y '{str(path)}' 2>/dev/null || stat -f %m '{str(path)}' 2>/dev/null")
         if result.success and result.stdout.strip():
             try:
                 mtime = int(result.stdout.strip())
@@ -678,14 +700,14 @@ class Host(BaseHost, OnlineHostInterface):
         """Check if a path exists on the host."""
         if self.is_local:
             return path.exists()
-        result = self.execute_command(f"test -e '{str(path)}'")
+        result = self.execute_idempotent_command(f"test -e '{str(path)}'")
         return result.success
 
     def _is_directory(self, path: Path) -> bool:
         """Check if a path is a directory on the host."""
         if self.is_local:
             return path.is_dir()
-        result = self.execute_command(f"test -d '{str(path)}'")
+        result = self.execute_idempotent_command(f"test -d '{str(path)}'")
         return result.success
 
     def _list_directory(self, path: Path) -> list[str]:
@@ -695,23 +717,23 @@ class Host(BaseHost, OnlineHostInterface):
                 return list(entry.name for entry in path.iterdir())
             except (FileNotFoundError, OSError):
                 return []
-        result = self.execute_command(f"ls -1 '{str(path)}' 2>/dev/null")
+        result = self.execute_idempotent_command(f"ls -1 '{str(path)}' 2>/dev/null")
         if result.success and result.stdout.strip():
             return result.stdout.strip().split("\n")
         return []
 
     def _remove_directory(self, path: Path) -> None:
         """Remove a directory and its contents on the host."""
-        self.execute_command(f"rm -rf '{str(path)}'")
+        self.execute_idempotent_command(f"rm -rf '{str(path)}'")
 
     def _mkdir(self, path: Path) -> None:
         """Create a directory on the host."""
-        self.execute_command(f"mkdir -p '{str(path)}'")
+        self.execute_idempotent_command(f"mkdir -p '{str(path)}'")
 
     def _mkdirs(self, paths: Sequence[Path]) -> None:
         """Create multiple directories on the host."""
         joined_dirs = " ".join(f"'{str(p)}'" for p in paths)
-        self.execute_command(f"mkdir -p {joined_dirs}")
+        self.execute_idempotent_command(f"mkdir -p {joined_dirs}")
 
     def get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
         """Get SSH connection info for this host if it's remote.
@@ -805,7 +827,7 @@ class Host(BaseHost, OnlineHostInterface):
                         "Removing host lock file on error to allow idle shutdown (set MNGR_RETAIN_LOCK_FOR_FAILED_HOSTS_DURING_CREATE=1 to prevent this and debug)"
                     )
                     try:
-                        self.execute_command(f"rm -f '{lock_file_path}'")
+                        self.execute_idempotent_command(f"rm -f '{lock_file_path}'")
                     except (BaseMngrError, OSError) as lock_removal_error:
                         logger.warning(
                             "Failed to remove host lock file during error cleanup: {}",
@@ -813,7 +835,7 @@ class Host(BaseHost, OnlineHostInterface):
                         )
                 raise
             else:
-                self.execute_command(f"rm -f '{lock_file_path}'")
+                self.execute_idempotent_command(f"rm -f '{lock_file_path}'")
             return
 
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1026,7 +1048,7 @@ class Host(BaseHost, OnlineHostInterface):
         """Get host uptime in seconds."""
         # Single command that detects the platform on the host and dispatches accordingly,
         # so it works for both local and remote hosts regardless of OS
-        result = self.execute_command(
+        result = self.execute_idempotent_command(
             'if [ "$(uname -s)" = "Darwin" ]; then '
             "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}' && date +%s; "
             "else "
@@ -1046,7 +1068,7 @@ class Host(BaseHost, OnlineHostInterface):
         """
         # Single command that detects the platform on the host and dispatches accordingly,
         # so it works for both local and remote hosts regardless of OS
-        result = self.execute_command(
+        result = self.execute_idempotent_command(
             'if [ "$(uname -s)" = "Darwin" ]; then '
             "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}'; "
             "else "
@@ -1319,7 +1341,7 @@ class Host(BaseHost, OnlineHostInterface):
         elif source_host.is_local:
             base_branch_name = get_current_git_branch(source_path, self.mngr_ctx.concurrency_group) or "main"
         else:
-            result = source_host.execute_command(
+            result = source_host.execute_idempotent_command(
                 "git rev-parse --abbrev-ref HEAD",
                 cwd=source_path,
             )
@@ -1330,15 +1352,15 @@ class Host(BaseHost, OnlineHostInterface):
             git_author_name, git_author_email = get_git_author_info(source_path, self.mngr_ctx.concurrency_group)
             origin_url = get_git_remote_url(source_path, "origin", self.mngr_ctx.concurrency_group)
         else:
-            name_result = source_host.execute_command("git config user.name", cwd=source_path)
-            email_result = source_host.execute_command("git config user.email", cwd=source_path)
+            name_result = source_host.execute_idempotent_command("git config user.name", cwd=source_path)
+            email_result = source_host.execute_idempotent_command("git config user.email", cwd=source_path)
             git_author_name = (
                 name_result.stdout.strip() if name_result.success and name_result.stdout.strip() else None
             )
             git_author_email = (
                 email_result.stdout.strip() if email_result.success and email_result.stdout.strip() else None
             )
-            origin_result = source_host.execute_command("git remote get-url origin", cwd=source_path)
+            origin_result = source_host.execute_idempotent_command("git remote get-url origin", cwd=source_path)
             origin_url = (
                 origin_result.stdout.strip() if origin_result.success and origin_result.stdout.strip() else None
             )
@@ -1361,7 +1383,7 @@ class Host(BaseHost, OnlineHostInterface):
                 init_parts.append(f"git config --global --add safe.directory {quoted_target}")
             init_cmd = " && ".join(init_parts)
             with log_span("Ensuring git repo on target"):
-                result = self.execute_command(init_cmd)
+                result = self.execute_idempotent_command(init_cmd)
                 if not result.success:
                     raise MngrError(f"Failed to initialize git repo on target: {result.stderr}")
 
@@ -1399,7 +1421,7 @@ class Host(BaseHost, OnlineHostInterface):
                     target_exclude = ".git/info/exclude"
                     config_commands.append(f"printf '%s' '{escaped}' > {shlex.quote(target_exclude)}")
 
-                result = self.execute_command(
+                result = self.execute_idempotent_command(
                     " && ".join(config_commands),
                     cwd=target_path,
                 )
@@ -1426,7 +1448,7 @@ class Host(BaseHost, OnlineHostInterface):
                 return None
             git_common_dir = Path(result.stdout.strip())
         else:
-            result = source_host.execute_command("git rev-parse --git-common-dir", cwd=source_path)
+            result = source_host.execute_idempotent_command("git rev-parse --git-common-dir", cwd=source_path)
             if not result.success:
                 logger.trace("Could not resolve git common dir in source, skipping info/exclude transfer")
                 return None
@@ -1501,7 +1523,7 @@ class Host(BaseHost, OnlineHostInterface):
             else:
                 env_prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in env.items())
                 push_cmd = f"{env_prefix} git push --no-verify --mirror {shlex.quote(git_url)}"
-                result = source_host.execute_command(push_cmd, cwd=source_path)
+                result = source_host.execute_idempotent_command(push_cmd, cwd=source_path)
                 if not result.success:
                     output = (result.stderr + "\n" + result.stdout).strip()
                     raise MngrError(f"Failed to push git repo from remote source: {output}")
@@ -1521,7 +1543,7 @@ class Host(BaseHost, OnlineHostInterface):
                 )
                 submodule_output = result_obj.stdout.strip()
             else:
-                result = source_host.execute_command("git submodule status", cwd=source_path, timeout_seconds=10)
+                result = source_host.execute_idempotent_command("git submodule status", cwd=source_path, timeout_seconds=10)
                 submodule_output = result.stdout.strip() if result.success else ""
         except (ProcessError, Exception):
             # If we can't check for submodules, just skip the warning
@@ -1557,7 +1579,7 @@ class Host(BaseHost, OnlineHostInterface):
                             filename = filename.split(" -> ")[1]
                         files_to_include.append(filename)
             else:
-                result = source_host.execute_command("git status --porcelain", cwd=source_path)
+                result = source_host.execute_idempotent_command("git status --porcelain", cwd=source_path)
                 if result.success:
                     for line in result.stdout.split("\n"):
                         if line:
@@ -1577,7 +1599,7 @@ class Host(BaseHost, OnlineHostInterface):
                     if line:
                         files_to_include.append(line)
             else:
-                result = source_host.execute_command(
+                result = source_host.execute_idempotent_command(
                     "git ls-files --others --ignored --exclude-standard",
                     cwd=source_path,
                 )
@@ -1655,7 +1677,7 @@ class Host(BaseHost, OnlineHostInterface):
             check_parts.append(
                 f"if [ -e {quoted} ] || [ -L {quoted} ]; then printf '%s\\n' {shlex.quote(rel_path_str)}; fi"
             )
-        result = source_host.execute_command("; ".join(check_parts))
+        result = source_host.execute_idempotent_command("; ".join(check_parts))
         if not result.success:
             logger.warning(
                 "work_dir_extra_paths: failed to check source paths (stderr: {}), skipping all extra paths",
@@ -1697,7 +1719,7 @@ class Host(BaseHost, OnlineHostInterface):
                     f"fi"
                 )
             script_parts.append('[ "$had_errors" = 0 ]')
-            result = self.execute_command("; ".join(script_parts))
+            result = self.execute_idempotent_command("; ".join(script_parts))
             if not result.success:
                 stderr_lines = result.stderr.strip().split("\n")
                 conflicts = [line.removeprefix("CONFLICT: ") for line in stderr_lines if line.startswith("CONFLICT: ")]
@@ -1724,7 +1746,7 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> None:
         """Copy a directory from source_host:source_path to self:target_path using rsync."""
         # Ensure the target directory exists -- rsync does not create intermediate parents.
-        self.execute_command(f"mkdir -p {shlex.quote(str(target_path))}", timeout_seconds=5.0)
+        self.execute_idempotent_command(f"mkdir -p {shlex.quote(str(target_path))}", timeout_seconds=5.0)
         self._rsync_files(
             source_host,
             source_path,
@@ -1884,7 +1906,7 @@ class Host(BaseHost, OnlineHostInterface):
             cmd = " ".join(worktree_args)
             created_branch = new_branch_name
 
-            result = self.execute_command(cmd)
+            result = self.execute_idempotent_command(cmd)
             if not result.success:
                 stderr = result.stderr or ""
                 if "already checked out" in stderr or "already used by worktree" in stderr:
@@ -2162,7 +2184,7 @@ class Host(BaseHost, OnlineHostInterface):
 
                 # Run extra provision commands (with env vars sourced)
                 for cmd in provisioning.extra_provision_commands:
-                    result = self.execute_command(source_prefix + cmd, cwd=agent.work_dir)
+                    result = self.execute_idempotent_command(source_prefix + cmd, cwd=agent.work_dir)
                     logger.trace("Ran extra provision command: {}", cmd)
                     if not result.success:
                         raise MngrError(f"Extra provision command failed: {cmd}\nstderr: {result.stderr}")
@@ -2266,7 +2288,7 @@ class Host(BaseHost, OnlineHostInterface):
             # Rename the tmux session first (idempotent -- no-ops if session doesn't exist with old name)
             old_session_name = f"{self.mngr_ctx.config.prefix}{old_name}"
             new_session_name = f"{self.mngr_ctx.config.prefix}{new_name}"
-            result = self.execute_command(
+            result = self.execute_idempotent_command(
                 f"tmux has-session -t {shlex.quote(old_session_name)} 2>/dev/null && "
                 f"tmux rename-session -t {shlex.quote(old_session_name)} {shlex.quote(new_session_name)} || true"
             )
@@ -2468,7 +2490,7 @@ class Host(BaseHost, OnlineHostInterface):
                         host_dir=self.host_dir,
                         onboarding_text=onboarding_text,
                     )
-                    result = self.execute_command(combined_command, cwd=agent.work_dir)
+                    result = self.execute_idempotent_command(combined_command, cwd=agent.work_dir)
                     if not result.success:
                         raise AgentStartError(str(agent.name), result.stderr)
 
@@ -2477,7 +2499,7 @@ class Host(BaseHost, OnlineHostInterface):
         descendant_pids: list[str] = []
 
         # Get immediate children
-        result = self.execute_command(f"pgrep -P {parent_pid} 2>/dev/null || true")
+        result = self.execute_idempotent_command(f"pgrep -P {parent_pid} 2>/dev/null || true")
         if result.success and result.stdout.strip():
             child_pids = result.stdout.strip().split("\n")
             for child_pid in child_pids:
@@ -2495,7 +2517,7 @@ class Host(BaseHost, OnlineHostInterface):
         current window. This is important for sessions with additional command windows.
         """
         all_pids: list[str] = []
-        result = self.execute_command(f"tmux list-panes -s -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true")
+        result = self.execute_idempotent_command(f"tmux list-panes -s -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true")
         if result.success and result.stdout.strip():
             for pane_pid in result.stdout.strip().split("\n"):
                 if pane_pid:
@@ -2534,7 +2556,7 @@ class Host(BaseHost, OnlineHostInterface):
                 # process (e.g., interactive bash which ignores SIGTERM) would consume the entire
                 # timeout budget in a serial loop, preventing SIGKILL from reaching other processes.
                 grace_seconds = min(1.0, timeout_seconds)
-                self.execute_command(
+                self.execute_idempotent_command(
                     f"for p in {pid_list}; do kill -TERM $p 2>/dev/null; done; "
                     f"sleep {grace_seconds}; "
                     f"for p in {pid_list}; do kill -KILL $p 2>/dev/null; done; true"
@@ -2543,7 +2565,7 @@ class Host(BaseHost, OnlineHostInterface):
             # Finally kill the tmux sessions themselves
             for agent in current_agents:
                 session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
-                self.execute_command(f"tmux kill-session -t '{session_name}' 2>/dev/null || true")
+                self.execute_idempotent_command(f"tmux kill-session -t '{session_name}' 2>/dev/null || true")
 
     def _get_agent_by_id(self, agent_id: AgentId) -> AgentInterface | None:
         """Get an agent by ID."""
@@ -2630,7 +2652,7 @@ class Host(BaseHost, OnlineHostInterface):
             return HostState.RUNNING
 
         try:
-            result = self.execute_command("echo ok")
+            result = self.execute_idempotent_command("echo ok")
             if result.success:
                 logger.trace("Determined host {} state=RUNNING (ping successful)", self.id)
                 return HostState.RUNNING
