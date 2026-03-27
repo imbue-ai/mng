@@ -557,7 +557,11 @@ class Host(BaseHost, OnlineHostInterface):
         env: Mapping[str, str] | None = None,
         timeout_seconds: float | None = None,
     ) -> CommandResult:
-        """Execute a command and return the result."""
+        """Execute a command and return the result.
+
+        Note: the underlying _run_shell_command retries on transient SSH errors,
+        so commands passed here are assumed to be idempotent.
+        """
         with log_span("Executing command on host {}: {}", self.id, command):
             logger.trace(
                 "Resolved command parameters: user={}, cwd={}, env={}, timeout={}", user, cwd, env, timeout_seconds
