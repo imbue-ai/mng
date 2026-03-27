@@ -571,6 +571,8 @@ def test_stream_manager_full_snapshot_updates_agent_ids() -> None:
     )
     with manager._cg:
         manager._handle_discovery_line(line)
+        for process in manager._events_processes.values():
+            process.terminate()
 
     ids = manager.resolver.list_known_agent_ids()
     assert _AGENT_A in ids
@@ -601,6 +603,9 @@ def test_stream_manager_host_ssh_info_populates_resolver() -> None:
         ssh_line = _make_host_ssh_info_line(host_id, ssh_data)
         manager._handle_discovery_line(ssh_line)
 
+        for process in manager._events_processes.values():
+            process.terminate()
+
     ssh_info = manager.resolver.get_ssh_info(_AGENT_A)
     assert ssh_info is not None
     assert ssh_info.host == "remote.example.com"
@@ -619,6 +624,9 @@ def test_stream_manager_no_ssh_for_local_hosts() -> None:
             hosts=[host_id],
         )
         manager._handle_discovery_line(line)
+
+        for process in manager._events_processes.values():
+            process.terminate()
 
     assert manager.resolver.list_known_agent_ids() == (_AGENT_A,)
     assert manager.resolver.get_ssh_info(_AGENT_A) is None
@@ -646,6 +654,11 @@ def test_stream_manager_mixed_local_and_remote() -> None:
 
         ssh_line = _make_host_ssh_info_line(remote_host_id, ssh_data)
         manager._handle_discovery_line(ssh_line)
+
+        # Terminate background mngr events processes before the CG exits,
+        # otherwise they time out on slow systems (e.g. Modal containers).
+        for process in manager._events_processes.values():
+            process.terminate()
 
     assert manager.resolver.get_ssh_info(_AGENT_A) is None
     ssh_info = manager.resolver.get_ssh_info(_AGENT_B)
@@ -676,6 +689,9 @@ def test_stream_manager_ssh_info_before_full_snapshot() -> None:
             hosts=[host_id],
         )
         manager._handle_discovery_line(full_line)
+
+        for process in manager._events_processes.values():
+            process.terminate()
 
     ssh_info = manager.resolver.get_ssh_info(_AGENT_A)
     assert ssh_info is not None

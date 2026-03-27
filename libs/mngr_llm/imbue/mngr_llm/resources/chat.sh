@@ -24,6 +24,8 @@ set -euo pipefail
 
 AGENT_DATA_DIR="${MNGR_AGENT_STATE_DIR:?MNGR_AGENT_STATE_DIR must be set}"
 LLM_TOOLS_DIR="${MNGR_AGENT_STATE_DIR}/commands/llm_tools"
+# Standalone conversation DB script -- avoids the heavy mngr CLI startup cost.
+_CONV_DB="${MNGR_AGENT_STATE_DIR}/commands/conversation_db.py"
 TALKING_PROMPT="${MNGR_AGENT_WORK_DIR:-}/talking/PROMPT.md"
 
 # Path to the llm database (LLM_USER_PATH is always set during provisioning)
@@ -69,7 +71,7 @@ insert_conversation_record() {
     local created_at
     created_at=$(mngr_timestamp)
 
-    mngr llmdb insert "$_LLM_DB" "$conversation_id" "$tags" "$created_at"
+    python3 "$_CONV_DB" insert "$_LLM_DB" "$conversation_id" "$tags" "$created_at"
     log "Inserted conversation record: conversation_id=$conversation_id tags=$tags"
 }
 
@@ -78,7 +80,7 @@ insert_conversation_record() {
 get_last_response_id() {
     local conversation_id="$1"
     if [ -f "$_LLM_DB" ]; then
-        mngr llmdb last-response-id "$_LLM_DB" "$conversation_id"
+        python3 "$_CONV_DB" last-response-id "$_LLM_DB" "$conversation_id"
     fi
 }
 
@@ -151,7 +153,7 @@ build_tags_json() {
 lookup_conversation_by_name() {
     local name="$1"
     if [ -f "$_LLM_DB" ]; then
-        mngr llmdb lookup-by-name "$_LLM_DB" "$name"
+        python3 "$_CONV_DB" lookup-by-name "$_LLM_DB" "$name"
     fi
 }
 
@@ -286,7 +288,7 @@ new_conversation() {
         local _max_rowid
         _max_rowid=0
         if [ -f "$_LLM_DB" ]; then
-            _max_rowid=$(mngr llmdb max-rowid "$_LLM_DB" 2>/dev/null)
+            _max_rowid=$(python3 "$_CONV_DB" max-rowid "$_LLM_DB" 2>/dev/null)
         fi
 
         (
@@ -294,7 +296,7 @@ new_conversation() {
             for _i in $(seq 1 60); do
                 sleep 1
                 if [ -f "$_LLM_DB" ]; then
-                    _new_conversation_id=$(mngr llmdb poll-new "$_LLM_DB" "$_max_rowid")
+                    _new_conversation_id=$(python3 "$_CONV_DB" poll-new "$_LLM_DB" "$_max_rowid")
                     if [ -n "$_new_conversation_id" ]; then
                         insert_conversation_record "$_new_conversation_id" "$tags"
                         log "Recorded conversation for new conversation_id=$_new_conversation_id (rowid > $_max_rowid)"
@@ -317,7 +319,7 @@ resume_conversation() {
 
     # Get the model from the mind_conversations table
     local model
-    model=$(mngr llmdb lookup-model "$_LLM_DB" "$conversation_id")
+    model=$(python3 "$_CONV_DB" lookup-model "$_LLM_DB" "$conversation_id")
     if [ -z "$model" ]; then
         model=$(get_model)
     fi
@@ -366,7 +368,7 @@ list_conversations() {
 
     # Check if the mind_conversations table exists and has rows
     local _row_count
-    _row_count=$(mngr llmdb count "$_LLM_DB")
+    _row_count=$(python3 "$_CONV_DB" count "$_LLM_DB")
     if [ "$_row_count" = "0" ]; then
         echo "No conversations yet."
         return 0

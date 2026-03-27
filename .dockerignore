@@ -1,0 +1,14 @@
+# Exclude directories that are modified by concurrent processes (agents, tests)
+# during Modal's image upload. The Docker image only needs current.tar.gz;
+# all other repo files are delivered via the tarball.
+.git/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.test_output/
+.venv/
+**/.ruff_cache/
+.mngr/dev/
+test-results/
+tmr_*/
+node_modules/
