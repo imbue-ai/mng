@@ -532,7 +532,7 @@ if [ "$DRY_RUN" = true ]; then
     dry "would run uv sync --all-packages"
 else
     if command -v uv &>/dev/null; then
-        uv sync --all-packages
+        uv sync --reinstall --all-packages
         ok "Packages synced"
     else
         skip "uv not found"
