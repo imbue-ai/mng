@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.resources
 import os
+import types
 
 import uvicorn
 from loguru import logger
@@ -54,10 +55,22 @@ def _build_config() -> Config:
     return load_config()
 
 
+def _wrap_pydantic_plugin_for_pluggy(plugin: AgentsPlugin) -> types.SimpleNamespace:
+    """Wrap a Pydantic model plugin so pluggy can safely register it.
+
+    Pluggy iterates over all attributes via getattr during registration.
+    Pydantic v2 raises AttributeError for class-only descriptors like
+    __signature__ on model instances, which crashes pluggy. This wrapper
+    creates a plain SimpleNamespace that exposes only the hookimpl methods.
+    """
+    return types.SimpleNamespace(endpoint=plugin.endpoint)
+
+
 def _setup_agents_plugin() -> None:
     """Create and register the agents plugin with the llm-webchat plugin manager."""
     agents_plugin = AgentsPlugin(host_name=_HOST_NAME)
-    get_plugin_manager().register(agents_plugin)
+    wrapped = _wrap_pydantic_plugin_for_pluggy(agents_plugin)
+    get_plugin_manager().register(wrapped)
 
 
 def _inject_plugin_static_files() -> None:

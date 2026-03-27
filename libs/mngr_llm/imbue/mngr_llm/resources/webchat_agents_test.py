@@ -7,9 +7,9 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-from imbue.mng_llm.resources.webchat_agents import AgentsPlugin
-from imbue.mng_llm.resources.webchat_agents import _fetch_agent_list
-from imbue.mng_llm.resources.webchat_agents import _get_mng_command
+from imbue.mngr_llm.resources.webchat_agents import AgentsPlugin
+from imbue.mngr_llm.resources.webchat_agents import _fetch_agent_list
+from imbue.mngr_llm.resources.webchat_agents import _get_mng_command
 
 
 def test_get_mng_command_defaults_to_mng(monkeypatch: pytest.MonkeyPatch) -> None:
