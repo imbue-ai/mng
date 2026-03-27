@@ -353,24 +353,27 @@ fi
 
 # ── 6. Fix agent data.json files ────────────────────────────────────
 
-step 7 "Fixing agent data.json files..."
+step 7 "Fixing agent data.json and env files..."
 
 agent_fixed=0
-for f in "$HOME/.mngr/agents"/*/data.json; do
-    [ -f "$f" ] || continue
-    if perl -ne 'if (/MNG(?!R)_|\.mng(?!r)/) { $f=1; last } END { exit($f ? 0 : 1) }' "$f" 2>/dev/null; then
-        if [ "$DRY_RUN" = true ]; then
-            dry "would fix stale references in $f"
-        else
-            perl -pi -e 's/MNG(?!R)/MNGR/g; s/\.mng(?!r)/.mngr/g' "$f"
+for agent_dir in "$HOME/.mngr/agents"/*/; do
+    [ -d "$agent_dir" ] || continue
+    for f in "$agent_dir"data.json "$agent_dir"env; do
+        [ -f "$f" ] || continue
+        if perl -ne 'if (/MNG(?!R)_|\.mng(?!r)/) { $f=1; last } END { exit($f ? 0 : 1) }' "$f" 2>/dev/null; then
+            if [ "$DRY_RUN" = true ]; then
+                dry "would fix stale references in $f"
+            else
+                perl "$RENAME_PL" "$f"
+            fi
+            agent_fixed=$((agent_fixed + 1))
         fi
-        agent_fixed=$((agent_fixed + 1))
-    fi
+    done
 done
 if [ "$agent_fixed" -gt 0 ]; then
-    ok "Fixed $agent_fixed agent data.json files"
+    ok "Fixed $agent_fixed agent files (data.json + env)"
 else
-    ok "No agent data.json files need fixing."
+    ok "No agent files need fixing."
 fi
 
 # Host data.json
