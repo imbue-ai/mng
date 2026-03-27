@@ -415,4 +415,13 @@ if [ "$DRY_RUN" = true ]; then
     echo -e "${YELLOW}This was a dry run. No changes were made.${NC}"
 else
     echo -e "${GREEN}Done.${NC}"
+    echo ""
+    echo -e "${BOLD}Note on existing resources:${NC}"
+    echo -e "  The resource prefix changed from ${CYAN}mng-${NC} to ${CYAN}mngr-${NC}."
+    echo -e "  To interact with existing tmux sessions, Modal environments, or"
+    echo -e "  crontab entries that were created under the old name, use:"
+    echo ""
+    echo -e "    ${CYAN}MNGR_PREFIX=mng- mngr <command>${NC}"
+    echo ""
+    echo -e "  Or add ${CYAN}prefix = \"mng-\"${NC} to your settings.toml to make it permanent."
 fi
