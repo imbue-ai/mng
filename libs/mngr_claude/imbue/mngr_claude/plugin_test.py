@@ -2571,39 +2571,39 @@ def test_build_settings_json_content_sets_model() -> None:
     assert data["model"] == "opus[1m]"
 
 
-def test_build_settings_json_content_sets_fast_mode() -> None:
-    """_build_settings_json_content with fast_mode=True sets fastMode."""
-    content = _build_settings_json_content(sync_local=False, fast_mode=True)
+def test_build_settings_json_content_sets_is_fast() -> None:
+    """_build_settings_json_content with is_fast=True sets fastMode."""
+    content = _build_settings_json_content(sync_local=False, is_fast=True)
     data = json.loads(content)
     assert data["fastMode"] is True
 
 
-def test_build_settings_json_content_sets_model_and_fast_mode() -> None:
-    """_build_settings_json_content with both model and fast_mode sets both."""
-    content = _build_settings_json_content(sync_local=False, model="sonnet", fast_mode=True)
+def test_build_settings_json_content_sets_model_and_is_fast() -> None:
+    """_build_settings_json_content with both model and is_fast sets both."""
+    content = _build_settings_json_content(sync_local=False, model="sonnet", is_fast=True)
     data = json.loads(content)
     assert data["model"] == "sonnet"
     assert data["fastMode"] is True
 
 
-def test_build_settings_json_content_preserves_local_fast_mode_when_config_enables_it() -> None:
-    """When fast_mode=True, local fastMode is not disabled even if sync_local is True."""
+def test_build_settings_json_content_preserves_local_is_fast_when_config_enables_it() -> None:
+    """When is_fast=True, local fastMode is not disabled even if sync_local is True."""
     claude_dir = Path.home() / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
     (claude_dir / "settings.json").write_text(json.dumps({"fastMode": True}))
 
-    content = _build_settings_json_content(sync_local=True, fast_mode=True)
+    content = _build_settings_json_content(sync_local=True, is_fast=True)
     data = json.loads(content)
     assert data["fastMode"] is True
 
 
-def test_build_settings_json_content_disables_local_fast_mode_when_config_does_not_enable_it() -> None:
-    """When fast_mode=False, local fastMode is disabled with a warning."""
+def test_build_settings_json_content_disables_local_is_fast_when_config_does_not_enable_it() -> None:
+    """When is_fast=False, local fastMode is disabled with a warning."""
     claude_dir = Path.home() / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
     (claude_dir / "settings.json").write_text(json.dumps({"fastMode": True, "other": "value"}))
 
-    content = _build_settings_json_content(sync_local=True, fast_mode=False)
+    content = _build_settings_json_content(sync_local=True, is_fast=False)
     data = json.loads(content)
     assert data["fastMode"] is False
     assert data["other"] == "value"
@@ -2615,7 +2615,7 @@ def test_build_settings_json_content_disables_local_fast_mode_when_config_does_n
 
 
 def test_apply_settings_json_overrides_noop_when_no_overrides(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides is a no-op when model=None and fast_mode=False."""
+    """_apply_settings_json_overrides is a no-op when model=None and is_fast=False."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     settings_path = config_dir / "settings.json"
@@ -2644,13 +2644,13 @@ def test_apply_settings_json_overrides_creates_file_with_model(tmp_path: Path) -
     assert data["model"] == "opus[1m]"
 
 
-def test_apply_settings_json_overrides_creates_file_with_fast_mode(tmp_path: Path) -> None:
+def test_apply_settings_json_overrides_creates_file_with_is_fast(tmp_path: Path) -> None:
     """_apply_settings_json_overrides creates settings.json with fastMode when none exists."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
 
     host = cast(OnlineHostInterface, FakeHost())
-    config = ClaudeAgentConfig(check_installation=False, fast_mode=True)
+    config = ClaudeAgentConfig(check_installation=False, is_fast=True)
     _apply_settings_json_overrides(host, config_dir, config)
 
     settings_path = config_dir / "settings.json"
@@ -2666,7 +2666,7 @@ def test_apply_settings_json_overrides_merges_with_existing(tmp_path: Path) -> N
     settings_path.write_text(json.dumps({"existing": "value", "skipDangerousModePermissionPrompt": True}))
 
     host = cast(OnlineHostInterface, FakeHost())
-    config = ClaudeAgentConfig(check_installation=False, model="sonnet", fast_mode=True)
+    config = ClaudeAgentConfig(check_installation=False, model="sonnet", is_fast=True)
     _apply_settings_json_overrides(host, config_dir, config)
 
     data = json.loads(settings_path.read_text())

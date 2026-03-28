@@ -214,7 +214,7 @@ class ClaudeAgentConfig(AgentTypeConfig):
         description="Model to use for this agent (e.g. 'opus[1m]'). "
         "Written to $CLAUDE_CONFIG_DIR/settings.json.",
     )
-    fast_mode: bool = Field(
+    is_fast: bool = Field(
         default=False,
         description="Whether to enable fast mode for this agent. "
         "Written to $CLAUDE_CONFIG_DIR/settings.json.",
@@ -253,7 +253,7 @@ def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
 def _build_settings_json_content(
     sync_local: bool,
     model: str | None = None,
-    fast_mode: bool = False,
+    is_fast: bool = False,
 ) -> str:
     """Build settings.json content for remote/deploy per-agent config dirs.
 
@@ -268,14 +268,14 @@ def _build_settings_json_content(
     local_path = Path.home() / ".claude" / "settings.json"
     if sync_local and local_path.exists():
         data: dict[str, Any] = json.loads(local_path.read_text())
-        if not fast_mode and data.get("fastMode") is True:
+        if not is_fast and data.get("fastMode") is True:
             logger.warning("Disabling fast mode for remote deployment because it is not yet supported via the API")
             data["fastMode"] = False
     else:
         data = _generate_claude_home_settings()
     if model is not None:
         data["model"] = model
-    if fast_mode:
+    if is_fast:
         data["fastMode"] = True
     data["skipDangerousModePermissionPrompt"] = True
     return json.dumps(data, indent=2) + "\n"
@@ -657,14 +657,14 @@ def _apply_settings_json_overrides(
     config_dir: Path,
     config: ClaudeAgentConfig,
 ) -> None:
-    """Apply per-agent settings overrides (model, fast_mode) to settings.json.
+    """Apply per-agent settings overrides (model, is_fast) to settings.json.
 
     Only called for local hosts. When overrides are needed, reads existing
     settings (following symlinks if present), then writes a regular file
     with the overrides applied. Replaces any existing symlink to avoid
     modifying the user's global settings.
     """
-    if config.model is None and not config.fast_mode:
+    if config.model is None and not config.is_fast:
         return
 
     settings_path = config_dir / "settings.json"
@@ -682,7 +682,7 @@ def _apply_settings_json_overrides(
 
     if config.model is not None:
         data["model"] = config.model
-    if config.fast_mode:
+    if config.is_fast:
         data["fastMode"] = True
 
     # Remove existing file/symlink before writing a regular file
@@ -1349,7 +1349,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
                 _build_settings_json_content(
                     config.sync_home_settings,
                     model=config.model,
-                    fast_mode=config.fast_mode,
+                    is_fast=config.is_fast,
                 ).encode("utf-8"),
             )
         )
