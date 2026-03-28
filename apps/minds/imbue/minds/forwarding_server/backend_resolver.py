@@ -287,14 +287,14 @@ class MngrStreamManager(MutableModel):
         self._cg.__enter__()
         self._cg.run_process_in_background(
             command=[self.mngr_binary, "observe", "--discovery-only", "--quiet"],
-            on_output=self._on_list_stream_output,
+            on_output=self._on_discovery_stream_output,
         )
 
     def stop(self) -> None:
         """Stop all streaming subprocesses."""
         self._cg.__exit__(None, None, None)
 
-    def _on_list_stream_output(self, line: str, is_stdout: bool) -> None:
+    def _on_discovery_stream_output(self, line: str, is_stdout: bool) -> None:
         """Handle a line of output from mngr observe --discovery-only."""
         if not is_stdout:
             return
