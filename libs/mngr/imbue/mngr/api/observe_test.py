@@ -367,7 +367,7 @@ def test_agent_observer_handle_full_snapshot_tracks_hosts(temp_mngr_ctx: MngrCon
 
     snapshot = make_full_discovery_snapshot_event([agent1], [host1, host2])
 
-    with observer._cg:
+    with observer._concurrency_group:
         observer._handle_full_snapshot(snapshot)
         assert len(observer._known_hosts) == 2
         assert str(host1.host_id) in observer._known_hosts
@@ -381,7 +381,7 @@ def test_agent_observer_handle_full_snapshot_removes_stale_hosts(temp_mngr_ctx: 
     host_a = make_test_discovered_host()
     host_b = make_test_discovered_host()
 
-    with observer._cg:
+    with observer._concurrency_group:
         snapshot1 = make_full_discovery_snapshot_event([], [host_a])
         observer._handle_full_snapshot(snapshot1)
         assert str(host_a.host_id) in observer._known_hosts

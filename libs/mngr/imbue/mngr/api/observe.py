@@ -1,6 +1,7 @@
 import fcntl
 import json
 import os
+import pdb
 import queue
 import threading
 from collections.abc import Sequence
@@ -341,8 +342,9 @@ class AgentObserver(MutableModel):
     events_base_dir: Path = Field(frozen=True, description="Base directory for event output files and lock")
     mngr_binary: str = Field(default="mngr", frozen=True)
 
-    _cg: ConcurrencyGroup = PrivateAttr(default_factory=lambda: ConcurrencyGroup(name="agent-observer"))
+    _concurrency_group: ConcurrencyGroup = PrivateAttr(default_factory=lambda: ConcurrencyGroup(name="agent-observer"))
     _known_hosts: dict[str, _KnownHost] = PrivateAttr(default_factory=dict)
+    _list_stream_process: RunningProcess = PrivateAttr(default_factory=dict)
     _events_processes: dict[str, RunningProcess] = PrivateAttr(default_factory=dict)
     _last_tracked_state_by_id: dict[str, _TrackedState] = PrivateAttr(default_factory=dict)
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
@@ -351,7 +353,7 @@ class AgentObserver(MutableModel):
 
     def run(self) -> None:
         """Run the observer. Blocks until stopped or interrupted."""
-        with self._cg:
+        with self._concurrency_group:
             # Load base state from event history so we can detect state changes since last run
             with log_span("Loading base state from history"):
                 self._last_tracked_state_by_id = load_base_state_from_history(self.events_base_dir)
@@ -369,12 +371,12 @@ class AgentObserver(MutableModel):
                 self._start_list_stream()
 
             # Phase 3: start the activity worker thread
-            activity_worker = threading.Thread(
+            activity_worker = self._concurrency_group.start_new_thread(
                 target=self._activity_worker,
                 daemon=True,
                 name="observe-activity-worker",
+                on_failure=self._on_activity_failure,
             )
-            activity_worker.start()
 
             # Phase 4: periodic full state snapshots + wait for stop
             try:
@@ -393,13 +395,17 @@ class AgentObserver(MutableModel):
                 self._stop_event.set()
                 activity_worker.join(timeout=5.0)
 
+    def _on_activity_failure(self, e: BaseException):
+        logger.error("Activity worker thread failed: {}", e)
+        self._stop_event.set()
+
     def stop(self) -> None:
         """Signal the observer to stop."""
         self._stop_event.set()
 
     def _start_list_stream(self) -> None:
         """Start the 'mngr list --stream' subprocess for host discovery."""
-        self._cg.run_process_in_background(
+        self._list_stream_process = self._concurrency_group.run_process_in_background(
             command=[self.mngr_binary, "list", "--stream", "--quiet"],
             on_output=self._on_list_stream_output,
         )
@@ -458,7 +464,7 @@ class AgentObserver(MutableModel):
 
         logger.debug("Starting activity stream for host {} ({})", host_name, host_id_str)
         try:
-            process = self._cg.run_process_in_background(
+            process = self._concurrency_group.run_process_in_background(
                 command=[
                     self.mngr_binary,
                     "events",
@@ -495,6 +501,13 @@ class AgentObserver(MutableModel):
     def _activity_worker(self) -> None:
         """Worker thread that processes activity events and fetches agent state."""
         while not self._stop_event.is_set():
+            # make sure that none of our processes crashed
+            with self._lock:
+                self._list_stream_process.check()
+                for host_id_str, event_process in self._events_processes.items():
+                    event_process.check()
+
+            # see if there are any activity events
             try:
                 host_id_str = self._activity_queue.get(timeout=_ACTIVITY_DEBOUNCE_SECONDS)
             except queue.Empty:
@@ -507,7 +520,6 @@ class AgentObserver(MutableModel):
                     hosts_to_fetch.add(self._activity_queue.get_nowait())
                 except queue.Empty:
                     break
-
             for hid in hosts_to_fetch:
                 if self._stop_event.is_set():
                     break
