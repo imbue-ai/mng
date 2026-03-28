@@ -520,19 +520,21 @@ def test_agent_observer_stop_sets_stop_event(temp_mngr_ctx: MngrContext, noop_bi
     assert observer._stop_event.is_set()
 
 
-def test_agent_observer_on_list_stream_output_ignores_non_stdout(temp_mngr_ctx: MngrContext, noop_binary: str) -> None:
+def test_agent_observer_on_discovery_stream_output_ignores_non_stdout(
+    temp_mngr_ctx: MngrContext, noop_binary: str
+) -> None:
     """Verify that stderr output from the discovery stream is ignored."""
     observer = _make_observer(temp_mngr_ctx, noop_binary)
-    observer._on_list_stream_output("some error message", is_stdout=False)
+    observer._on_discovery_stream_output("some error message", is_stdout=False)
     assert len(observer._known_hosts) == 0
 
 
-def test_agent_observer_on_list_stream_output_ignores_invalid_json(
+def test_agent_observer_on_discovery_stream_output_ignores_invalid_json(
     temp_mngr_ctx: MngrContext, noop_binary: str
 ) -> None:
     """Verify that invalid JSON lines from the discovery stream are gracefully ignored."""
     observer = _make_observer(temp_mngr_ctx, noop_binary)
-    observer._on_list_stream_output("not valid json at all", is_stdout=True)
+    observer._on_discovery_stream_output("not valid json at all", is_stdout=True)
     assert len(observer._known_hosts) == 0
 
 

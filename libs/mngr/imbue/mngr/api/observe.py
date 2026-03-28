@@ -343,7 +343,7 @@ class AgentObserver(MutableModel):
 
     _concurrency_group: ConcurrencyGroup = PrivateAttr(default_factory=lambda: ConcurrencyGroup(name="agent-observer"))
     _known_hosts: dict[str, _KnownHost] = PrivateAttr(default_factory=dict)
-    _list_stream_process: RunningProcess = PrivateAttr(default_factory=dict)
+    _discovery_stream_process: RunningProcess = PrivateAttr(default_factory=dict)
     _events_processes: dict[str, RunningProcess] = PrivateAttr(default_factory=dict)
     _last_tracked_state_by_id: dict[str, _TrackedState] = PrivateAttr(default_factory=dict)
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
@@ -367,7 +367,7 @@ class AgentObserver(MutableModel):
 
             # Phase 2: start host discovery stream
             with log_span("Starting host discovery stream"):
-                self._start_list_stream()
+                self._start_discovery_stream()
 
             # Phase 3: start the activity worker thread
             activity_worker = self._concurrency_group.start_new_thread(
@@ -402,14 +402,14 @@ class AgentObserver(MutableModel):
         """Signal the observer to stop."""
         self._stop_event.set()
 
-    def _start_list_stream(self) -> None:
+    def _start_discovery_stream(self) -> None:
         """Start the 'mngr observe --discovery-only' subprocess for host discovery."""
-        self._list_stream_process = self._concurrency_group.run_process_in_background(
+        self._discovery_stream_process = self._concurrency_group.run_process_in_background(
             command=[self.mngr_binary, "observe", "--discovery-only", "--quiet"],
-            on_output=self._on_list_stream_output,
+            on_output=self._on_discovery_stream_output,
         )
 
-    def _on_list_stream_output(self, line: str, is_stdout: bool) -> None:
+    def _on_discovery_stream_output(self, line: str, is_stdout: bool) -> None:
         """Handle a line of output from 'mngr observe --discovery-only'."""
         if not is_stdout:
             return
@@ -502,7 +502,7 @@ class AgentObserver(MutableModel):
         while not self._stop_event.is_set():
             # make sure that none of our processes crashed
             with self._lock:
-                self._list_stream_process.check()
+                self._discovery_stream_process.check()
                 for _host_id_str, event_process in self._events_processes.items():
                     event_process.check()
 
