@@ -262,15 +262,10 @@ def _build_settings_json_content(
 
     Uses the local file as a base when sync_local is True and the file exists,
     otherwise uses generated defaults. Forces skipDangerousModePermissionPrompt=True
-    and disables fastMode from local settings (not supported via the API on
-    remote hosts) unless explicitly enabled via config.
     """
     local_path = Path.home() / ".claude" / "settings.json"
     if sync_local and local_path.exists():
         data: dict[str, Any] = json.loads(local_path.read_text())
-        if not is_fast and data.get("fastMode") is True:
-            logger.warning("Disabling fast mode for remote deployment because it is not yet supported via the API")
-            data["fastMode"] = False
     else:
         data = _generate_claude_home_settings()
     if model is not None:
@@ -675,10 +670,7 @@ def _apply_settings_json_overrides(
     except FileNotFoundError:
         content = None
     else:
-        try:
-            data = json.loads(content)
-        except json.JSONDecodeError:
-            logger.warning("Existing settings.json at {} is corrupt; replacing with overrides only", settings_path)
+        data = json.loads(content)
 
     if config.model is not None:
         data["model"] = config.model
