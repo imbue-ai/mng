@@ -101,6 +101,9 @@ def _add_events_self_filter(doc: tomlkit.TOMLDocument, agent_id: AgentId) -> Non
     new_filter = _build_events_self_filter(agent_id)
     existing_filter = events_table.get("filter")
 
+    if existing_filter is not None and new_filter in existing_filter:
+        return
+
     events_table["filter"] = _merge_events_filter(existing_filter, new_filter)
 
 
