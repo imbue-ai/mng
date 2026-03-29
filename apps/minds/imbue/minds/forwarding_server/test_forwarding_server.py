@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.minds.config.data_types import MindPaths
 from imbue.minds.forwarding_server.agent_creator import AgentCreator
 from imbue.minds.forwarding_server.app import create_forwarding_server
@@ -778,7 +779,7 @@ def _setup_failing_tunnel_server(
         auth_store=auth_store,
         backend_resolver=backend_resolver,
         http_client=None,
-        tunnel_manager=_FailingTunnelManager(),
+        tunnel_manager=_FailingTunnelManager(concurrency_group=ConcurrencyGroup(name="test")),
     )
     client = TestClient(app)
     _authenticate_client(client=client, auth_store=auth_store)
@@ -1010,8 +1011,11 @@ def _create_test_server_with_agent_creator(
     The returned client is already authenticated with a global session.
     """
     backend_resolver = StaticBackendResolver(url_by_agent_and_server={})
+    cg = ConcurrencyGroup(name="test")
+    cg.__enter__()
     agent_creator = AgentCreator(
         paths=MindPaths(data_dir=tmp_path / "minds"),
+        concurrency_group=cg,
     )
     client, auth_store = _create_test_forwarding_server(
         tmp_path=tmp_path,

@@ -7,6 +7,7 @@ import paramiko
 import pytest
 from pydantic import ValidationError
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.minds.forwarding_server.ssh_tunnel import RemoteSSHInfo
 from imbue.minds.forwarding_server.ssh_tunnel import SSHTunnelError
 from imbue.minds.forwarding_server.ssh_tunnel import SSHTunnelManager
@@ -162,13 +163,15 @@ def test_parse_url_host_port_handles_localhost() -> None:
 
 def test_tunnel_manager_cleanup_without_tunnels() -> None:
     """Cleanup should work even when no tunnels have been created."""
-    manager = SSHTunnelManager()
+    cg = ConcurrencyGroup(name="test")
+    manager = SSHTunnelManager(concurrency_group=cg)
     manager.cleanup()
 
 
 def test_tunnel_manager_get_tmpdir_creates_secure_directory() -> None:
     """The temporary directory should have 0o700 permissions."""
-    manager = SSHTunnelManager()
+    cg = ConcurrencyGroup(name="test")
+    manager = SSHTunnelManager(concurrency_group=cg)
     try:
         tmpdir = manager._get_tmpdir()
         assert tmpdir.exists()
@@ -180,7 +183,8 @@ def test_tunnel_manager_get_tmpdir_creates_secure_directory() -> None:
 
 def test_tunnel_manager_get_tmpdir_returns_same_path() -> None:
     """Multiple calls to _get_tmpdir return the same directory."""
-    manager = SSHTunnelManager()
+    cg = ConcurrencyGroup(name="test")
+    manager = SSHTunnelManager(concurrency_group=cg)
     try:
         dir1 = manager._get_tmpdir()
         dir2 = manager._get_tmpdir()
@@ -258,29 +262,31 @@ def test_tunnel_accept_loop_forwards_connections(short_tmp_path: Path) -> None:
     fake_channel = FakeChannelFromSocket.create(channel_local)
     fake_transport.channel_to_return = fake_channel
 
-    accept_thread = threading.Thread(
-        target=_tunnel_accept_loop,
-        args=(sock_path, fake_transport, "127.0.0.1", 9100, shutdown_event),
-        daemon=True,
-    )
-    accept_thread.start()
+    cg = ConcurrencyGroup(name="test")
+    with cg:
+        accept_thread = threading.Thread(
+            target=_tunnel_accept_loop,
+            args=(sock_path, fake_transport, "127.0.0.1", 9100, shutdown_event, cg),
+            daemon=True,
+        )
+        accept_thread.start()
 
-    client = _connect_with_retry(sock_path, timeout=10.0)
-    client.settimeout(3.0)
-    channel_remote.settimeout(3.0)
+        client = _connect_with_retry(sock_path, timeout=10.0)
+        client.settimeout(3.0)
+        channel_remote.settimeout(3.0)
 
-    client.sendall(b"test request")
-    data = channel_remote.recv(4096)
-    assert data == b"test request"
+        client.sendall(b"test request")
+        data = channel_remote.recv(4096)
+        assert data == b"test request"
 
-    channel_remote.sendall(b"test response")
-    response = client.recv(4096)
-    assert response == b"test response"
+        channel_remote.sendall(b"test response")
+        response = client.recv(4096)
+        assert response == b"test response"
 
-    client.close()
-    channel_remote.close()
-    shutdown_event.set()
-    accept_thread.join(timeout=5.0)
+        client.close()
+        channel_remote.close()
+        shutdown_event.set()
+        accept_thread.join(timeout=5.0)
 
 
 def test_tunnel_accept_loop_handles_channel_open_failure(short_tmp_path: Path) -> None:
@@ -291,25 +297,27 @@ def test_tunnel_accept_loop_handles_channel_open_failure(short_tmp_path: Path) -
     fake_transport = FakeParamikoTransport.create()
     fake_transport.channel_error = paramiko.SSHException("Channel denied")
 
-    accept_thread = threading.Thread(
-        target=_tunnel_accept_loop,
-        args=(sock_path, fake_transport, "127.0.0.1", 9100, shutdown_event),
-        daemon=True,
-    )
-    accept_thread.start()
+    cg = ConcurrencyGroup(name="test")
+    with cg:
+        accept_thread = threading.Thread(
+            target=_tunnel_accept_loop,
+            args=(sock_path, fake_transport, "127.0.0.1", 9100, shutdown_event, cg),
+            daemon=True,
+        )
+        accept_thread.start()
 
-    client = _connect_with_retry(sock_path, timeout=10.0)
-    client.settimeout(3.0)
+        client = _connect_with_retry(sock_path, timeout=10.0)
+        client.settimeout(3.0)
 
-    try:
-        data = client.recv(4096)
-        assert data == b""
-    except socket.timeout:
-        pass
+        try:
+            data = client.recv(4096)
+            assert data == b""
+        except socket.timeout:
+            pass
 
-    client.close()
-    shutdown_event.set()
-    accept_thread.join(timeout=3.0)
+        client.close()
+        shutdown_event.set()
+        accept_thread.join(timeout=3.0)
 
 
 def test_tunnel_accept_loop_shutdown_event_stops_loop(short_tmp_path: Path) -> None:
@@ -319,15 +327,17 @@ def test_tunnel_accept_loop_shutdown_event_stops_loop(short_tmp_path: Path) -> N
 
     fake_transport = FakeParamikoTransport.create()
 
-    accept_thread = threading.Thread(
-        target=_tunnel_accept_loop,
-        args=(sock_path, fake_transport, "127.0.0.1", 9100, shutdown_event),
-        daemon=True,
-    )
-    accept_thread.start()
+    cg = ConcurrencyGroup(name="test")
+    with cg:
+        accept_thread = threading.Thread(
+            target=_tunnel_accept_loop,
+            args=(sock_path, fake_transport, "127.0.0.1", 9100, shutdown_event, cg),
+            daemon=True,
+        )
+        accept_thread.start()
 
-    _wait_for_socket(sock_path, timeout=10.0)
+        _wait_for_socket(sock_path, timeout=10.0)
 
-    shutdown_event.set()
-    accept_thread.join(timeout=3.0)
-    assert not accept_thread.is_alive()
+        shutdown_event.set()
+        accept_thread.join(timeout=3.0)
+        assert not accept_thread.is_alive()

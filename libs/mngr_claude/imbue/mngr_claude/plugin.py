@@ -670,7 +670,7 @@ def _apply_settings_json_overrides(
     try:
         content = host.read_text_file(settings_path)
     except FileNotFoundError:
-        content = None
+        pass
     else:
         try:
             data = json.loads(content)

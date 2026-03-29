@@ -216,6 +216,11 @@ def test_prevent_direct_subprocess_usage() -> None:
     rc.check_direct_subprocess(_DIR, snapshot(23), excluded_patterns=excluded)
 
 
+def test_prevent_threading_thread() -> None:
+    excluded = TEST_FILE_PATTERNS + ("testing.py", "conftest.py")
+    rc.check_threading_thread(_DIR, snapshot(0), excluded_patterns=excluded)
+
+
 # --- AST-based ratchets ---
 
 

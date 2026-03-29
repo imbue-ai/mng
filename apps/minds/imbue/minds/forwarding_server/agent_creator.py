@@ -279,6 +279,10 @@ class AgentCreator(MutableModel):
     """
 
     paths: MindPaths = Field(frozen=True, description="Filesystem paths for minds data")
+    concurrency_group: ConcurrencyGroup = Field(
+        frozen=True,
+        description="Concurrency group for managing background threads",
+    )
     pass_env: tuple[str, ...] = Field(
         default=_DEFAULT_PASS_ENV,
         frozen=True,
@@ -312,13 +316,12 @@ class AgentCreator(MutableModel):
         effective_name = agent_name.strip() if agent_name.strip() else extract_repo_name(git_url)
         effective_branch = branch.strip()
 
-        thread = threading.Thread(
+        self.concurrency_group.start_new_thread(
             target=self._create_agent_background,
             args=(agent_id, git_url, effective_name, effective_branch, log_queue, launch_mode),
-            daemon=True,
             name="agent-creator-{}".format(agent_id),
+            on_failure=lambda e: logger.error("Agent creation thread failed for {}: {}", agent_id, e),
         )
-        thread.start()
         return agent_id
 
     def get_creation_info(self, agent_id: AgentId) -> AgentCreationInfo | None:

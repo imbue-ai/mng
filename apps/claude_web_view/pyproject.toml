@@ -5,6 +5,7 @@ description = "Web viewer for Claude Code sessions"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "concurrency-group",
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
     "watchfiles>=0.21.0",
@@ -23,6 +24,9 @@ packages = ["imbue"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "frontend-dist" = "share/claude_web_view/frontend-dist"
+
+[tool.uv.sources]
+concurrency-group = { workspace = true }
 
 [tool.pyright]
 venvPath = "../.."

@@ -5,6 +5,7 @@ import threading
 from io import TextIOWrapper
 from pathlib import Path
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.skitwright.data_types import CommandResult
 from imbue.skitwright.data_types import OutputLine
 from imbue.skitwright.data_types import OutputSource
@@ -49,21 +50,22 @@ def run_command(
 
     assert proc.stdout is not None
     assert proc.stderr is not None
-    stdout_thread = threading.Thread(target=_read_lines, args=(proc.stdout, OutputSource.STDOUT, output_lines, lock))
-    stderr_thread = threading.Thread(target=_read_lines, args=(proc.stderr, OutputSource.STDERR, output_lines, lock))
-    stdout_thread.start()
-    stderr_thread.start()
 
-    timed_out = False
-    try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait()
+    with ConcurrencyGroup(name=f"run_command({command[:60]})", exit_timeout_seconds=10.0) as cg:
+        cg.start_new_thread(
+            target=_read_lines, args=(proc.stdout, OutputSource.STDOUT, output_lines, lock), is_checked=False
+        )
+        cg.start_new_thread(
+            target=_read_lines, args=(proc.stderr, OutputSource.STDERR, output_lines, lock), is_checked=False
+        )
 
-    stdout_thread.join()
-    stderr_thread.join()
+        timed_out = False
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
 
     frozen_lines = tuple(output_lines)
 

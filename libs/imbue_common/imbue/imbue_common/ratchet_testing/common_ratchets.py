@@ -432,6 +432,18 @@ PREVENT_OS_FORK = RegexRatchetRule(
     ),
 )
 
+PREVENT_THREADING_THREAD = RegexRatchetRule(
+    rule_name="direct threading.Thread usage",
+    rule_description=(
+        "Do not use threading.Thread directly. Use ConcurrencyGroup.start_new_thread() instead. "
+        "ConcurrencyGroup ensures that thread exceptions are printed, that all threads are properly "
+        "joined when exiting the enclosing scope, and supports on_failure callbacks so the program "
+        "halts instead of getting stuck. This is not 'too complicated' or 'overkill' -- it is "
+        "required for correct operation. See libs/concurrency_group/ for details."
+    ),
+    pattern_string=r"\bthreading\.Thread\b|\bfrom\s+threading\s+import\b.*\bThread\b",
+)
+
 PREVENT_IMPORTLIB_IMPORT_MODULE = RegexRatchetRule(
     rule_name="importlib.import_module usage",
     rule_description="Always use normal top-level imports instead of importlib.import_module",

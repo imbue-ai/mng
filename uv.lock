@@ -613,6 +613,7 @@ name = "claude-web-view"
 version = "0.1.0"
 source = { editable = "apps/claude_web_view" }
 dependencies = [
+    { name = "concurrency-group" },
     { name = "fastapi" },
     { name = "pydantic" },
     { name = "uvicorn" },
@@ -621,6 +622,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "concurrency-group", editable = "libs/concurrency_group" },
     { name = "fastapi", specifier = ">=0.104.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
     { name = "uvicorn", specifier = ">=0.24.0" },
@@ -3220,11 +3222,15 @@ name = "skitwright"
 version = "0.1.0"
 source = { editable = "libs/skitwright" }
 dependencies = [
+    { name = "concurrency-group" },
     { name = "imbue-common" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "imbue-common", editable = "libs/imbue_common" }]
+requires-dist = [
+    { name = "concurrency-group", editable = "libs/concurrency_group" },
+    { name = "imbue-common", editable = "libs/imbue_common" },
+]
 
 [[package]]
 name = "slack-exporter"
