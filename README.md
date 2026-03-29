@@ -121,6 +121,11 @@ mngr message agent-1 "Tell me a joke"
 mngr transcript agent-1
 ```
 
+<!--
+# [future] schedule agents to run periodically
+mngr schedule --template my-daily-hook "look at any flaky tests over the past day and try to fix one of them" --cron "0 * * * *"
+-->
+
 **mngr makes it easy to work with remote agents**
 
 ```bash
@@ -139,24 +144,29 @@ Simply run:
     mngr create @.modal -b "--file path/to/Dockerfile"
 ```
 
+<!--
+If you don't have a Dockerfile for your project, run:
+    mngr bootstrap   # [future]
+
+From the repo where you would like a Dockerfile created.
+-->
+
 ## Overview
 
 `mngr` makes it easy to create and use any AI agent (ex: Claude Code, Codex), whether you want to run locally or remotely.
 
-`mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via plugins to enable the latest AI coding workflows.
+`mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via [plugins](libs/mngr/docs/concepts/plugins.md) to enable the latest AI coding workflows.
 
 ![mngr architecture](docs/mngr_style_light.png)
 
 ## Installation
 
-Quick install (installs system dependencies + mngr automatically):
-
+**Quick install** (installs system dependencies + mngr automatically):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
 ```
 
-Manual install (requires uv and system deps: `git`, `tmux`, `jq`, `rsync`, `unison`):
-
+**Manual install** (requires [uv](https://docs.astral.sh/uv/) and system deps: `git`, `tmux`, `jq`, `rsync`, `unison`):
 ```bash
 uv tool install imbue-mngr
 
@@ -164,32 +174,29 @@ uv tool install imbue-mngr
 uvx --from imbue-mngr mngr
 ```
 
-Upgrade:
-
+**Upgrade:**
 ```bash
 uv tool upgrade imbue-mngr
 ```
 
-For development:
-
+**For development:**
 ```bash
 git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mngr
 ```
 
 ## Shell Completion
 
-`mngr` supports tab completion for commands, options, and agent names in bash and zsh. Shell completion is configured automatically by the install script (`scripts/install.sh`).
+`mngr` supports tab completion for commands, options, and agent names in bash and zsh.
+Shell completion is configured automatically by the install script (`scripts/install.sh`).
 
 To set up manually, generate the completion script and append it to your shell rc file:
 
-Zsh (run once):
-
+**Zsh** (run once):
 ```bash
 uv tool run --from imbue-mngr python3 -m imbue.mngr.cli.complete --script zsh >> ~/.zshrc
 ```
 
-Bash (run once):
-
+**Bash** (run once):
 ```bash
 uv tool run --from imbue-mngr python3 -m imbue.mngr.cli.complete --script bash >> ~/.bashrc
 ```
@@ -206,25 +213,106 @@ uvx --from imbue-mngr mngr <command> [options]
 mngr <command> [options]
 ```
 
+### For managing agents:
+
+- **[`create`](libs/mngr/docs/commands/primary/create.md)**: Create and run an agent in a host
+- [`destroy`](libs/mngr/docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
+- [`connect`](libs/mngr/docs/commands/primary/connect.md): Attach to an agent
+<!-- - [`open`](libs/mngr/docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser -->
+- [`list`](libs/mngr/docs/commands/primary/list.md): List active agents
+- [`stop`](libs/mngr/docs/commands/primary/stop.md): Stop an agent
+- [`start`](libs/mngr/docs/commands/primary/start.md): Start a stopped agent
+- [`snapshot`](libs/mngr/docs/commands/secondary/snapshot.md) [experimental]: Create a snapshot of a host's state
+- [`exec`](libs/mngr/docs/commands/primary/exec.md): Execute a shell command on an agent's host
+- [`rename`](libs/mngr/docs/commands/primary/rename.md): Rename an agent
+- [`clone`](libs/mngr/docs/commands/aliases/clone.md): Create a copy of an existing agent
+- [`migrate`](libs/mngr/docs/commands/aliases/migrate.md): Move an agent to a different host
+- [`limit`](libs/mngr/docs/commands/secondary/limit.md): Configure limits for agents and hosts
+
+### For moving data in and out:
+
+- [`pull`](libs/mngr/docs/commands/primary/pull.md): Pull data from agent
+- [`push`](libs/mngr/docs/commands/primary/push.md): Push data to agent
+- [`pair`](libs/mngr/docs/commands/primary/pair.md): Continually sync data with an agent
+- [`message`](libs/mngr/docs/commands/secondary/message.md): Send a message to an agent
+- [`transcript`](libs/mngr/docs/commands/secondary/transcript.md): View the message transcript for an agent
+- [`provision`](libs/mngr/docs/commands/secondary/provision.md): Re-run provisioning on an agent (useful for syncing config and auth)
+
+### For maintenance:
+
+- [`cleanup`](libs/mngr/docs/commands/secondary/cleanup.md): Clean up stopped agents and unused resources
+- [`events`](libs/mngr/docs/commands/secondary/events.md): View agent and host event files
+- [`gc`](libs/mngr/docs/commands/secondary/gc.md): Garbage collect unused resources
+
+### For managing mngr itself:
+
+- [`ask`](libs/mngr/docs/commands/secondary/ask.md): Chat with mngr for help
+- [`plugin`](libs/mngr/docs/commands/secondary/plugin.md) [experimental]: Manage mngr plugins
+- [`config`](libs/mngr/docs/commands/secondary/config.md): View and edit mngr configuration
+
+## How it works
+
+You can interact with `mngr` via the terminal (run `mngr --help` to learn more).
+<!-- You can also interact via one of many [web interfaces](web_interfaces.md) [future] (ex: [TheEye](http://ididntmakethisyet.com)) -->
+
+`mngr` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
+
+- **[agents](libs/mngr/docs/concepts/agents.md)** are simply processes that run in [tmux](https://github.com/tmux/tmux/wiki) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
+- [agents](libs/mngr/docs/concepts/agents.md) run on **[hosts](libs/mngr/docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal](https://modal.com) [Sandboxes](https://modal.com/docs/guide/sandboxes) (`--provider modal`) or [Docker](https://www.docker.com) [containers](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/) (`--provider docker`).  Use the `agent@host` address syntax to target an existing host.
+- multiple [agents](libs/mngr/docs/concepts/agents.md) can share a single [host](libs/mngr/docs/concepts/hosts.md).
+- [hosts](libs/mngr/docs/concepts/hosts.md) come from **[providers](libs/mngr/docs/concepts/providers.md)** (ex: Modal, AWS, docker, etc)
+- [hosts](libs/mngr/docs/concepts/hosts.md) help save money by automatically "pausing" when all of their [agents](libs/mngr/docs/concepts/agents.md) are "idle". See [idle detection](libs/mngr/docs/concepts/idle_detection.md) for more details.
+- [hosts](libs/mngr/docs/concepts/hosts.md) automatically "stop" when all of their [agents](libs/mngr/docs/concepts/agents.md) are "stopped"
+- `mngr` is extensible via **[plugins](libs/mngr/docs/concepts/plugins.md)**--you can add new agent types, provider backends, CLI commands, and lifecycle hooks
+<!-- - `mngr` is absurdly extensible--there are existing **[plugins](libs/mngr/docs/concepts/plugins.md)** for almost everything, and `mngr` can even [dynamically generate new plugins](libs/mngr/docs/commands/secondary/plugin.md#mngr-plugin-generate) [future] -->
+
+### Architecture
+
+`mngr` stores very little state (beyond configuration and local caches for performance), and instead relies on conventions:
+
+- any process running in window 0 of a `mngr-` prefixed tmux sessions is considered an agent
+- agents store their status and logs in a standard location (default: `$MNGR_HOST_DIR/agents/<agent_id>/`)
+- all hosts are accessed via SSH--if you can SSH into it, it can be a host
+- ...[and more](libs/mngr/docs/conventions.md)
+
+See [`architecture.md`](libs/mngr/docs/architecture.md) for an in-depth overview of the `mngr` architecture and design principles.
+
+## Security
+
+**Best practices:**
+1. Use providers with good isolation (like Docker or Modal) when working with agents, especially those that are untrusted.
+2. Follow the "principle of least privilege": only expose the minimal set of API tokens and secrets for each agent, and restrict their access (eg to the network) as much as possible.
+3. Avoid storing sensitive data in agents' filesystems (or encrypt it if necessary).
+
+See our [security model](libs/mngr/docs/security_model.md) for more details.
+
+<!--
+## Learning more
+
+TODO: put a ton of examples and references here!
+-->
+
 ## Sub-projects
 
 This is a monorepo that contains the code for `mngr` here:
 
-- libs/mngr/
+- [libs/mngr/](libs/mngr/README.md)
 
 As well as the code for some plugins that we maintain, including:
 
-- libs/mngr_modal/
-- libs/mngr_claude/
-- libs/mngr_pair/
-- libs/mngr_opencode/
+- [libs/mngr_modal/](libs/mngr_modal/README.md)
+- [libs/mngr_claude/](libs/mngr_claude/README.md)
+- [libs/mngr_pair/](libs/mngr_pair/README.md)
+- [libs/mngr_opencode/](libs/mngr_opencode/README.md)
 
 The repo also contains code for some dependencies and related projects, including:
 
-- libs/concurrency_group: a simple Python library for managing synchronous concurrent primitives (threads and processes) in a way that makes it easy to ensure that they are cleaned up.
-- libs/imbue_common: core libraries that are shared across all of our projects
-- apps/minds: an experimental project around scheduling runs of autonomous agents
+- [libs/concurrency_group](libs/concurrency_group/README.md): a simple Python library for managing synchronous concurrent primitives (threads and processes) in a way that makes it easy to ensure that they are cleaned up.
+- [libs/imbue_common](libs/imbue_common/README.md): core libraries that are shared across all of our projects
+- [apps/minds](apps/minds/README.md): an experimental project around scheduling runs of autonomous agents
+
 
 ## Contributing
 
-Contributions are welcome. See [open issues](https://github.com/imbue-ai/mngr/issues) to find something to work on.
+Contributions are welcome!
+<!-- Please see [`CONTRIBUTING.md`](CONTRIBUTING.md) for guidelines. [future] -->
