@@ -699,9 +699,9 @@ def _provision_background_scripts(
 ) -> None:
     """Write the background task scripts to $MNGR_AGENT_STATE_DIR/commands/.
 
-    Provisions stream_transcript.sh, claude_background_tasks.sh, and
-    common_transcript.sh so they can be launched by the agent's
-    assemble_command at runtime.
+    Provisions stream_transcript.sh, claude_background_tasks.sh,
+    common_transcript.sh, and wait_for_stop_hook.sh so they can be
+    launched by the agent's assemble_command or hooks at runtime.
 
     Note: mngr_log.sh (shared logging library) is provisioned by
     Host.provision_agent() to both host-level and agent-level commands
@@ -712,7 +712,7 @@ def _provision_background_scripts(
 
     # Claude-specific scripts from this plugin's resources
     threads: list[ObservableThread] = []
-    for script_name in ("stream_transcript.sh", "claude_background_tasks.sh", "common_transcript.sh"):
+    for script_name in ("stream_transcript.sh", "claude_background_tasks.sh", "common_transcript.sh", "wait_for_stop_hook.sh"):
         script_content = _load_claude_resource_script(script_name)
         script_path = commands_dir / script_name
         with log_span("Writing {} to agent state dir", script_name):
