@@ -582,6 +582,7 @@ def test_build_readiness_hooks_config_has_session_start_hook() -> None:
         ("PermissionRequest", ["touch", "permissions_waiting"]),
         ("PostToolUse", ["rm", "permissions_waiting"]),
         ("PostToolUseFailure", ["rm", "permissions_waiting"]),
+        ("Stop", ["wait_for_stop_hook.sh"]),
     ],
 )
 def test_build_readiness_hooks_config_has_hook(hook_name: str, expected_substrings: list[str]) -> None:
