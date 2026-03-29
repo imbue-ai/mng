@@ -6,16 +6,45 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
 [![Open Issues](https://img.shields.io/github/issues/imbue-ai/mngr?style=flat-square)](https://github.com/imbue-ai/mngr/issues)
 
-**Spin up isolated AI coding agents
+Spin up isolated AI coding agents
+
 *Built on SSH, git, and tmux. Extensible via plugins. No managed service required.*
 
-> **Why mngr?** Most agent tooling is a managed cloud: opaque infrastructure, per-seat pricing, hard to script. mngr takes the opposite approach — agents run in isolated containers you own, over SSH you can inspect, on compute that shuts down when idle. It's built on primitives you already know (SSH, git, tmux, docker) and extensible via plugins for anything you need on top.
+> **Why mngr?** Most agent tooling is a managed cloud: opaque infrastructure, per-seat pricing, hard to script. mngr takes the opposite approach. Agents run in isolated containers you own, over SSH you can inspect, on compute that shuts down when idle. It's built on primitives you already know (SSH, git, tmux, docker) and extensible via plugins for anything you need on top.
 
 ---
 
 **installation:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
+```
+
+## Overview
+
+`mngr` makes it easy to create and use any AI agent (ex: Claude Code, Codex), whether you want to run locally or remotely.
+
+`mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via [plugins](libs/mngr/docs/concepts/plugins.md) to enable the latest AI coding workflows.
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#EFF6FF', 'primaryTextColor': '#1E3A5F', 'primaryBorderColor': '#3B82F6', 'lineColor': '#64748B', 'edgeLabelBackground': '#FFFFFF', 'fontSize': '15px'}}}%%
+flowchart LR
+    classDef user fill:#DBEAFE,stroke:#2563EB,stroke-width:2px,color:#1E3A5F,font-weight:bold
+    classDef cli fill:#1E3A5F,stroke:#1E3A5F,stroke-width:2px,color:#FFFFFF,font-weight:bold
+    classDef agent fill:#D1FAE5,stroke:#059669,stroke-width:2px,color:#064E3B
+    classDef host fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#78350F
+    classDef repo fill:#EDE9FE,stroke:#7C3AED,stroke-width:2px,color:#4C1D95
+
+    user([You]):::user
+    cli[mngr CLI]:::cli
+    agent["Agent (Claude · Codex · OpenCode)"]:::agent
+    host["Isolated Host (local · Modal · Docker)"]:::host
+    codebase[(Your Codebase)]:::repo
+
+    user -->|"create / message / exec"| cli
+    cli -->|spawns| agent
+    agent -->|runs in| host
+    host <-->|"git · SSH · rsync"| codebase
+    cli <-->|"connect · transcript · pull"| host
 ```
 
 ## What mngr can do
@@ -70,7 +99,7 @@ user    0m0.955s
 sys     0m0.166s
 ```
 
-**mngr itself is free, *and* the cheapest way to run remote agents (they shut down when idle):**
+**mngr is free, *and* the cheapest way to run remote agents (they shut down when idle):**
 
 ```bash
 mngr create @.modal --no-connect --message "just say 'hello'" --idle-timeout 60 -- --model sonnet
@@ -148,34 +177,6 @@ If you don't have a Dockerfile for your project, run:
 
 From the repo where you would like a Dockerfile created.
 -->
-
-## Overview
-
-`mngr` makes it easy to create and use any AI agent (ex: Claude Code, Codex), whether you want to run locally or remotely.
-
-`mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via [plugins](libs/mngr/docs/concepts/plugins.md) to enable the latest AI coding workflows.
-
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#EFF6FF', 'primaryTextColor': '#1E3A5F', 'primaryBorderColor': '#3B82F6', 'lineColor': '#64748B', 'edgeLabelBackground': '#FFFFFF', 'fontSize': '15px'}}}%%
-flowchart LR
-    classDef user fill:#DBEAFE,stroke:#2563EB,stroke-width:2px,color:#1E3A5F,font-weight:bold
-    classDef cli fill:#1E3A5F,stroke:#1E3A5F,stroke-width:2px,color:#FFFFFF,font-weight:bold
-    classDef agent fill:#D1FAE5,stroke:#059669,stroke-width:2px,color:#064E3B
-    classDef host fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#78350F
-    classDef repo fill:#EDE9FE,stroke:#7C3AED,stroke-width:2px,color:#4C1D95
-
-    user([You]):::user
-    cli[mngr CLI]:::cli
-    agent["Agent (Claude · Codex · OpenCode)"]:::agent
-    host["Isolated Host (local · Modal · Docker)"]:::host
-    codebase[(Your Codebase)]:::repo
-
-    user -->|"create / message / exec"| cli
-    cli -->|spawns| agent
-    agent -->|runs in| host
-    host <-->|"git · SSH · rsync"| codebase
-    cli <-->|"connect · transcript · pull"| host
-```
 
 ## Installation
 
