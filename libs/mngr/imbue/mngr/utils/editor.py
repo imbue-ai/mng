@@ -12,6 +12,8 @@ from typing import Self
 
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.logging import log_span
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.utils.interactive_subprocess import popen_interactive_subprocess
@@ -62,7 +64,8 @@ class EditorSession:
     _result_content: str | None
     _exit_code: int | None
     _exit_callback: Callable[[], None] | None
-    _monitor_thread: threading.Thread | None
+    _monitor_thread: ObservableThread | None
+    _concurrency_group: ConcurrencyGroup | None
     _callback_called: bool
     _read_lock: threading.Lock
     _result_ready: threading.Event
@@ -97,6 +100,7 @@ class EditorSession:
         instance._exit_code = None
         instance._exit_callback = None
         instance._monitor_thread = None
+        instance._concurrency_group = None
         instance._callback_called = False
         instance._read_lock = threading.Lock()
         instance._result_ready = threading.Event()
@@ -130,12 +134,14 @@ class EditorSession:
 
         # Start monitor thread if callback provided
         if on_exit is not None:
-            self._monitor_thread = threading.Thread(
+            self._concurrency_group = ConcurrencyGroup(name="editor-session")
+            self._concurrency_group.__enter__()
+            self._monitor_thread = self._concurrency_group.start_new_thread(
                 target=self._monitor_process,
                 daemon=True,
                 name="editor-monitor",
+                is_checked=False,
             )
-            self._monitor_thread.start()
             logger.trace("Started editor monitor thread")
 
     def _monitor_process(self) -> None:
@@ -282,6 +288,11 @@ class EditorSession:
                     logger.warning("Editor process did not terminate gracefully, killing")
                     self._process.kill()
                     self._process.wait()
+
+        # Clean up the concurrency group
+        if self._concurrency_group is not None:
+            self._concurrency_group.__exit__(None, None, None)
+            self._concurrency_group = None
 
         # Clean up the temp file
         if self.temp_file_path.exists():

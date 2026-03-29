@@ -20,6 +20,8 @@ from pydantic import Field
 from pydantic import model_validator
 from pygtail import Pygtail
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
@@ -702,6 +704,11 @@ def _collect_historical_events(
     return all_events, sources, initial_byte_offsets
 
 
+def _on_tail_thread_failure(e: BaseException, stop_event: threading.Event) -> None:
+    logger.error("Tail thread failed: {}", e)
+    stop_event.set()
+
+
 def _start_tail_threads_for_sources(
     target: EventsTarget,
     sources: Sequence[EventSourceInfo],
@@ -711,9 +718,10 @@ def _start_tail_threads_for_sources(
     cel_exclude_filters: Sequence[Any],
     stop_event: threading.Event,
     offset_dir_path: Path,
-) -> list[threading.Thread]:
+    concurrency_group: ConcurrencyGroup,
+) -> list[ObservableThread]:
     """Start per-source tail threads for all current events.jsonl files."""
-    threads: list[threading.Thread] = []
+    threads: list[ObservableThread] = []
     for source in sources:
         if source.is_current_file_present:
             thread = _start_tail_thread(
@@ -725,6 +733,7 @@ def _start_tail_threads_for_sources(
                 stop_event=stop_event,
                 offset_dir_path=offset_dir_path,
                 initial_byte_offset=initial_byte_offsets.get(source.source_path, 0),
+                concurrency_group=concurrency_group,
             )
             threads.append(thread)
     return threads
@@ -770,63 +779,65 @@ def stream_all_events(
     )
     stop_event = threading.Event()
     event_queue: queue.Queue[EventRecord] = queue.Queue()
-    tail_threads: list[threading.Thread] = []
+    tail_threads: list[ObservableThread] = []
     offset_dir: tempfile.TemporaryDirectory[str] | None = None
 
-    try:
-        # Discover sources and read all historical events
-        all_events, sources, initial_byte_offsets = _collect_historical_events(
-            target, state, cel_include_filters, cel_exclude_filters, source_filters
-        )
-
-        # Start tail threads for follow mode
-        if is_follow:
-            offset_dir = tempfile.TemporaryDirectory(prefix="mngr-events-offsets-")
-            tail_threads = _start_tail_threads_for_sources(
-                target,
-                sources,
-                initial_byte_offsets,
-                event_queue,
-                cel_include_filters,
-                cel_exclude_filters,
-                stop_event,
-                Path(offset_dir.name),
-            )
-
-        # Rotation guard: re-scan for newly rotated files that appeared during startup
-        with log_span("Checking for newly rotated files"):
-            rotation_guard_events = _check_for_new_archived_events(
+    with ConcurrencyGroup(name="stream_all_events", exit_timeout_seconds=6.0) as cg:
+        try:
+            # Discover sources and read all historical events
+            all_events, sources, initial_byte_offsets = _collect_historical_events(
                 target, state, cel_include_filters, cel_exclude_filters, source_filters
             )
-            all_events.extend(rotation_guard_events)
-            all_events = sort_events_by_timestamp(all_events)
 
-        # Emit historical events
-        _emit_historical_events(all_events, state, on_event, head_count, tail_count)
+            # Start tail threads for follow mode
+            if is_follow:
+                offset_dir = tempfile.TemporaryDirectory(prefix="mngr-events-offsets-")
+                tail_threads = _start_tail_threads_for_sources(
+                    target,
+                    sources,
+                    initial_byte_offsets,
+                    event_queue,
+                    cel_include_filters,
+                    cel_exclude_filters,
+                    stop_event,
+                    Path(offset_dir.name),
+                    concurrency_group=cg,
+                )
 
-        if head_count is not None or not is_follow:
-            return
+            # Rotation guard: re-scan for newly rotated files that appeared during startup
+            with log_span("Checking for newly rotated files"):
+                rotation_guard_events = _check_for_new_archived_events(
+                    target, state, cel_include_filters, cel_exclude_filters, source_filters
+                )
+                all_events.extend(rotation_guard_events)
+                all_events = sort_events_by_timestamp(all_events)
 
-        # Follow mode: consume events from queue
-        _consume_event_queue(
-            target_holder=[target],
-            state=state,
-            event_queue=event_queue,
-            on_event=on_event,
-            cel_include_filters=cel_include_filters,
-            cel_exclude_filters=cel_exclude_filters,
-            stop_event=stop_event,
-            tail_threads=tail_threads,
-            offset_dir_path=Path(offset_dir.name) if offset_dir is not None else None,
-            source_filters=source_filters,
-        )
+            # Emit historical events
+            _emit_historical_events(all_events, state, on_event, head_count, tail_count)
 
-    finally:
-        stop_event.set()
-        for thread in tail_threads:
-            thread.join(timeout=5.0)
-        if offset_dir is not None:
-            offset_dir.cleanup()
+            if head_count is not None or not is_follow:
+                return
+
+            # Follow mode: consume events from queue
+            _consume_event_queue(
+                target_holder=[target],
+                state=state,
+                event_queue=event_queue,
+                on_event=on_event,
+                cel_include_filters=cel_include_filters,
+                cel_exclude_filters=cel_exclude_filters,
+                stop_event=stop_event,
+                tail_threads=tail_threads,
+                offset_dir_path=Path(offset_dir.name) if offset_dir is not None else None,
+                source_filters=source_filters,
+                concurrency_group=cg,
+            )
+
+        finally:
+            # Set stop_event BEFORE ConcurrencyGroup exits, so threads can stop before being joined.
+            stop_event.set()
+            if offset_dir is not None:
+                offset_dir.cleanup()
 
 
 def _check_for_new_archived_events(
@@ -877,7 +888,8 @@ def _start_tail_thread(
     stop_event: threading.Event,
     offset_dir_path: Path,
     initial_byte_offset: int,
-) -> threading.Thread:
+    concurrency_group: ConcurrencyGroup,
+) -> ObservableThread:
     """Start a daemon thread that tails a single events.jsonl and pushes events to the queue."""
     is_local = target.online_host is not None and target.online_host.is_local
     if is_local and target.events_path is not None:
@@ -888,7 +900,7 @@ def _start_tail_thread(
         # the historical read left off, avoiding a gap between Phase 1 and Phase 2
         _write_pygtail_offset_file(events_file_path, source_path, offset_dir_path, initial_byte_offset)
 
-        thread = threading.Thread(
+        thread = concurrency_group.start_new_thread(
             target=_tail_source_thread_local,
             args=(
                 events_file_path,
@@ -899,11 +911,13 @@ def _start_tail_thread(
                 stop_event,
                 offset_dir_path,
             ),
+            name=f"tail-local-{source_path}",
             daemon=True,
+            on_failure=lambda e: _on_tail_thread_failure(e, stop_event),
         )
     else:
         # Use polling for remote hosts
-        thread = threading.Thread(
+        thread = concurrency_group.start_new_thread(
             target=_tail_source_thread_remote,
             args=(
                 target,
@@ -914,9 +928,10 @@ def _start_tail_thread(
                 stop_event,
                 initial_byte_offset,
             ),
+            name=f"tail-remote-{source_path}",
             daemon=True,
+            on_failure=lambda e: _on_tail_thread_failure(e, stop_event),
         )
-    thread.start()
     return thread
 
 
@@ -1042,9 +1057,10 @@ def _consume_event_queue(
     cel_include_filters: Sequence[Any],
     cel_exclude_filters: Sequence[Any],
     stop_event: threading.Event,
-    tail_threads: list[threading.Thread],
+    tail_threads: list[ObservableThread],
     offset_dir_path: Path | None,
     source_filters: Sequence[str] = (),
+    concurrency_group: ConcurrencyGroup | None = None,
 ) -> None:
     """Consume events from the queue, periodically re-scanning for new sources and checking online/offline."""
     state.last_source_scan_time = time.monotonic()
@@ -1069,6 +1085,7 @@ def _consume_event_queue(
                     tail_threads=tail_threads,
                     offset_dir_path=offset_dir_path,
                     source_filters=source_filters,
+                    concurrency_group=concurrency_group,
                 )
                 state.last_source_scan_time = now
 
@@ -1083,6 +1100,7 @@ def _consume_event_queue(
                     stop_event=stop_event,
                     tail_threads=tail_threads,
                     offset_dir_path=offset_dir_path,
+                    concurrency_group=concurrency_group,
                 )
                 last_online_check_time = now
 
@@ -1102,9 +1120,10 @@ def _rescan_and_start_new_tail_threads(
     cel_include_filters: Sequence[Any],
     cel_exclude_filters: Sequence[Any],
     stop_event: threading.Event,
-    tail_threads: list[threading.Thread],
+    tail_threads: list[ObservableThread],
     offset_dir_path: Path | None,
     source_filters: Sequence[str] = (),
+    concurrency_group: ConcurrencyGroup | None = None,
 ) -> None:
     """Re-scan for new event source directories and start tail threads for them."""
     try:
@@ -1129,7 +1148,7 @@ def _rescan_and_start_new_tail_threads(
                 event_queue.put(event)
 
         # Start a tail thread for the new source
-        if source.is_current_file_present and offset_dir_path is not None:
+        if source.is_current_file_present and offset_dir_path is not None and concurrency_group is not None:
             thread = _start_tail_thread(
                 target=target,
                 source_path=source.source_path,
@@ -1139,6 +1158,7 @@ def _rescan_and_start_new_tail_threads(
                 stop_event=stop_event,
                 offset_dir_path=offset_dir_path,
                 initial_byte_offset=byte_offsets.get(source.source_path, 0),
+                concurrency_group=concurrency_group,
             )
             tail_threads.append(thread)
 
@@ -1175,8 +1195,9 @@ def _handle_online_offline_transition(
     cel_include_filters: Sequence[Any],
     cel_exclude_filters: Sequence[Any],
     stop_event: threading.Event,
-    tail_threads: list[threading.Thread],
+    tail_threads: list[ObservableThread],
     offset_dir_path: Path | None,
+    concurrency_group: ConcurrencyGroup | None = None,
 ) -> None:
     """Check for online/offline transitions and restart tail threads if needed.
 
@@ -1215,7 +1236,7 @@ def _handle_online_offline_transition(
     stop_event.clear()
 
     # Restart tail threads for all known sources with the new target
-    if offset_dir_path is not None:
+    if offset_dir_path is not None and concurrency_group is not None:
         for source_path in state.known_source_paths:
             thread = _start_tail_thread(
                 target=new_target,
@@ -1226,5 +1247,6 @@ def _handle_online_offline_transition(
                 stop_event=stop_event,
                 offset_dir_path=offset_dir_path,
                 initial_byte_offset=0,
+                concurrency_group=concurrency_group,
             )
             tail_threads.append(thread)

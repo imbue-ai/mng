@@ -22,6 +22,8 @@ from fasthtml.common import fast_app
 from loguru import logger
 from pydantic import Field
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.sculptor_web.data_types import AgentDisplayInfo
@@ -45,7 +47,8 @@ class AgentListState(MutableModel):
 
 # Global state for the agent list
 _agent_list_state = AgentListState()
-_poll_thread: threading.Thread | None = None
+_poll_thread: ObservableThread | None = None
+_concurrency_group: ConcurrencyGroup | None = None
 _stop_event = threading.Event()
 
 
@@ -146,22 +149,28 @@ def _poll_agents_loop() -> None:
 
 def _start_polling() -> None:
     """Start the background polling thread."""
-    global _poll_thread
+    global _poll_thread, _concurrency_group
     if _poll_thread is not None and _poll_thread.is_alive():
         return
 
     _stop_event.clear()
-    _poll_thread = threading.Thread(target=_poll_agents_loop, daemon=True)
-    _poll_thread.start()
+    _concurrency_group = ConcurrencyGroup(name="sculptor_web_polling", exit_timeout_seconds=10.0)
+    _concurrency_group.__enter__()
+    _poll_thread = _concurrency_group.start_new_thread(
+        target=_poll_agents_loop, daemon=True, is_checked=False
+    )
 
 
 def _stop_polling() -> None:
     """Stop the background polling thread."""
-    global _poll_thread
+    global _poll_thread, _concurrency_group
     _stop_event.set()
     if _poll_thread is not None:
         _poll_thread.join(timeout=5.0)
         _poll_thread = None
+    if _concurrency_group is not None:
+        _concurrency_group.__exit__(None, None, None)
+        _concurrency_group = None
 
 
 # === FastHTML App ===

@@ -13,6 +13,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_CAST_USAG
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_CLICK_ECHO
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_DATACLASSES_IMPORT
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_DIRECT_SUBPROCESS
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_THREADING_THREAD
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EVAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EXEC
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FSTRING_LOGGING
@@ -261,6 +262,15 @@ def check_pytest_mark_integration(source_dir: Path, max_count: int) -> None:
 
 def check_os_fork(source_dir: Path, max_count: int) -> None:
     assert_ratchet(PREVENT_OS_FORK, source_dir, max_count)
+
+
+def check_threading_thread(
+    source_dir: Path,
+    max_count: int,
+    excluded_patterns: tuple[str, ...] = TEST_FILE_PATTERNS,
+) -> None:
+    chunks = check_ratchet_rule(PREVENT_THREADING_THREAD, source_dir, excluded_patterns)
+    assert len(chunks) <= max_count, PREVENT_THREADING_THREAD.format_failure(chunks)
 
 
 def check_direct_subprocess(

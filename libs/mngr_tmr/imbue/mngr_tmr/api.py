@@ -7,7 +7,6 @@ test, poll for completion, gather results, and pull code changes.
 import json
 import secrets
 import shutil
-import threading
 import time
 from pathlib import Path
 
@@ -104,13 +103,15 @@ def try_list_agents(mngr_ctx: MngrContext) -> ListResult | None:
     result_holder: list[ListResult | None] = [None]
     error_holder: list[Exception | None] = [None]
 
-    thread = threading.Thread(
-        target=_list_agents_thread_target,
-        args=(mngr_ctx, result_holder, error_holder),
-        daemon=True,
-    )
-    thread.start()
-    thread.join(timeout=_LIST_AGENTS_TIMEOUT_SECONDS)
+    cg = ConcurrencyGroup(name="try_list_agents", exit_timeout_seconds=_LIST_AGENTS_TIMEOUT_SECONDS + 5.0)
+    with cg:
+        thread = cg.start_new_thread(
+            target=_list_agents_thread_target,
+            args=(mngr_ctx, result_holder, error_holder),
+            daemon=True,
+            is_checked=False,
+        )
+        thread.join(timeout=_LIST_AGENTS_TIMEOUT_SECONDS)
 
     if thread.is_alive():
         logger.warning("list_agents timed out after {:.0f}s (will retry next cycle)", _LIST_AGENTS_TIMEOUT_SECONDS)

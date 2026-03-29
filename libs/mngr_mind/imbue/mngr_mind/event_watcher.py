@@ -51,6 +51,7 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr_recursive.watcher_common import DEFAULT_CEL_FILTER
 from imbue.mngr_recursive.watcher_common import MngrNotInstalledError
 from imbue.mngr_recursive.watcher_common import get_mngr_command
@@ -1641,6 +1642,11 @@ def _run_delivery_loop(
                 has_notified_user = True
 
 
+def _on_thread_failure(e: BaseException, stop_event: threading.Event) -> None:
+    logger.error("Event watcher thread failed: {}", e)
+    stop_event.set()
+
+
 # -- Main --
 
 
@@ -1728,93 +1734,94 @@ def main(
     mind_state_dir = agent_state_dir / "mind"
     mind_state_dir.mkdir(parents=True, exist_ok=True)
 
-    # Start the synthetic events thread (idle, scheduled, onboarding)
-    synthetic_thread = threading.Thread(
-        target=_run_synthetic_events_loop,
-        kwargs={
-            "settings": settings,
-            "event_buffer": event_buffer,
-            "buffer_lock": buffer_lock,
-            "stop_event": stop_event,
-            "last_real_event_monotonic": last_real_event_monotonic,
-            "mind_state_dir": mind_state_dir,
-            "agent_id": agent_id,
-            "last_delivery_monotonic": last_delivery_monotonic,
-            "last_non_messages_event_monotonic": last_non_messages_event_monotonic,
-        },
-        daemon=True,
-    )
-    synthetic_thread.start()
+    with ConcurrencyGroup(name="event_watcher", exit_timeout_seconds=6.0) as cg:
+        # Start the synthetic events thread (idle, scheduled, onboarding)
+        cg.start_new_thread(
+            target=_run_synthetic_events_loop,
+            kwargs={
+                "settings": settings,
+                "event_buffer": event_buffer,
+                "buffer_lock": buffer_lock,
+                "stop_event": stop_event,
+                "last_real_event_monotonic": last_real_event_monotonic,
+                "mind_state_dir": mind_state_dir,
+                "agent_id": agent_id,
+                "last_delivery_monotonic": last_delivery_monotonic,
+                "last_non_messages_event_monotonic": last_non_messages_event_monotonic,
+            },
+            name="synthetic_events",
+            on_failure=lambda e: _on_thread_failure(e, stop_event),
+        )
 
-    # Start the long-lived delivery thread
-    delivery_thread = threading.Thread(
-        target=_run_delivery_loop,
-        args=(
-            settings,
-            agent_id,
-            state_file,
-            events_dir,
-            event_buffer,
-            buffer_lock,
-            stop_event,
-            event_batches_dir,
-            event_lists_dir,
-            ignored_sources_state,
-            send_message,
-            last_delivery_monotonic,
-        ),
-        daemon=True,
-    )
-    delivery_thread.start()
+        # Start the long-lived delivery thread
+        cg.start_new_thread(
+            target=_run_delivery_loop,
+            args=(
+                settings,
+                agent_id,
+                state_file,
+                events_dir,
+                event_buffer,
+                buffer_lock,
+                stop_event,
+                event_batches_dir,
+                event_lists_dir,
+                ignored_sources_state,
+                send_message,
+                last_delivery_monotonic,
+            ),
+            name="delivery",
+            on_failure=lambda e: _on_thread_failure(e, stop_event),
+        )
 
-    try:
-        while not stop_event.is_set():
-            active_process = start_subprocess(agent_id, settings.cel_filter)
+        try:
+            while not stop_event.is_set():
+                active_process = start_subprocess(agent_id, settings.cel_filter)
 
-            # Reader thread feeds subprocess stdout into the shared buffer
-            reader_thread = threading.Thread(
-                target=_read_events_from_subprocess,
-                args=(
-                    active_process,
-                    event_buffer,
-                    buffer_lock,
-                    stop_event,
-                    last_real_event_monotonic,
-                    last_non_messages_event_monotonic,
-                ),
-                daemon=True,
-            )
-            reader_thread.start()
+                # Reader thread feeds subprocess stdout into the shared buffer
+                cg.start_new_thread(
+                    target=_read_events_from_subprocess,
+                    args=(
+                        active_process,
+                        event_buffer,
+                        buffer_lock,
+                        stop_event,
+                        last_real_event_monotonic,
+                        last_non_messages_event_monotonic,
+                    ),
+                    name="reader",
+                    on_failure=lambda e: _on_thread_failure(e, stop_event),
+                )
 
-            # Stderr drain thread
-            stderr_thread = threading.Thread(
-                target=_drain_stderr,
-                args=(active_process, stop_event),
-                daemon=True,
-            )
-            stderr_thread.start()
+                # Stderr drain thread
+                cg.start_new_thread(
+                    target=_drain_stderr,
+                    args=(active_process, stop_event),
+                    name="stderr_drain",
+                    on_failure=lambda e: _on_thread_failure(e, stop_event),
+                )
 
-            # Wait for subprocess to exit
-            active_process.wait()
-            logger.warning("mngr events subprocess exited with code {}", active_process.returncode)
-            active_process = None
+                # Wait for subprocess to exit
+                active_process.wait()
+                logger.warning("mngr events subprocess exited with code {}", active_process.returncode)
+                active_process = None
 
-            if stop_event.is_set():
-                break
+                if stop_event.is_set():
+                    break
 
-            logger.info("Restarting events subprocess in {}s", subprocess_restart_delay_seconds)
-            stop_event.wait(timeout=subprocess_restart_delay_seconds)
+                logger.info("Restarting events subprocess in {}s", subprocess_restart_delay_seconds)
+                stop_event.wait(timeout=subprocess_restart_delay_seconds)
 
-    except KeyboardInterrupt:
-        logger.info("Event watcher stopping (KeyboardInterrupt)")
-    finally:
-        stop_event.set()
-        if active_process is not None and active_process.poll() is None:
-            active_process.terminate()
-            try:
-                active_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                active_process.kill()
+        except KeyboardInterrupt:
+            logger.info("Event watcher stopping (KeyboardInterrupt)")
+        finally:
+            stop_event.set()
+            if active_process is not None and active_process.poll() is None:
+                active_process.terminate()
+                try:
+                    active_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    active_process.kill()
 
 
 if __name__ == "__main__":

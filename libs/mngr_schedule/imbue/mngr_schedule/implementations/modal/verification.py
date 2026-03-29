@@ -222,75 +222,76 @@ def verify_schedule_deployment(
     error_lines: list[str] = []
     agent_name_holder: list[str] = []
 
-    log_thread = threading.Thread(
-        target=_stream_process_output,
-        args=(process, error_event, error_lines, agent_name_holder, trigger_name),
-        daemon=True,
-    )
-    log_thread.start()
+    with ConcurrencyGroup(name=f"verify_schedule_deployment({trigger_name})", exit_timeout_seconds=10.0) as cg:
+        log_thread = cg.start_new_thread(
+            target=_stream_process_output,
+            args=(process, error_event, error_lines, agent_name_holder, trigger_name),
+            daemon=True,
+            is_checked=False,
+        )
 
-    try:
-        exit_code = process.wait(timeout=process_timeout_seconds)
+        try:
+            exit_code = process.wait(timeout=process_timeout_seconds)
 
-        # Wait for the log thread to finish processing remaining buffered output
-        # so that agent_name_holder is fully populated before we read it.
-        log_thread.join(timeout=5.0)
+            # Wait for the log thread to finish processing remaining buffered output
+            # so that agent_name_holder is fully populated before we read it.
+            log_thread.join(timeout=5.0)
 
-        extracted_agent_name = agent_name_holder[0] if agent_name_holder else None
+            extracted_agent_name = agent_name_holder[0] if agent_name_holder else None
 
-        if error_event.is_set():
-            if extracted_agent_name is not None:
-                _destroy_agent(extracted_agent_name)
-            error_detail = "\n".join(error_lines) if error_lines else "See output above"
-            raise ScheduleDeployError(
-                f"Error detected during deployment verification of schedule '{trigger_name}':\n{error_detail}"
-            )
-
-        if exit_code != 0:
-            if extracted_agent_name is not None:
-                _destroy_agent(extracted_agent_name)
-            raise ScheduleDeployError(
-                f"Deployment verification of schedule '{trigger_name}' failed "
-                f"(modal run exited with code {exit_code}). See output above for details."
-            )
-
-        logger.info("modal run completed successfully for schedule '{}'", trigger_name)
-
-        if is_finish_initial_run:
-            if extracted_agent_name is not None:
-                agent = _resolve_agent(extracted_agent_name, mngr_ctx)
-                _wait_for_agent_to_finish(agent)
-            else:
-                logger.warning(
-                    "Could not extract agent name from output -- cannot wait for agent to finish. "
-                    "The agent may still be running."
-                )
-        else:
-            if extracted_agent_name is not None:
-                _destroy_agent(extracted_agent_name)
-            else:
-                logger.warning(
-                    "Could not extract agent name from output -- skipping cleanup. "
-                    "The agent may still be running and will need manual cleanup."
+            if error_event.is_set():
+                if extracted_agent_name is not None:
+                    _destroy_agent(extracted_agent_name)
+                error_detail = "\n".join(error_lines) if error_lines else "See output above"
+                raise ScheduleDeployError(
+                    f"Error detected during deployment verification of schedule '{trigger_name}':\n{error_detail}"
                 )
 
-        logger.info("Deployment verification complete for schedule '{}'", trigger_name)
+            if exit_code != 0:
+                if extracted_agent_name is not None:
+                    _destroy_agent(extracted_agent_name)
+                raise ScheduleDeployError(
+                    f"Deployment verification of schedule '{trigger_name}' failed "
+                    f"(modal run exited with code {exit_code}). See output above for details."
+                )
 
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
-        log_thread.join(timeout=5.0)
-        extracted_agent_name = agent_name_holder[0] if agent_name_holder else None
-        if extracted_agent_name is not None:
-            _destroy_agent(extracted_agent_name)
-        raise ScheduleDeployError(
-            f"Deployment verification of schedule '{trigger_name}' timed out after "
-            f"{process_timeout_seconds}s. The modal run process was killed."
-        ) from None
+            logger.info("modal run completed successfully for schedule '{}'", trigger_name)
 
-    except Exception:
-        # Ensure process is cleaned up on any unexpected error
-        if process.poll() is None:
+            if is_finish_initial_run:
+                if extracted_agent_name is not None:
+                    agent = _resolve_agent(extracted_agent_name, mngr_ctx)
+                    _wait_for_agent_to_finish(agent)
+                else:
+                    logger.warning(
+                        "Could not extract agent name from output -- cannot wait for agent to finish. "
+                        "The agent may still be running."
+                    )
+            else:
+                if extracted_agent_name is not None:
+                    _destroy_agent(extracted_agent_name)
+                else:
+                    logger.warning(
+                        "Could not extract agent name from output -- skipping cleanup. "
+                        "The agent may still be running and will need manual cleanup."
+                    )
+
+            logger.info("Deployment verification complete for schedule '{}'", trigger_name)
+
+        except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
-        raise
+            log_thread.join(timeout=5.0)
+            extracted_agent_name = agent_name_holder[0] if agent_name_holder else None
+            if extracted_agent_name is not None:
+                _destroy_agent(extracted_agent_name)
+            raise ScheduleDeployError(
+                f"Deployment verification of schedule '{trigger_name}' timed out after "
+                f"{process_timeout_seconds}s. The modal run process was killed."
+            ) from None
+
+        except Exception:
+            # Ensure process is cleaned up on any unexpected error
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            raise

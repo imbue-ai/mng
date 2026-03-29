@@ -24,6 +24,8 @@ from imbue.mngr.api.events import _pygtail_offset_file_path
 from imbue.mngr.api.events import _sort_rotated_files_oldest_first
 from imbue.mngr.api.events import _start_tail_thread
 from imbue.mngr.api.events import _tail_source_thread_local
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.mngr.api.events import filter_sources_by_name
 from imbue.mngr.api.events import parse_event_line
 from imbue.mngr.api.events import read_all_historical_events
@@ -1035,42 +1037,43 @@ def test_stream_all_events_follow_detects_new_content(tmp_path: Path) -> None:
     event_queue: queue_mod.Queue[EventRecord] = queue_mod.Queue()
     stop_event = threading.Event()
 
-    thread = _start_tail_thread(
-        target=host_target,
-        source_path="src",
-        event_queue=event_queue,
-        cel_include_filters=[],
-        cel_exclude_filters=[],
-        stop_event=stop_event,
-        offset_dir_path=offset_dir,
-        initial_byte_offset=len(events_file.read_bytes()),
-    )
-
-    try:
-        # Wait for the thread to initialize by polling for the offset file
-        offset_file = offset_dir / "src.offset"
-        poll_for_value(
-            producer=lambda: True if offset_file.exists() else None,
-            timeout=5.0,
-            poll_interval=0.2,
+    with ConcurrencyGroup(name="test_tail", exit_timeout_seconds=6.0) as cg:
+        _start_tail_thread(
+            target=host_target,
+            source_path="src",
+            event_queue=event_queue,
+            cel_include_filters=[],
+            cel_exclude_filters=[],
+            stop_event=stop_event,
+            offset_dir_path=offset_dir,
+            initial_byte_offset=len(events_file.read_bytes()),
+            concurrency_group=cg,
         )
 
-        # Append new content
-        with events_file.open("a") as f:
-            f.write('{"timestamp":"2026-01-02T00:00:00Z","event_id":"new1","source":"src"}\n')
-            f.flush()
+        try:
+            # Wait for the thread to initialize by polling for the offset file
+            offset_file = offset_dir / "src.offset"
+            poll_for_value(
+                producer=lambda: True if offset_file.exists() else None,
+                timeout=5.0,
+                poll_interval=0.2,
+            )
 
-        # Poll for the new event
-        result, _, _ = poll_for_value(
-            producer=lambda: event_queue.get_nowait() if not event_queue.empty() else None,
-            timeout=15.0,
-            poll_interval=0.5,
-        )
-        assert result is not None
-        assert result.event_id == "new1"
-    finally:
-        stop_event.set()
-        thread.join(timeout=5.0)
+            # Append new content
+            with events_file.open("a") as f:
+                f.write('{"timestamp":"2026-01-02T00:00:00Z","event_id":"new1","source":"src"}\n')
+                f.flush()
+
+            # Poll for the new event
+            result, _, _ = poll_for_value(
+                producer=lambda: event_queue.get_nowait() if not event_queue.empty() else None,
+                timeout=15.0,
+                poll_interval=0.5,
+            )
+            assert result is not None
+            assert result.event_id == "new1"
+        finally:
+            stop_event.set()
 
 
 # =============================================================================
@@ -1195,32 +1198,32 @@ def test_handle_online_offline_transition_restarts_threads(
     target_holder = [target]
     event_queue: queue_mod.Queue[EventRecord] = queue_mod.Queue()
     stop_event = threading.Event()
-    tail_threads: list[threading.Thread] = []
+    tail_threads: list[ObservableThread] = []
 
     offset_dir = tmp_path / "offsets"
     offset_dir.mkdir()
 
-    _handle_online_offline_transition(
-        target_holder=target_holder,
-        state=state,
-        event_queue=event_queue,
-        cel_include_filters=[],
-        cel_exclude_filters=[],
-        stop_event=stop_event,
-        tail_threads=tail_threads,
-        offset_dir_path=offset_dir,
-    )
+    with ConcurrencyGroup(name="test_transition", exit_timeout_seconds=6.0) as cg:
+        _handle_online_offline_transition(
+            target_holder=target_holder,
+            state=state,
+            event_queue=event_queue,
+            cel_include_filters=[],
+            cel_exclude_filters=[],
+            stop_event=stop_event,
+            tail_threads=tail_threads,
+            offset_dir_path=offset_dir,
+            concurrency_group=cg,
+        )
 
-    # Local host is always online, so transition should have occurred
-    assert state.is_online is True
-    assert target_holder[0].online_host is not None
-    # New tail threads should have been started for known sources
-    assert len(tail_threads) >= 1
+        # Local host is always online, so transition should have occurred
+        assert state.is_online is True
+        assert target_holder[0].online_host is not None
+        # New tail threads should have been started for known sources
+        assert len(tail_threads) >= 1
 
-    # Clean up
-    stop_event.set()
-    for thread in tail_threads:
-        thread.join(timeout=5.0)
+        # Clean up
+        stop_event.set()
 
 
 def test_handle_online_offline_transition_no_change_when_same_state(tmp_path: Path) -> None:
@@ -1233,7 +1236,7 @@ def test_handle_online_offline_transition_no_change_when_same_state(tmp_path: Pa
     target_holder = [target]
     event_queue: queue_mod.Queue[EventRecord] = queue_mod.Queue()
     stop_event = threading.Event()
-    tail_threads: list[threading.Thread] = []
+    tail_threads: list[ObservableThread] = []
 
     _handle_online_offline_transition(
         target_holder=target_holder,

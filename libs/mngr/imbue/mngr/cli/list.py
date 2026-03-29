@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from pydantic import PrivateAttr
 from tabulate import tabulate
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.agents.agent_registry import list_registered_agent_types
@@ -1390,25 +1391,27 @@ def _run_event_driven_watch(
     on_refresh: Callable[[], None],
 ) -> None:
     """Run the watch loop, calling on_refresh each time the events file changes or the interval elapses."""
-    for _ in range(100_000):
-        if stop_event.is_set():
-            break
+    with ConcurrencyGroup(name="event-driven-watch") as concurrency_group:
+        for _ in range(100_000):
+            if stop_event.is_set():
+                break
 
-        last_size = events_path.stat().st_size if events_path.exists() else 0
-        is_changed = threading.Event()
+            last_size = events_path.stat().st_size if events_path.exists() else 0
+            is_changed = threading.Event()
 
-        watcher = threading.Thread(
-            target=_poll_events_file_for_changes,
-            args=(events_path, last_size, is_changed, stop_event, max_interval_seconds * 10),
-            daemon=True,
-        )
-        watcher.start()
+            watcher = concurrency_group.start_new_thread(
+                target=_poll_events_file_for_changes,
+                args=(events_path, last_size, is_changed, stop_event, max_interval_seconds * 10),
+                daemon=True,
+                name="poll-events-file",
+                is_checked=False,
+            )
 
-        is_changed.wait(timeout=float(max_interval_seconds))
-        stop_event_was_set = stop_event.is_set()
-        watcher.join(timeout=2.0)
+            is_changed.wait(timeout=float(max_interval_seconds))
+            stop_event_was_set = stop_event.is_set()
+            watcher.join(timeout=2.0)
 
-        if stop_event_was_set:
-            break
+            if stop_event_was_set:
+                break
 
-        on_refresh()
+            on_refresh()

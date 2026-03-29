@@ -7,6 +7,8 @@ from pathlib import Path
 
 import uvicorn
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+
 from .server import create_app
 
 
@@ -104,29 +106,28 @@ Examples:
     url = f"http://localhost:{port}"
     print(f"claude_web_view starting at {url}")
 
-    if not args.no_browser:
-        # Open browser after a short delay to let server start
-        import threading
-
-        def open_browser() -> None:
-            import time
-
-            time.sleep(0.5)
-            webbrowser.open(url)
-
-        threading.Thread(target=open_browser, daemon=True).start()
-
     # Suppress noisy shutdown logs
     logging.getLogger("uvicorn.error").setLevel(logging.CRITICAL)
 
-    uvicorn.run(
-        app,
-        host="127.0.0.1",
-        port=port,
-        log_level="critical",
-        access_log=False,
-        timeout_graceful_shutdown=1,  # Don't wait long for SSE connections to close
-    )
+    with ConcurrencyGroup(name="claude-web-view") as cg:
+        if not args.no_browser:
+            # Open browser after a short delay to let server start
+            import time as _time_module
+
+            def _open_browser() -> None:
+                _time_module.sleep(0.5)
+                webbrowser.open(url)
+
+            cg.start_new_thread(target=_open_browser, name="open-browser")
+
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="critical",
+            access_log=False,
+            timeout_graceful_shutdown=1,  # Don't wait long for SSE connections to close
+        )
 
 
 if __name__ == "__main__":

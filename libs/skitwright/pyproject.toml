@@ -5,6 +5,7 @@ description = "Lightweight end-to-end testing framework for CLI applications"
 requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
+    "concurrency-group",
     "imbue-common",
 ]
 
@@ -17,6 +18,7 @@ packages = ["imbue"]
 exclude = ["*_test.py", "test_*.py", "**/conftest.py"]
 
 [tool.uv.sources]
+concurrency-group = { workspace = true }
 imbue-common = { workspace = true }
 
 # Shared pytest settings (markers, filterwarnings, coverage report config)
