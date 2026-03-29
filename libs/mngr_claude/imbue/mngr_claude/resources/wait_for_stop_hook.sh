@@ -98,6 +98,14 @@ get_other_stop_hooks() {
     echo "${result[*]}"
 }
 
+# --- Mark agent as inactive and emit activity event ---
+mark_inactive() {
+    rm -f "$MNGR_AGENT_STATE_DIR/active" "$MNGR_AGENT_STATE_DIR/permissions_waiting"
+    mkdir -p "$MNGR_HOST_DIR/events/mngr/activity"
+    echo '{"source": "mngr/activity", "type": "activity", "event_id": "evt-'"$(head -c 16 /dev/urandom | xxd -p)"'", "timestamp": "'"$(date -u +"%Y-%m-%dT%H:%M:%S.000000000Z")"'"}' \
+        >> "$MNGR_HOST_DIR/events/mngr/activity/events.jsonl"
+}
+
 # =====================================================================
 # Main
 # =====================================================================
@@ -119,6 +127,7 @@ INITIAL_HOOKS=$(get_other_stop_hooks "$CLAUDE_PID" "$OUR_WRAPPER")
 
 if [ -z "$INITIAL_HOOKS" ]; then
     echo "wait_for_stop_hook: no other stop hooks found after grace period"
+    mark_inactive
     exit 0
 fi
 
@@ -135,15 +144,7 @@ while true; do
 
     if [ "$ALL_DONE" = true ]; then
         echo "wait_for_stop_hook: all other stop hooks have finished"
-
-        # Mark agent as inactive (same as the idle_prompt Notification hook)
-        rm -f "$MNGR_AGENT_STATE_DIR/active" "$MNGR_AGENT_STATE_DIR/permissions_waiting"
-
-        # Emit activity event
-        mkdir -p "$MNGR_HOST_DIR/events/mngr/activity"
-        echo '{"source": "mngr/activity", "type": "activity", "event_id": "evt-'"$(head -c 16 /dev/urandom | xxd -p)"'", "timestamp": "'"$(date -u +"%Y-%m-%dT%H:%M:%S.000000000Z")"'"}' \
-            >> "$MNGR_HOST_DIR/events/mngr/activity/events.jsonl"
-
+        mark_inactive
         exit 0
     fi
 
