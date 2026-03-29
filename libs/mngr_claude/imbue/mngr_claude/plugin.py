@@ -668,9 +668,12 @@ def _apply_settings_json_overrides(
     try:
         content = host.read_text_file(settings_path)
     except FileNotFoundError:
-        content = None
+        pass
     else:
-        data = json.loads(content)
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            logger.warning("Corrupt settings.json at {}, replacing with overrides only", settings_path)
 
     if config.model is not None:
         data["model"] = config.model
