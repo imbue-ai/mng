@@ -2,12 +2,12 @@ import secrets
 import time
 import webbrowser
 from pathlib import Path
-from threading import Thread
 from typing import Final
 
 import uvicorn
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.minds.config.data_types import MindPaths
 from imbue.minds.forwarding_server.agent_creator import AgentCreator
 from imbue.minds.forwarding_server.app import create_forwarding_server
@@ -31,12 +31,13 @@ def start_forwarding_server(
     user can authenticate. Starts background streaming subprocesses via
     MngrStreamManager for continuous agent and server discovery.
     """
+    cg = ConcurrencyGroup(name="forwarding-server")
     paths = MindPaths(data_dir=data_directory)
     auth_store = FileAuthStore(data_directory=paths.auth_dir)
     backend_resolver = MngrCliBackendResolver()
     stream_manager = MngrStreamManager(resolver=backend_resolver)
-    tunnel_manager = SSHTunnelManager()
-    agent_creator = AgentCreator(paths=paths)
+    tunnel_manager = SSHTunnelManager(concurrency_group=cg)
+    agent_creator = AgentCreator(paths=paths, concurrency_group=cg)
 
     # Generate a one-time login URL for the user
     code = OneTimeCode(secrets.token_urlsafe(_ONE_TIME_CODE_LENGTH))
@@ -58,14 +59,12 @@ def start_forwarding_server(
         agent_creator=agent_creator,
     )
 
-    thread = Thread(target=_sleep_then_open, args=(login_url,))
-    thread.daemon = True
-    thread.start()
-
-    try:
-        uvicorn.run(app, host=host, port=port)
-    finally:
-        stream_manager.stop()
+    with cg:
+        cg.start_new_thread(target=_sleep_then_open, args=(login_url,), name="browser-open")
+        try:
+            uvicorn.run(app, host=host, port=port)
+        finally:
+            stream_manager.stop()
 
 
 def _sleep_then_open(url: str, delay: float = 1.0) -> None:

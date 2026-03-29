@@ -12,6 +12,8 @@ from loguru import logger
 from pydantic import Field
 from pydantic import PrivateAttr
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 
@@ -66,11 +68,16 @@ class SSHTunnelManager(MutableModel):
     to discover the randomly generated directory path.
     """
 
+    concurrency_group: ConcurrencyGroup = Field(
+        frozen=True,
+        description="Concurrency group for managing tunnel threads",
+    )
+
     _tmpdir: tempfile.TemporaryDirectory[str] | None = PrivateAttr(default=None)
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
     _connections: dict[str, paramiko.SSHClient] = PrivateAttr(default_factory=dict)
     _tunnel_socket_paths: dict[str, Path] = PrivateAttr(default_factory=dict)
-    _tunnel_threads: dict[str, threading.Thread] = PrivateAttr(default_factory=dict)
+    _tunnel_threads: dict[str, ObservableThread] = PrivateAttr(default_factory=dict)
     _shutdown_event: threading.Event = PrivateAttr(default_factory=threading.Event)
 
     def _get_tmpdir(self) -> Path:
@@ -129,13 +136,11 @@ class SSHTunnelManager(MutableModel):
             if socket_path.exists():
                 socket_path.unlink()
 
-            thread = threading.Thread(
+            thread = self.concurrency_group.start_new_thread(
                 target=_tunnel_accept_loop,
-                args=(socket_path, transport, remote_host, remote_port, self._shutdown_event),
-                daemon=True,
+                args=(socket_path, transport, remote_host, remote_port, self._shutdown_event, self.concurrency_group),
                 name=f"ssh-tunnel-{tunnel_key}",
             )
-            thread.start()
 
             _wait_for_socket(socket_path)
 
@@ -222,6 +227,7 @@ def _tunnel_accept_loop(
     remote_host: str,
     remote_port: int,
     shutdown_event: threading.Event,
+    concurrency_group: ConcurrencyGroup,
 ) -> None:
     """Accept connections on a Unix domain socket and forward them via SSH.
 
@@ -256,12 +262,12 @@ def _tunnel_accept_loop(
                 client_sock.close()
                 continue
 
-            threading.Thread(
+            concurrency_group.start_new_thread(
                 target=_relay_data,
                 args=(client_sock, channel),
-                daemon=True,
                 name=f"ssh-relay-{remote_host}:{remote_port}",
-            ).start()
+                is_checked=False,
+            )
     finally:
         server.close()
         try:

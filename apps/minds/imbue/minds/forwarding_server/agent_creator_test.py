@@ -156,8 +156,10 @@ def test_checkout_branch_raises_on_nonexistent_branch(tmp_path: Path) -> None:
 
 
 def test_agent_creator_get_creation_info_returns_none_for_unknown() -> None:
+    cg = ConcurrencyGroup(name="test")
     creator = AgentCreator(
         paths=MindPaths(data_dir=Path("/tmp/test")),
+        concurrency_group=cg,
     )
     assert creator.get_creation_info(AgentId()) is None
 
@@ -168,12 +170,15 @@ def test_agent_creator_start_creation_returns_agent_id_and_tracks_status(tmp_pat
     The actual background thread will fail (since the git URL is invalid),
     but the initial status should be immediately available.
     """
+    cg = ConcurrencyGroup(name="test")
     creator = AgentCreator(
         paths=MindPaths(data_dir=tmp_path / "minds"),
+        concurrency_group=cg,
     )
 
-    agent_id = creator.start_creation("file:///nonexistent-repo")
-    info = creator.get_creation_info(agent_id)
+    with cg:
+        agent_id = creator.start_creation("file:///nonexistent-repo")
+        info = creator.get_creation_info(agent_id)
 
     assert info is not None
     assert info.agent_id == agent_id
@@ -182,27 +187,35 @@ def test_agent_creator_start_creation_returns_agent_id_and_tracks_status(tmp_pat
 
 def test_agent_creator_start_creation_with_custom_name(tmp_path: Path) -> None:
     """Verify start_creation accepts a custom agent name."""
+    cg = ConcurrencyGroup(name="test")
     creator = AgentCreator(
         paths=MindPaths(data_dir=tmp_path / "minds"),
+        concurrency_group=cg,
     )
-    agent_id = creator.start_creation("file:///nonexistent-repo", agent_name="my-agent")
-    info = creator.get_creation_info(agent_id)
+    with cg:
+        agent_id = creator.start_creation("file:///nonexistent-repo", agent_name="my-agent")
+        info = creator.get_creation_info(agent_id)
     assert info is not None
 
 
 def test_agent_creator_get_log_queue_returns_none_for_unknown() -> None:
+    cg = ConcurrencyGroup(name="test")
     creator = AgentCreator(
         paths=MindPaths(data_dir=Path("/tmp/test")),
+        concurrency_group=cg,
     )
     assert creator.get_log_queue(AgentId()) is None
 
 
 def test_agent_creator_get_log_queue_returns_queue_for_tracked() -> None:
+    cg = ConcurrencyGroup(name="test")
     creator = AgentCreator(
         paths=MindPaths(data_dir=Path("/tmp/test")),
+        concurrency_group=cg,
     )
-    agent_id = creator.start_creation("file:///nonexistent-repo")
-    q = creator.get_log_queue(agent_id)
+    with cg:
+        agent_id = creator.start_creation("file:///nonexistent-repo")
+        q = creator.get_log_queue(agent_id)
     assert q is not None
 
 
