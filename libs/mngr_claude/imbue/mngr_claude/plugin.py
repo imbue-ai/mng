@@ -272,6 +272,8 @@ def _build_settings_json_content(
         data["model"] = model
     if is_fast:
         data["fastMode"] = True
+    else:
+        data["fastMode"] = False
     data["skipDangerousModePermissionPrompt"] = True
     return json.dumps(data, indent=2) + "\n"
 
@@ -673,7 +675,7 @@ def _apply_settings_json_overrides(
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
-            logger.warning("Corrupt settings.json at {}, replacing with overrides only", settings_path)
+            logger.warning("Corrupt settings.json, replacing with overrides only")
 
     if config.model is not None:
         data["model"] = config.model
