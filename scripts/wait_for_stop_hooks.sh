@@ -19,6 +19,9 @@ set -euo pipefail
 GRACE_PERIOD="${HOOK_GRACE_PERIOD:-3}"      # seconds before first check
 POLL_INTERVAL="${HOOK_POLL_INTERVAL:-1}"    # seconds between polls
 
+# Session guard: exit early if not a managed session
+[ -z "${MAIN_CLAUDE_SESSION_ID:-}" ] && exit 0
+
 # Drain stdin so we don't block Claude
 cat > /dev/null 2>&1 || true
 
@@ -132,6 +135,15 @@ while true; do
 
     if [ "$ALL_DONE" = true ]; then
         echo "wait_for_stop_hooks: all other stop hooks have finished"
+
+        # Mark agent as inactive (same as the idle_prompt Notification hook)
+        rm -f "$MNGR_AGENT_STATE_DIR/active" "$MNGR_AGENT_STATE_DIR/permissions_waiting"
+
+        # Emit activity event
+        mkdir -p "$MNGR_HOST_DIR/events/mngr/activity"
+        echo '{"source": "mngr/activity", "type": "activity", "event_id": "evt-'"$(head -c 16 /dev/urandom | xxd -p)"'", "timestamp": "'"$(date -u +"%Y-%m-%dT%H:%M:%S.000000000Z")"'"}' \
+            >> "$MNGR_HOST_DIR/events/mngr/activity/events.jsonl"
+
         exit 0
     fi
 
