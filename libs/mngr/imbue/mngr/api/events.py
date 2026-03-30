@@ -202,11 +202,11 @@ def resolve_events_target(
     # Try finding as a host
     # Only suppress "not found" errors; re-raise ambiguity ("Multiple") errors
     try:
-        host_ref = resolve_host_reference(identifier, all_hosts)
+        host_ref = resolve_host_reference(plain_id, all_hosts)
     except UserInputError as e:
         if "Multiple" in str(e):
             raise
-        logger.trace("Host lookup did not find {}: {}", identifier, e)
+        logger.trace("Host lookup did not find {}: {}", plain_id, e)
         host_ref = None
 
     if host_ref is not None:
