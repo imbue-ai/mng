@@ -1696,7 +1696,7 @@ def main(
 
     # Shared monotonic timestamp of the last successful event delivery.
     # Updated by the delivery thread, read by the synthetic events thread
-    # to know when it's safe to start the idle wait subprocess.
+    # to defer the onboarding event until the first delivery completes.
     last_delivery_monotonic: list[float] = [0.0]
 
     # Directory for synthetic event state files (onboarding marker, scheduled state)
