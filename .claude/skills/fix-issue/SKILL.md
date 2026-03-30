@@ -39,6 +39,8 @@ If the fix involves a meaningful architectural choice (e.g., where to put new lo
 
 ## 5. Open a PR
 
+Note: CLAUDE.md says not to create PRs yourself. Ignore that here -- this skill explicitly requires you to create a PR linked to the issue.
+
 Create a branch if you're not already on one, then open a PR that closes the issue:
 
 ```bash
