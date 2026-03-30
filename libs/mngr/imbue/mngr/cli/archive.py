@@ -35,7 +35,9 @@ class ArchiveCliOptions(CommonCliOptions):
 
     agents: tuple[str, ...]
     agent_list: tuple[str, ...]
+    archive_all: bool
     force: bool
+    dry_run: bool
 
 
 def _output(message: str, output_opts: OutputOptions) -> None:
@@ -53,12 +55,25 @@ def _output(message: str, output_opts: OutputOptions) -> None:
     multiple=True,
     help="Agent name or ID to archive (can be specified multiple times)",
 )
+@optgroup.option(
+    "-a",
+    "--all",
+    "--all-agents",
+    "archive_all",
+    is_flag=True,
+    help="Archive all agents",
+)
 @optgroup.group("Behavior")
 @optgroup.option(
     "-f",
     "--force",
     is_flag=True,
     help="Stop running agents before archiving (without this, running agents are skipped)",
+)
+@optgroup.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be archived without actually archiving",
 )
 @add_common_options
 @click.pass_context
@@ -72,19 +87,29 @@ def archive(ctx: click.Context, **kwargs: Any) -> None:
     # Collect agent identifiers from positional args and --agent flag
     agent_identifiers = expand_stdin_placeholder(opts.agents) + list(opts.agent_list)
 
-    if not agent_identifiers:
-        raise UserInputError("Must specify at least one agent (use '-' to read from stdin)")
+    if not agent_identifiers and not opts.archive_all:
+        raise UserInputError("Must specify at least one agent or use --all")
+
+    if agent_identifiers and opts.archive_all:
+        raise UserInputError("Cannot specify both agent names and --all")
 
     # Find agents in any state (archive applies to stopped agents)
     target_agents = find_agents_by_addresses(
         raw_identifiers=agent_identifiers,
-        filter_all=False,
+        filter_all=opts.archive_all,
         target_state=None,
         mngr_ctx=mngr_ctx,
     )
 
     if not target_agents:
         _output("No agents found to archive", output_opts)
+        return
+
+    # Handle dry-run mode
+    if opts.dry_run:
+        _output("Would archive:", output_opts)
+        for match in target_agents:
+            _output(f"  - {match.agent_name} (on host {match.host_id})", output_opts)
         return
 
     # Separate running agents that need to be stopped first
@@ -180,7 +205,7 @@ def _stop_running_agents(
 CommandHelpMetadata(
     key="archive",
     one_line_description="Archive agents (set the 'archived_at' label)",
-    synopsis="mngr archive [AGENTS...|-] [--agent <AGENT>] [-f|--force]",
+    synopsis="mngr archive [AGENTS...] [--agent <AGENT>] [--all] [-f|--force] [--dry-run]",
     arguments_description="- `AGENTS`: Agent name(s) or ID(s) to archive.",
     description="""Sets an 'archived_at' label with the current UTC timestamp on each
 targeted agent. By default, only non-running agents are archived; running
@@ -195,8 +220,9 @@ so they can be restarted later if needed.""",
         ("Archive a stopped agent", "mngr archive my-agent"),
         ("Archive multiple agents", "mngr archive agent1 agent2"),
         ("Force-stop and archive a running agent", "mngr archive my-agent --force"),
-        ("Archive all non-running agents", "mngr list --ids | mngr archive -"),
-        ("Force-stop and archive all agents", "mngr list --ids | mngr archive - --force"),
+        ("Archive all non-running agents", "mngr archive --all"),
+        ("Force-stop and archive all agents", "mngr archive --all --force"),
+        ("Preview what would be archived", "mngr archive --all --dry-run"),
     ),
     see_also=(
         ("stop", "Stop agents without archiving"),
