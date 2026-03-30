@@ -1464,8 +1464,6 @@ def _parse_source_string(source_str: str) -> ParsedSourceString:
 
     The host_name field may include a .PROVIDER suffix (e.g. "myhost.modal").
     """
-    from imbue.mngr.api.agent_addr import parse_agent_address
-
     if ":" not in source_str:
         # No colon -- treat as a plain path (most common case: --source ./dir)
         return ParsedSourceString(path=Path(source_str), agent_name=None, host_name=None)
