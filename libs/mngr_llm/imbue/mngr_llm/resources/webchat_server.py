@@ -36,7 +36,24 @@ from llm_webchat.server import create_application
 
 _HOST_NAME: Final[str] = os.environ.get("MNG_HOST_NAME", "")
 _AGENT_STATE_DIR: Final[str] = os.environ.get("MNGR_AGENT_STATE_DIR", "")
+_AGENT_ID: Final[str] = os.environ.get("MNGR_AGENT_ID", "")
 _WEB_SERVER_NAME: Final[str] = "web"
+
+
+def _compute_root_path(agent_id: str, server_name: str) -> str:
+    """Compute the ASGI root_path for the webchat server.
+
+    When served behind the forwarding server, the webchat is accessed at
+    ``/agents/{agent_id}/{server_name}/``. Setting ``root_path`` tells the
+    ASGI application about this prefix so that framework-generated URLs
+    (redirects, links, etc.) are correct.
+
+    Returns an empty string when the agent ID is not available (e.g. during
+    local development without the forwarding server).
+    """
+    if not agent_id:
+        return ""
+    return f"/agents/{agent_id}/{server_name}"
 
 
 def _resolve_resource_path(filename: str) -> str:
@@ -174,10 +191,12 @@ def main() -> None:
         config = _build_config()
         application = create_application(config)
 
+        root_path = _compute_root_path(agent_id=_AGENT_ID, server_name=_WEB_SERVER_NAME)
         uvicorn_config = uvicorn.Config(
             application,
             host=config.llm_webchat_host,
             port=config.llm_webchat_port,
+            root_path=root_path,
         )
         server = uvicorn.Server(uvicorn_config)
 

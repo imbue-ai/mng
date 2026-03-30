@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from imbue.mngr_llm.resources.webchat_server import _bridge_web_server_port_env_var
+from imbue.mngr_llm.resources.webchat_server import _compute_root_path
 from imbue.mngr_llm.resources.webchat_server import _register_server_to_events_jsonl
 
 
@@ -55,6 +56,14 @@ def test_register_server_writes_record_to_events_jsonl(tmp_path: Path) -> None:
     assert record["source"] == "servers"
     assert "event_id" in record
     assert "timestamp" in record
+
+
+def test_compute_root_path_with_agent_id() -> None:
+    assert _compute_root_path(agent_id="abc123", server_name="web") == "/agents/abc123/web"
+
+
+def test_compute_root_path_without_agent_id() -> None:
+    assert _compute_root_path(agent_id="", server_name="web") == ""
 
 
 def test_register_server_does_nothing_when_agent_state_dir_is_empty() -> None:
