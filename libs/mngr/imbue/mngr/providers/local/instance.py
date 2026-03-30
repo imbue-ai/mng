@@ -50,7 +50,7 @@ from imbue.mngr.utils.deps import TMUX
 from imbue.mngr.utils.file_utils import atomic_write
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
-LOCAL_HOST_NAME: Final[str] = "local"
+LOCAL_HOST_NAME: Final[str] = "localhost"
 HOSTS_SUBDIR: Final[str] = "hosts"
 
 # Fixed namespace for deterministic VolumeId derivation from volume directory names.

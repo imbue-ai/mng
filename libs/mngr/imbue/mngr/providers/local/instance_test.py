@@ -440,8 +440,8 @@ def test_get_max_destroyed_host_persisted_seconds_provider_override_takes_preced
 # =============================================================================
 
 
-def test_get_host_name_returns_local(local_provider: LocalProviderInstance) -> None:
-    """get_host_name should always return 'local' regardless of style."""
+def test_get_host_name_returns_localhost(local_provider: LocalProviderInstance) -> None:
+    """get_host_name should always return 'localhost' regardless of style."""
     name = local_provider.get_host_name(HostNameStyle.ASTRONOMY)
     assert name == HostName(LOCAL_HOST_NAME)
 

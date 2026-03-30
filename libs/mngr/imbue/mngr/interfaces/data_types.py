@@ -280,7 +280,9 @@ class CertifiedHostData(FrozenModel):
 
         Strips deprecated idle_mode field, provides defaults for
         created_at/updated_at when missing from old data, and normalizes
-        host_name by removing the '@' prefix used by pyinfra internally.
+        the local host name to 'localhost'.  Older data stored the raw
+        pyinfra name '@local', and Host.get_name() produces 'local'
+        (after stripping the '@' prefix); both are normalized here.
         """
         if isinstance(data, dict):
             data.pop("idle_mode", None)
@@ -289,12 +291,12 @@ class CertifiedHostData(FrozenModel):
                 data["created_at"] = now - timedelta(weeks=1)
             if "updated_at" not in data:
                 data["updated_at"] = now - timedelta(days=1)
-            # Strip the '@' prefix that pyinfra uses internally for local
-            # execution.  Older data.json files stored the raw pyinfra name
-            # (e.g. "@local"); normalize it to the human-readable form.
+            # Normalize local host names.  pyinfra uses '@local' internally
+            # and Host.get_name() strips that to 'local'; the canonical
+            # name is 'localhost'.
             host_name = data.get("host_name")
-            if isinstance(host_name, str) and host_name.startswith("@"):
-                data["host_name"] = host_name[1:]
+            if isinstance(host_name, str) and host_name in ("@local", "local"):
+                data["host_name"] = "localhost"
         return data
 
     @computed_field

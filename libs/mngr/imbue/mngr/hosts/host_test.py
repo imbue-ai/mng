@@ -1732,7 +1732,8 @@ def test_host_get_certified_data_returns_defaults_when_no_file(
     host = local_host
     data = host.get_certified_data()
     assert data.host_id == str(host.id)
-    assert data.host_name == str(host.get_name())
+    # The validator normalizes 'local' (from get_name()) to 'localhost'.
+    assert data.host_name == LOCAL_HOST_NAME
 
 
 def test_host_set_and_get_certified_data(
