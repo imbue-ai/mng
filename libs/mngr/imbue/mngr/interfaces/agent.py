@@ -312,6 +312,7 @@ class AgentInterface(MutableModel, ABC, Generic[AgentConfigT]):
         IMPORTANT: This method should only perform read-only checks on
         the source. Do not make any changes to the source host.
         """
+        ...
 
     # =========================================================================
     # Provisioning Lifecycle
