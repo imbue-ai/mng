@@ -45,7 +45,7 @@ from imbue.mngr_tmr.api import launch_all_test_agents
 from imbue.mngr_tmr.api import launch_and_poll_agents
 from imbue.mngr_tmr.api import launch_integrator_agent
 from imbue.mngr_tmr.api import pull_agent_branch
-from imbue.mngr_tmr.api import pull_test_outputs_by_id
+from imbue.mngr_tmr.api import pull_agent_outputs
 from imbue.mngr_tmr.api import read_integrator_result
 from imbue.mngr_tmr.api import should_pull_changes
 from imbue.mngr_tmr.api import try_list_agents
@@ -53,6 +53,7 @@ from imbue.mngr_tmr.api import wait_for_integrator
 from imbue.mngr_tmr.data_types import IntegratorResult
 from imbue.mngr_tmr.data_types import TestAgentInfo
 from imbue.mngr_tmr.data_types import TestMapReduceResult
+from imbue.mngr_tmr.data_types import TestResult
 from imbue.mngr_tmr.data_types import TmrLaunchConfig
 from imbue.mngr_tmr.report import generate_html_report
 
@@ -186,7 +187,7 @@ def _run_reintegrate(
         write_human_line("No agents found for run name '{}'. Nothing to reintegrate.", run_name)
         return
 
-    # Get local host for artifact pulling
+    # Get local host (needed for local agent host mapping and integrator config)
     local_provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
     local_host_ref = local_provider.get_host(HostName("localhost"))
     source_host, _ = ensure_host_started(local_host_ref, is_start_desired=True, provider=local_provider)
@@ -228,8 +229,17 @@ def _run_reintegrate(
         html_path = output_dir / "index.html"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Gather results from all agents (re-reads outcome files)
-    base_commit = get_base_commit(source_dir, mngr_ctx.concurrency_group)
+    # Pull outputs (artifacts + result.json) for each agent, then gather results
+    cached_results: dict[str, TestResult] = {}
+    cg = mngr_ctx.concurrency_group
+    for info in agent_infos:
+        agent_id_str = str(info.agent_id)
+        if agent_id_str in agent_hosts:
+            result = pull_agent_outputs(info.agent_id, info.agent_name, agent_hosts[agent_id_str], output_dir, cg)
+            if result is not None:
+                cached_results[agent_id_str] = result
+
+    base_commit = get_base_commit(source_dir, cg)
     is_remote_provider = any(
         d.host is not None and d.host.provider_name != LOCAL_PROVIDER_NAME for d in matching_agents
     )
@@ -239,15 +249,10 @@ def _run_reintegrate(
         timed_out_ids=set(),
         hosts=agent_hosts,
         source_dir=source_dir,
-        cg=mngr_ctx.concurrency_group,
+        cg=cg,
         base_commit=base_commit if is_remote_provider else None,
+        cached_results=cached_results,
     )
-
-    # Pull artifacts
-    for info in agent_infos:
-        agent_id_str = str(info.agent_id)
-        if agent_id_str in agent_hosts:
-            pull_test_outputs_by_id(info.agent_id, info.agent_name, agent_hosts[agent_id_str], source_host, output_dir)
 
     # Write pre-integrator report
     generate_html_report(
@@ -268,7 +273,9 @@ def _run_reintegrate(
         env_options=env_options,
         label_options=label_options,
     )
-    integrator_result = _run_integrator_phase(results, integrator_config, mngr_ctx, opts, base_commit=base_commit)
+    integrator_result = _run_integrator_phase(
+        results, integrator_config, mngr_ctx, opts, output_dir, base_commit=base_commit
+    )
     integrated_branch = integrator_result.branch_name if integrator_result is not None else None
     generate_html_report(
         results,
@@ -286,6 +293,7 @@ def _run_integrator_phase(
     config: TmrLaunchConfig,
     mngr_ctx: MngrContext,
     opts: TmrCliOptions,
+    output_dir: Path,
     base_commit: str | None = None,
 ) -> IntegratorResult | None:
     """Launch an integrator agent to cherry-pick all fix branches into a linear stack.
@@ -322,7 +330,9 @@ def _run_integrator_phase(
         list_result = try_list_agents(mngr_ctx)
         for agent_detail in list_result.agents if list_result is not None else []:
             if str(agent_detail.id) == str(integrator.agent_id):
-                integrator_result = read_integrator_result(agent_detail, integrator_host, integrator_branch)
+                integrator_result = read_integrator_result(
+                    agent_detail, integrator_host, integrator_branch, output_dir, mngr_ctx.concurrency_group
+                )
                 # Only pull branches from remote providers; local worktree branches already exist
                 if is_remote:
                     pull_agent_branch(
@@ -610,7 +620,6 @@ def _run_tmr_pipeline(
         all_agents=agent_infos,
         all_hosts=agent_hosts,
         artifact_output_dir=output_dir,
-        local_host=source_host,
     )
 
     if use_batched:
@@ -642,7 +651,9 @@ def _run_tmr_pipeline(
         env_options=env_options,
         label_options=label_options,
     )
-    integrator_result = _run_integrator_phase(results, integrator_config, mngr_ctx, opts, base_commit=base_commit)
+    integrator_result = _run_integrator_phase(
+        results, integrator_config, mngr_ctx, opts, output_dir, base_commit=base_commit
+    )
     integrated_branch = integrator_result.branch_name if integrator_result is not None else None
     generate_html_report(
         results,
@@ -708,7 +719,7 @@ Use --env to pass environment variables and --label to tag all agents.
 Use --prompt-suffix to append custom instructions to the agent prompt.
 Use --max-agents to limit how many agents run simultaneously (0 = no limit).
 
-Each agent writes its result to $MNGR_AGENT_STATE_DIR/plugin/test-map-reduce/result.json
+Each agent writes its result to .test_output/testing_agent_outcome.json (in its work directory)
 with a structured JSON containing: changes (list of kind/status/summary), errored flag,
 tests_passing_before/after booleans, and a markdown summary.""",
     examples=(

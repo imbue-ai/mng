@@ -6,7 +6,6 @@ test, poll for completion, gather results, and pull code changes.
 
 import json
 import secrets
-import shutil
 import threading
 import time
 from pathlib import Path
@@ -22,6 +21,7 @@ from imbue.mngr.api.data_types import CreateAgentResult
 from imbue.mngr.api.list import ListResult
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
@@ -55,7 +55,8 @@ from imbue.mngr_tmr.data_types import TestMapReduceResult
 from imbue.mngr_tmr.data_types import TestResult
 from imbue.mngr_tmr.data_types import TestRunInfo
 from imbue.mngr_tmr.data_types import TmrLaunchConfig
-from imbue.mngr_tmr.prompts import PLUGIN_NAME
+from imbue.mngr_tmr.prompts import INTEGRATOR_OUTCOME_FILENAME
+from imbue.mngr_tmr.prompts import TESTING_AGENT_OUTCOME_FILENAME
 from imbue.mngr_tmr.prompts import build_integrator_prompt
 from imbue.mngr_tmr.prompts import build_test_agent_prompt
 from imbue.mngr_tmr.report import generate_html_report
@@ -450,7 +451,6 @@ def launch_and_poll_agents(
     all_agents: list[TestAgentInfo],
     all_hosts: dict[str, OnlineHostInterface],
     artifact_output_dir: Path | None = None,
-    local_host: OnlineHostInterface | None = None,
 ) -> tuple[dict[str, AgentDetails], set[str], dict[str, TestResult]]:
     """Launch agents incrementally and poll until all finish.
 
@@ -578,7 +578,7 @@ def launch_and_poll_agents(
                 agent_name=agent_detail.name,
                 host=all_hosts[agent_id_str],
                 artifact_output_dir=artifact_output_dir,
-                local_host=local_host,
+                cg=mngr_ctx.concurrency_group,
                 should_stop=agent_detail.state == AgentLifecycleState.WAITING,
             )
             if pre_read is not None:
@@ -615,7 +615,7 @@ def launch_and_poll_agents(
                         agent_name=info.agent_name,
                         host=all_hosts[agent_id_str],
                         artifact_output_dir=artifact_output_dir,
-                        local_host=local_host,
+                        cg=mngr_ctx.concurrency_group,
                         should_stop=True,
                     )
                     if pre_read is not None:
@@ -634,7 +634,7 @@ def launch_and_poll_agents(
 
 
 def _parse_result_json(raw: str) -> TestResult:
-    """Parse a result.json string into a TestResult.
+    """Parse an outcome JSON string into a TestResult.
 
     Raises json.JSONDecodeError, KeyError, or ValueError on invalid data.
     """
@@ -674,7 +674,11 @@ def try_read_agent_result(
     Used to detect agents that have finished writing their result but whose
     lifecycle status has not yet updated to a terminal state.
     """
-    result_path = host.host_dir / "agents" / str(agent_id) / "plugin" / PLUGIN_NAME / "result.json"
+    try:
+        agent = _get_agent_from_host(host, agent_id)
+    except (MngrError, HostError, AgentNotFoundOnHostError):
+        return None
+    result_path = agent.work_dir / ".test_output" / TESTING_AGENT_OUTCOME_FILENAME
     try:
         raw = host.read_text_file(result_path)
         return _parse_result_json(raw)
@@ -691,173 +695,149 @@ def _stop_agent_on_host(host: OnlineHostInterface, agent_id: AgentId, agent_name
         logger.warning("Failed to stop agent '{}': {}", agent_name, exc)
 
 
+def pull_agent_outputs(
+    agent_id: AgentId,
+    agent_name: AgentName,
+    host: OnlineHostInterface,
+    destination_dir: Path,
+    cg: ConcurrencyGroup,
+) -> TestResult | None:
+    """Pull .test_output (artifacts + result.json) from an agent via rsync, then read result locally.
+
+    Returns the parsed TestResult if result.json was found in the pulled output,
+    or None if pulling failed or result.json is missing/unparseable.
+    """
+    try:
+        agent = _get_agent_from_host(host, agent_id)
+    except (MngrError, HostError, AgentNotFoundOnHostError) as exc:
+        logger.warning("Could not find agent '{}' on host to pull outputs: {}", agent_name, exc)
+        return None
+
+    local_dest = destination_dir / str(agent_name)
+    local_dest.mkdir(parents=True, exist_ok=True)
+
+    try:
+        pull_files(
+            agent=agent,
+            host=host,
+            destination=local_dest,
+            source_path=agent.work_dir / ".test_output",
+            is_dry_run=False,
+            is_delete=False,
+            uncommitted_changes=UncommittedChangesMode.CLOBBER,
+            cg=cg,
+        )
+        logger.info("Pulled .test_output from agent '{}' to {}", agent_name, local_dest)
+    except (MngrError, HostError, OSError) as exc:
+        logger.warning("Failed to pull .test_output from agent '{}': {}", agent_name, exc)
+        return None
+
+    return _read_local_result(local_dest, agent_name)
+
+
+def _read_local_result(local_dir: Path, agent_name: AgentName) -> TestResult | None:
+    """Read and parse the testing agent outcome from a locally-pulled output directory."""
+    result_path = local_dir / TESTING_AGENT_OUTCOME_FILENAME
+    try:
+        raw = result_path.read_text()
+        return _parse_result_json(raw)
+    except (FileNotFoundError, OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        logger.warning("Failed to read local result for agent '{}': {}", agent_name, exc)
+        return None
+
+
 def _finalize_agent(
     agent_id: AgentId,
     agent_name: AgentName,
     host: OnlineHostInterface,
     artifact_output_dir: Path | None,
-    local_host: OnlineHostInterface | None,
+    cg: ConcurrencyGroup,
     should_stop: bool,
 ) -> TestResult | None:
-    """Pull artifacts and pre-read result from a finished agent, then optionally stop it.
+    """Pull outputs and read result from a finished agent, then optionally stop it.
 
-    Returns the pre-read TestResult if successful, or None if the result
-    could not be read. The result is read BEFORE stopping the agent to avoid
-    connection issues with remote hosts that get torn down on stop.
+    Uses rsync via pull_files to pull .test_output (which contains both artifacts
+    and result.json) in a single operation, then reads result.json locally.
+    The pull is done BEFORE stopping the agent to avoid connection issues with
+    remote hosts that get torn down on stop.
     """
-    if artifact_output_dir is not None and local_host is not None:
-        pull_test_outputs_by_id(agent_id, agent_name, host, local_host, artifact_output_dir)
-    # Try reading the result a few times before stopping -- once stopped, remote
-    # hosts may be torn down and the result becomes unreachable.
-    pre_read = None
-    for attempt in range(3):
-        pre_read = try_read_agent_result(agent_id, host)
-        if pre_read is not None:
-            break
-        if attempt < 2:
-            time.sleep(2.0)
+    pre_read: TestResult | None = None
+    if artifact_output_dir is not None:
+        pre_read = pull_agent_outputs(agent_id, agent_name, host, artifact_output_dir, cg)
     if should_stop:
         _stop_agent_on_host(host, agent_id, agent_name)
     return pre_read
 
 
-_RESULT_READ_MAX_RETRIES = 2
-_RESULT_READ_RETRY_DELAY_SECONDS = 3.0
-
-
-def read_agent_result(
+def _pull_integrator_outputs(
     agent_detail: AgentDetails,
     host: OnlineHostInterface,
-) -> TestResult:
-    """Read the result.json from a finished agent's state directory.
-
-    Retries up to 3 times on connection errors to handle transient host issues.
-    """
-    result_path = host.host_dir / "agents" / str(agent_detail.id) / "plugin" / PLUGIN_NAME / "result.json"
-    last_exc: HostError | None = None
-    for attempt in range(_RESULT_READ_MAX_RETRIES):
-        try:
-            raw = host.read_text_file(result_path)
-            return _parse_result_json(raw)
-        except HostError as exc:
-            last_exc = exc
-            if attempt < _RESULT_READ_MAX_RETRIES - 1:
-                logger.warning(
-                    "Connection error reading result from agent {} (attempt {}/{}), retrying: {}",
-                    agent_detail.name,
-                    attempt + 1,
-                    _RESULT_READ_MAX_RETRIES,
-                    exc,
-                )
-                time.sleep(_RESULT_READ_RETRY_DELAY_SECONDS)
-                continue
-            logger.warning(
-                "Lost connection to agent {} after {} attempts: {}", agent_detail.name, _RESULT_READ_MAX_RETRIES, exc
-            )
-            return TestResult(
-                errored=True,
-                summary_markdown=f"Connection lost while fetching result file from agent host: {exc}",
-            )
-        except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
-            logger.warning("Failed to read result from agent {}: {}", agent_detail.name, exc)
-            return TestResult(
-                errored=True,
-                summary_markdown=f"Failed to read agent result: {exc}",
-            )
-    return TestResult(
-        errored=True,
-        summary_markdown=f"Connection lost while fetching result file from agent host: {last_exc}",
-    )
-
-
-def _copy_test_output(
-    source_test_output: Path,
-    agent_name: AgentName,
-    host: OnlineHostInterface,
-    local_host: OnlineHostInterface,
     destination_dir: Path,
-) -> None:
-    """Copy .test_output from an agent to a local directory.
-
-    Uses filesystem copy for local agents (where the path is directly
-    accessible) and rsync via copy_directory for remote agents.
-    """
-    local_dest = destination_dir / str(agent_name)
-    local_dest.mkdir(parents=True, exist_ok=True)
-
-    if source_test_output.exists():
-        try:
-            shutil.copytree(source_test_output, local_dest, dirs_exist_ok=True)
-            logger.info("Copied .test_output from agent '{}' to {}", agent_name, local_dest)
-            return
-        except OSError as exc:
-            logger.warning("Failed to copy .test_output from agent '{}': {}", agent_name, exc)
-            return
-
+    cg: ConcurrencyGroup,
+) -> bool:
+    """Pull the integrator agent's .test_output via rsync. Returns True on success."""
     try:
-        local_host.copy_directory(
-            source_host=host,
-            source_path=source_test_output,
-            target_path=local_dest,
-        )
-        logger.info("Pulled .test_output from agent '{}' to {}", agent_name, local_dest)
-    except (MngrError, HostError, OSError) as exc:
-        logger.warning("Failed to pull .test_output from agent '{}': {}", agent_name, exc)
-
-
-def pull_test_outputs(
-    agent_detail: AgentDetails,
-    host: OnlineHostInterface,
-    local_host: OnlineHostInterface,
-    destination_dir: Path,
-) -> None:
-    """Pull the .test_output directory from an agent's work_dir to a local directory."""
-    _copy_test_output(agent_detail.work_dir / ".test_output", agent_detail.name, host, local_host, destination_dir)
-
-
-def pull_test_outputs_by_id(
-    agent_id: AgentId,
-    agent_name: AgentName,
-    host: OnlineHostInterface,
-    local_host: OnlineHostInterface,
-    destination_dir: Path,
-) -> None:
-    """Pull .test_output from an agent, looking up its work_dir from the host."""
-    try:
-        agent = _get_agent_from_host(host, agent_id)
+        agent = _get_agent_from_host(host, agent_detail.id)
     except (MngrError, HostError, AgentNotFoundOnHostError) as exc:
-        logger.warning("Could not find agent '{}' on host to pull artifacts: {}", agent_name, exc)
-        return
-    _copy_test_output(agent.work_dir / ".test_output", agent_name, host, local_host, destination_dir)
+        logger.warning("Could not find integrator agent on host: {}", exc)
+        return False
+
+    local_dest = destination_dir / str(agent_detail.name)
+    local_dest.mkdir(parents=True, exist_ok=True)
+    try:
+        pull_files(
+            agent=agent,
+            host=host,
+            destination=local_dest,
+            source_path=agent.work_dir / ".test_output",
+            is_dry_run=False,
+            is_delete=False,
+            uncommitted_changes=UncommittedChangesMode.CLOBBER,
+            cg=cg,
+        )
+        return True
+    except (MngrError, HostError, OSError) as exc:
+        logger.warning("Failed to pull integrator outputs: {}", exc)
+        return False
 
 
 def read_integrator_result(
     agent_detail: AgentDetails,
     host: OnlineHostInterface,
     branch_name: str | None,
+    destination_dir: Path | None,
+    cg: ConcurrencyGroup,
 ) -> IntegratorResult:
-    """Read the integrator agent's result.json and build an IntegratorResult."""
-    agent_state_dir = host.host_dir / "agents" / str(agent_detail.id)
-    result_path = agent_state_dir / "plugin" / PLUGIN_NAME / "result.json"
+    """Pull the integrator agent's .test_output and read result.json."""
+    empty = IntegratorResult(agent_name=agent_detail.name, branch_name=branch_name)
 
-    try:
-        raw = host.read_text_file(result_path)
-        data = json.loads(raw)
-        return IntegratorResult(
-            agent_name=agent_detail.name,
-            squashed_branches=tuple(data.get("squashed_branches", ())),
-            squashed_commit_hash=data.get("squashed_commit_hash"),
-            impl_priority=tuple(data.get("impl_priority", ())),
-            impl_commit_hashes=data.get("impl_commit_hashes", {}),
-            failed=tuple(data.get("failed", ())),
-            branch_name=branch_name,
-        )
-    except (HostError, OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
-        logger.warning("Failed to read integrator result: {}", exc)
-        return IntegratorResult(
-            agent_name=agent_detail.name,
-            branch_name=branch_name,
-        )
+    # Try to pull outputs locally first, then read the local file
+    if destination_dir is not None:
+        _pull_integrator_outputs(agent_detail, host, destination_dir, cg)
+        local_result = destination_dir / str(agent_detail.name) / INTEGRATOR_OUTCOME_FILENAME
+        try:
+            data = json.loads(local_result.read_text())
+        except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
+            logger.warning("Failed to read integrator result locally: {}", exc)
+            return empty
+    else:
+        # Fallback: read result.json directly from the agent's work_dir
+        result_path = agent_detail.work_dir / ".test_output" / INTEGRATOR_OUTCOME_FILENAME
+        try:
+            data = json.loads(host.read_text_file(result_path))
+        except (HostError, OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+            logger.warning("Failed to read integrator result: {}", exc)
+            return empty
+
+    return IntegratorResult(
+        agent_name=agent_detail.name,
+        squashed_branches=tuple(data.get("squashed_branches", ())),
+        squashed_commit_hash=data.get("squashed_commit_hash"),
+        impl_priority=tuple(data.get("impl_priority", ())),
+        impl_commit_hashes=data.get("impl_commit_hashes", {}),
+        failed=tuple(data.get("failed", ())),
+        branch_name=branch_name,
+    )
 
 
 def pull_agent_branch(
@@ -1002,20 +982,31 @@ def _collect_agent_results(
             )
             continue
 
-        test_result = cached_results.get(agent_id_str) or read_agent_result(detail, hosts[agent_id_str])
-        results.append(
-            TestMapReduceResult(
-                test_node_id=agent_info.test_node_id,
-                agent_name=agent_info.agent_name,
-                changes=test_result.changes,
-                errored=test_result.errored,
-                tests_passing_before=test_result.tests_passing_before,
-                tests_passing_after=test_result.tests_passing_after,
-                summary_markdown=test_result.summary_markdown,
-                branch_name=detail.initial_branch or agent_info.branch_name,
-                test_runs=test_result.test_runs,
+        test_result = cached_results.get(agent_id_str) or try_read_agent_result(detail.id, hosts[agent_id_str])
+        if test_result is not None:
+            results.append(
+                TestMapReduceResult(
+                    test_node_id=agent_info.test_node_id,
+                    agent_name=agent_info.agent_name,
+                    changes=test_result.changes,
+                    errored=test_result.errored,
+                    tests_passing_before=test_result.tests_passing_before,
+                    tests_passing_after=test_result.tests_passing_after,
+                    summary_markdown=test_result.summary_markdown,
+                    branch_name=detail.initial_branch or agent_info.branch_name,
+                    test_runs=test_result.test_runs,
+                )
             )
-        )
+        else:
+            results.append(
+                TestMapReduceResult(
+                    test_node_id=agent_info.test_node_id,
+                    agent_name=agent_info.agent_name,
+                    errored=True,
+                    summary_markdown="Failed to read agent result",
+                    branch_name=detail.initial_branch or agent_info.branch_name,
+                )
+            )
 
     return results
 
