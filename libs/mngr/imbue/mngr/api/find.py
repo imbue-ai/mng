@@ -441,7 +441,7 @@ def find_and_maybe_start_agent_by_name_or_id(
 
     if len(matching) > 1:
         # Build helpful error message showing the matching agents
-        agent_list = "\n".join([f"  - {agent.id} (on {host.connector.name})" for agent, host in matching])
+        agent_list = "\n".join([f"  - {agent.id} (on {host.get_name()})" for agent, host in matching])
         raise UserInputError(
             f"Multiple agents found with name '{agent_str}':\n{agent_list}\n\n"
             f"Please use the agent ID instead:\n"
