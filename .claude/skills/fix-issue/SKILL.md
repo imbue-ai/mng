@@ -16,7 +16,7 @@ Fetch the issue details:
 gh issue view $1 --json number,title,body,labels,comments
 ```
 
-Read it carefully. If the issue is misguided, unclear to the point of being unactionable, or describes something that is already fixed, comment on the issue explaining why (prefix your comment with `[fix-issue]`) and stop.
+Read it carefully.
 
 ## 2. Reproduce and investigate (in parallel)
 
@@ -27,7 +27,7 @@ Then launch two efforts concurrently:
 - **Reproduce**: Write a minimal reproduction (test, script, or manual steps) that demonstrates the bug or missing behavior. If the issue is a feature request rather than a bug, skip reproduction and instead write a failing test that captures the desired behavior.
 - **Root-cause search**: Read the relevant code, trace the control flow, and identify where the fix should go.
 
-If you cannot reproduce the bug or identify a root cause, comment on the issue explaining what you tried and what you found (prefix with `[fix-issue]`) and stop.
+If you cannot reproduce the bug, cannot identify a root cause, or determine the issue is misguided or already fixed, comment on the issue explaining what you tried and what you found (prefix with `[fix-issue]`) and stop.
 
 ## 3. Decide on approach
 
