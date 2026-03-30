@@ -392,12 +392,24 @@ def minimal_install_env(
     the real install path: entry points, dependency resolution, etc.
 
     The subprocess environment is intentionally minimal (not inherited from
-    the parent process). Only essential variables are set. This catches code
-    that accidentally depends on tools or config from the developer's
-    environment (e.g. the modal CLI being on PATH).
+    the parent process). PATH contains only the venv bin and the directories
+    of mngr's declared system dependencies (from scripts/install.sh: git,
+    tmux, jq, curl, ssh, rsync). This catches code that depends on tools from the
+    developer's environment (e.g. the modal CLI being on PATH).
     """
+    # Build PATH from only the venv and the directories containing mngr's
+    # declared system dependencies (from scripts/install.sh). This mirrors
+    # what a user would have after running install.sh.
+    system_deps = ["git", "tmux", "jq", "curl", "ssh", "rsync"]
+    dep_dirs: set[str] = set()
+    for dep in system_deps:
+        dep_path = shutil.which(dep)
+        if dep_path is not None:
+            dep_dirs.add(str(Path(dep_path).parent))
+    system_path = ":".join(sorted(dep_dirs))
+
     env = {
-        "PATH": f"{isolated_mngr_venv / 'bin'}:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PATH": f"{isolated_mngr_venv / 'bin'}:{system_path}",
         "HOME": str(temp_host_dir.parent),
         "MNGR_HOST_DIR": str(temp_host_dir),
         "MNGR_ROOT_NAME": mngr_test_root_name,
