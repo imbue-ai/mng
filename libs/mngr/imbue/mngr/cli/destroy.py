@@ -204,7 +204,6 @@ def destroy(ctx: click.Context, **kwargs) -> None:
     try:
         targets = _find_agents_to_destroy(
             agent_identifiers=agent_identifiers,
-            destroy_all=False,
             mngr_ctx=mngr_ctx,
         )
     except AgentNotFoundError as e:
@@ -285,7 +284,6 @@ def destroy(ctx: click.Context, **kwargs) -> None:
 
 def _find_agents_to_destroy(
     agent_identifiers: Sequence[str],
-    destroy_all: bool,
     mngr_ctx: MngrContext,
 ) -> _DestroyTargets:
     """Find all agents to destroy.
@@ -301,7 +299,7 @@ def _find_agents_to_destroy(
     # include_destroyed=True so we can find and clean up agents on already-destroyed hosts.
     matches = find_agents_by_addresses(
         raw_identifiers=agent_identifiers,
-        filter_all=destroy_all,
+        filter_all=False,
         target_state=None,
         mngr_ctx=mngr_ctx,
         include_destroyed=True,
