@@ -216,12 +216,11 @@ window.addEventListener("load", function () {
     // Avoid duplicate injection
     if (document.querySelector(".agents-sidebar-link")) return true;
 
-    // Insert after the sidebar header (between the header controls
-    // and the conversation list).  This keeps it visually grouped
-    // with the navigation controls rather than mixed into the
-    // conversation list.
-    var sidebarHeader = document.querySelector('[data-slot="sidebar-header"]');
-    if (!sidebarHeader) return false;
+    // Insert inside the sidebar header, between the branding row
+    // and the "New conversation" row.  This puts "Agents" above
+    // "New conversation" while keeping both in the header area.
+    var newConvRow = document.querySelector(".sidebar-new-conversation-row");
+    if (!newConvRow) return false;
 
     var link = document.createElement("a");
     link.className = "agents-sidebar-link";
@@ -232,8 +231,7 @@ window.addEventListener("load", function () {
       navigateToAgents();
     });
 
-    // Insert the link immediately after the sidebar header div.
-    sidebarHeader.parentNode.insertBefore(link, sidebarHeader.nextSibling);
+    newConvRow.parentNode.insertBefore(link, newConvRow);
     updateSidebarLinkState();
     return true;
   }
