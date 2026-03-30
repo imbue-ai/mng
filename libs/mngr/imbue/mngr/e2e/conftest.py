@@ -389,12 +389,15 @@ def minimal_install_env(
     """Provide a fresh mngr install in an isolated venv for install tests.
 
     The venv is built from the workspace (not the dev venv), so it exercises
-    the real install path: entry points, dependency resolution, etc. The env
-    dict is configured so mngr uses isolated directories and won't load
-    project config.
+    the real install path: entry points, dependency resolution, etc.
+
+    The subprocess environment is intentionally minimal (not inherited from
+    the parent process). Only essential variables are set. This catches code
+    that accidentally depends on tools or config from the developer's
+    environment (e.g. the modal CLI being on PATH).
     """
     env = {
-        "PATH": f"{isolated_mngr_venv / 'bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+        "PATH": f"{isolated_mngr_venv / 'bin'}:/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME": str(temp_host_dir.parent),
         "MNGR_HOST_DIR": str(temp_host_dir),
         "MNGR_ROOT_NAME": mngr_test_root_name,
