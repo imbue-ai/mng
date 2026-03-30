@@ -1,7 +1,7 @@
 ---
 name: fix-issue
 argument-hint: [issue]
-description: Fix a GitHub issue given its number or URL. Replicates the bug, finds root cause, and implements a fix.
+description: Fix a GitHub issue given its number or URL. Replicates the bug, finds root cause, implements a fix, and opens a PR.
 ---
 
 # Fix a GitHub Issue
@@ -37,6 +37,21 @@ If the fix involves a meaningful architectural choice (e.g., where to put new lo
 - Add or update tests to cover the fix.
 - Get all tests passing (`uv run pytest` in the relevant project directory).
 
-## 5. Commit the fix
+## 5. Open a PR
 
-Commit your changes with a message that references the issue number (e.g., "Fix <description> (#<issue_number>)"). A PR will be created automatically by the system.
+Create a branch if you're not already on one, then open a PR that closes the issue:
+
+```bash
+gh pr create --title "<concise title>" --body "$(cat <<'EOF'
+Closes #<issue_number>
+
+## Summary
+<what changed and why>
+
+## Test plan
+<how the fix is verified>
+EOF
+)"
+```
+
+The `Closes #<number>` keyword in the PR body automatically links and closes the issue when merged.
