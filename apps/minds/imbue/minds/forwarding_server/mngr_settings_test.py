@@ -22,7 +22,7 @@ def _read_settings(repo: Path) -> dict[str, Any]:
 
 def test_build_list_exclude_filter_contains_mind_name() -> None:
     result = _build_list_exclude_filter(AgentName("selene"))
-    assert 'labels.mind == "selene"' in result
+    assert 'labels.mind != "selene"' in result
     assert "!has(labels.mind)" in result
 
 
@@ -46,7 +46,7 @@ def test_configure_mngr_settings_creates_settings_file(tmp_path: Path) -> None:
     # Verify [commands.list] exclude filter
     excludes = parsed["commands"]["list"]["exclude"]
     assert len(excludes) == 1
-    assert 'labels.mind == "selene"' in excludes[0]
+    assert 'labels.mind != "selene"' in excludes[0]
 
     # Verify [commands.events] include filters
     events_includes = parsed["commands"]["events"]["include"]
@@ -87,7 +87,7 @@ def test_configure_mngr_settings_merges_with_existing_list_excludes(tmp_path: Pa
     excludes = list(parsed["commands"]["list"]["exclude"])
     assert len(excludes) == 2
     assert 'state == "STOPPED"' in excludes[0]
-    assert 'labels.mind == "selene"' in excludes[1]
+    assert 'labels.mind != "selene"' in excludes[1]
 
 
 def test_configure_mngr_settings_merges_with_existing_events_include(tmp_path: Path) -> None:
