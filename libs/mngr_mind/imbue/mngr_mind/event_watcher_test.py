@@ -2657,6 +2657,76 @@ def test_idle_wait_resets_counter_on_non_messages_event(synthetic_loop_env: Synt
     assert idle_events[1]["idle_event_number"] == 1
 
 
+def test_idle_counter_not_reset_by_state_transition_events(synthetic_loop_env: SyntheticLoopEnv) -> None:
+    """Agent state transition events from idle event processing do NOT reset
+    the idle counter.
+
+    After sending an idle event, the agent transitions WAITING -> RUNNING ->
+    WAITING, generating non-messages events (mngr/agent_states). These arrive
+    while idle_since is None (cleared by notify_idle_event_sent), so
+    on_real_event returns False and the counter is preserved.
+    """
+    env = synthetic_loop_env
+    env.last_real_event_monotonic[0] = 1000.0
+    settings = _EventWatcherSettings(idle_event_delay_minutes_schedule=(1, 10, 60))
+    tracker = create_tracking_idle_wait()
+
+    call_count = 0
+
+    def clock() -> float:
+        nonlocal call_count
+        call_count += 1
+        n = call_count
+
+        if n == 1:
+            tracker.processes[0].complete(0)
+            return 1050.0
+        if n == 2:
+            # 70s after idle -> idle event 1 fires (notify clears idle_since)
+            return 1120.0
+        if n == 3:
+            # State transition events arrive while idle_since is None
+            env.last_real_event_monotonic[0] = 1125.0
+            env.last_non_messages_event_monotonic[0] = 1125.0
+            return 1125.0
+        if n == 4:
+            # Restart delay elapsed (T=1137 >= restart_at=1135)
+            return 1137.0
+        if n == 5:
+            if len(tracker.processes) >= 2:
+                tracker.processes[-1].complete(0)
+            return 1140.0
+        if n == 6:
+            # 5 min after re-entry, not enough for 10 min delay
+            return 1440.0
+        if n == 7:
+            # 11 min after re-entry, second idle event fires
+            return 1800.0
+        if n > 8:
+            env.stop_event.set()
+        return 1900.0
+
+    _run_synthetic_events_loop(
+        settings,
+        env.event_buffer,
+        env.buffer_lock,
+        env.stop_event,
+        env.last_real_event_monotonic,
+        env.mind_state_dir,
+        clock,
+        poll_interval_seconds=0.01,
+        agent_id="agent-test",
+        start_idle_wait=tracker,
+        last_non_messages_event_monotonic=env.last_non_messages_event_monotonic,
+    )
+
+    idle_events = [json.loads(line) for line in env.event_buffer if '"mind/idle"' in line]
+    assert len(idle_events) >= 2
+    assert idle_events[0]["idle_event_number"] == 1
+    # Counter was NOT reset by state transition events, so this is event 2
+    assert idle_events[1]["idle_event_number"] == 2
+
+
 def test_idle_wait_uses_per_event_delay(synthetic_loop_env: SyntheticLoopEnv) -> None:
     """Delays are per-event (not cumulative).
 

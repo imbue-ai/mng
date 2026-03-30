@@ -638,18 +638,21 @@ class _IdleWaitTracker:
         self._process = self._start_idle_wait(self._agent_id)
         logger.info("Started idle wait for agent {}", self._agent_id)
 
-    def on_real_event(self, now_monotonic: float) -> None:
+    def on_real_event(self, now_monotonic: float) -> bool:
         """Reset idle state when a real event arrives while the agent is idle.
 
         Only acts when the agent was detected as idle (idle_since is set).
         When the agent is not idle, real events are expected and the running
         wait process will detect the next WAITING transition on its own.
+
+        Returns True if idle state was actually reset (the agent was idle).
         """
         if self._idle_since is None:
-            return
+            return False
         self._idle_since = None
         self._schedule_restart(now_monotonic)
         logger.debug("Reset idle state after real event")
+        return True
 
     def notify_idle_event_sent(self, now_monotonic: float) -> None:
         """Clear idle state after sending an idle event to the agent.
@@ -1099,23 +1102,28 @@ def _run_synthetic_events_loop(
             now_monotonic = time_source()
 
             # Check for new real events from the mngr events subprocess
+            agent_woke_from_idle = False
             with buffer_lock:
                 current_real_event_time = last_real_event_monotonic[0]
             if current_real_event_time > last_seen_real_event_time:
                 last_seen_real_event_time = current_real_event_time
                 if idle_wait_tracker is not None:
-                    idle_wait_tracker.on_real_event(now_monotonic)
+                    agent_woke_from_idle = idle_wait_tracker.on_real_event(now_monotonic)
 
-            # Reset the idle counter only when a non-messages event arrives.
-            # Events from the "messages" source include the agent's own
-            # conversation output (including responses to our idle events),
-            # so they should not reset the backoff.
+            # Reset the idle counter only when a non-messages event wakes
+            # the agent from idle (a genuinely new external event).  Events
+            # from the "messages" source (the agent's own conversation
+            # output) never update last_non_messages_event_monotonic.
+            # Events that arrive while the agent is already active (e.g.
+            # agent state transitions from processing an idle event) are
+            # consumed but do NOT reset the backoff.
             if last_non_messages_event_monotonic is not None:
                 with buffer_lock:
                     current_non_messages_time = last_non_messages_event_monotonic[0]
                 if current_non_messages_time > last_seen_non_messages_event_time:
-                    idle_events_sent = 0
                     last_seen_non_messages_event_time = current_non_messages_time
+                    if agent_woke_from_idle:
+                        idle_events_sent = 0
 
             if idle_wait_tracker is not None:
                 idle_wait_tracker.tick(now_monotonic)
