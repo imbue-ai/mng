@@ -1468,7 +1468,7 @@ def _parse_source_string(source_str: str) -> ParsedSourceString:
         # No colon -- treat as a plain path (most common case: --source ./dir)
         return ParsedSourceString(path=Path(source_str), agent_name=None, host_name=None)
 
-    prefix, path_str = source_str.rsplit(":", 1)
+    prefix, path_str = source_str.split(":", 1)
     path = Path(path_str) if path_str else None
 
     if not prefix:
