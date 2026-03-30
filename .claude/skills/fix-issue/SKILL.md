@@ -24,7 +24,7 @@ First, gather context for the relevant library (per the "How to get started" ins
 
 Then launch two efforts concurrently:
 
-- **Reproduce**: Write a minimal reproduction (test, script, or manual steps) that demonstrates the bug or missing behavior. If the issue is a feature request rather than a bug, skip reproduction and instead write a failing test that captures the desired behavior.
+- **Reproduce**: Ideally, write a regression test that fails before the fix and will pass after. If a test isn't practical, use a script or manual steps. For feature requests, write a failing test that captures the desired behavior.
 - **Root-cause search**: Read the relevant code, trace the control flow, and identify where the fix should go.
 
 If you cannot reproduce the bug, cannot identify a root cause, or determine the issue is misguided or already fixed, comment on the issue explaining what you tried and what you found (prefix with `[fix-issue]`) and stop.
