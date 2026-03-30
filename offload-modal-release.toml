@@ -21,8 +21,8 @@ run_args = "--no-cov -p no:xdist -o addopts="
 
 [groups.all]
 retry_count = 4
-# Only run release tests, excluding docker tests (Modal doesn't support Docker well)
-filters = "-m 'release and not docker'"
+# Only run release tests, excluding docker tests (Modal doesn't have Docker)
+filters = "-m 'release and not docker and not docker_sdk'"
 
 [report]
 output_dir = "test-results"

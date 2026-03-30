@@ -446,7 +446,6 @@ def test_discover_hosts_excludes_destroyed_by_default(
 
 
 @pytest.mark.release
-@pytest.mark.docker
 @pytest.mark.docker_sdk
 def test_create_host_with_bad_image_fails(docker_provider: DockerProviderInstance) -> None:
     """Verify create_host with a nonexistent image raises MngrError and saves a failed record."""
