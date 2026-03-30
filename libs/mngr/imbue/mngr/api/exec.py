@@ -16,6 +16,7 @@ from imbue.mngr.api.find import group_agents_by_host
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.agent_addr import find_agent_by_address
 from imbue.mngr.cli.agent_addr import find_agents_by_addresses
+from imbue.mngr.cli.agent_addr import parse_identifier_as_address
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
@@ -67,10 +68,12 @@ def exec_command_on_agent(
     Resolves the agent by name, ID, or address, optionally starts it if stopped,
     then executes the command on its host (defaulting to the agent's work_dir).
     """
+    plain_id, _address = parse_identifier_as_address(agent_str)
+
     agents_by_host, _providers = discover_hosts_and_agents(
         mngr_ctx,
         provider_names=None,
-        agent_identifiers=(agent_str,),
+        agent_identifiers=(plain_id,),
         include_destroyed=False,
         reset_caches=False,
     )
