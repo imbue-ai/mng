@@ -533,7 +533,6 @@ def _setup_create(
     if opts.edit_message:
         editor_session = EditorSession.create(initial_content=initial_message_content)
         # Start editor with callback that restores logging when it exits
-        # (Logging suppression is already enabled by create() before calling us.)
         editor_session.start(on_exit=_on_editor_exit)
         # When using editor, don't pass message to api_create (we'll send it after editor finishes)
         initial_message = None
