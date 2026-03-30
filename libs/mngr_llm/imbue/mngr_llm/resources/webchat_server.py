@@ -31,6 +31,7 @@ from imbue.mngr_llm import resources as llm_resources
 from imbue.mngr_llm.resources.webchat_agents import AgentsPlugin
 from imbue.mngr_llm.resources.webchat_default_model import DefaultModelPlugin
 from imbue.mngr_llm.resources.webchat_injected_messages import InjectedMessagesPlugin
+from imbue.mngr_llm.resources.webchat_register_conversations import RegisterConversationsPlugin
 from imbue.mngr_llm.resources.webchat_system_prompt import create_system_prompt_plugin
 from llm_webchat.config import Config
 from llm_webchat.config import load_config
@@ -117,6 +118,17 @@ def _setup_injected_messages_plugin() -> None:
     db_path = Path(_LLM_USER_PATH) / "logs.db"
     plugin = InjectedMessagesPlugin(db_path=db_path)
     wrapped = types.SimpleNamespace(register_event_broadcaster=plugin.register_event_broadcaster)
+    get_plugin_manager().register(wrapped)
+
+
+def _setup_register_conversations_plugin() -> None:
+    """Create and register the register-conversations plugin with the llm-webchat plugin manager."""
+    if not _LLM_USER_PATH:
+        logger.warning("LLM_USER_PATH not set, conversation registration plugin will not start")
+        return
+    db_path = Path(_LLM_USER_PATH) / "logs.db"
+    plugin = RegisterConversationsPlugin(db_path=db_path)
+    wrapped = types.SimpleNamespace(endpoint=plugin.endpoint)
     get_plugin_manager().register(wrapped)
 
 
@@ -212,6 +224,7 @@ def main() -> None:
         _setup_agents_plugin()
         _setup_default_model_plugin()
         _setup_injected_messages_plugin()
+        _setup_register_conversations_plugin()
         _setup_system_prompt_plugin()
         _inject_plugin_static_files()
         _bridge_web_server_port_env_var()
