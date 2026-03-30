@@ -106,7 +106,9 @@ def resolve_agent_type(
 
     For custom types (defined in config with a parent_type), resolves through
     the parent type to get the correct agent class and config class, then
-    applies the custom type's overrides on top of the parent defaults.
+    applies the custom type's overrides on top of the parent type's
+    user-configured settings (falling back to bare defaults if the parent
+    type has no user config).
 
     For plugin-registered or direct command types, returns the registered
     class and config directly.
