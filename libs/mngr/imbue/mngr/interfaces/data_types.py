@@ -278,8 +278,9 @@ class CertifiedHostData(FrozenModel):
     def _handle_backwards_compatibility(cls, data: Any) -> Any:
         """Handle backward compatibility with old data.json files.
 
-        Strips deprecated idle_mode field and provides defaults for
-        created_at/updated_at when missing from old data.
+        Strips deprecated idle_mode field, provides defaults for
+        created_at/updated_at when missing from old data, and normalizes
+        host_name by removing the '@' prefix used by pyinfra internally.
         """
         if isinstance(data, dict):
             data.pop("idle_mode", None)
