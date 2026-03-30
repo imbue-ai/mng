@@ -1,6 +1,6 @@
 [project]
 name = "imbue-common"
-version = "0.1.8"
+version = "0.1.9"
 description = "Core libraries for Imbue projects"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -28,8 +28,8 @@ dependencies = [
 dev = ["inline-snapshot>=0.13"]
 
 [project.urls]
-Homepage = "https://github.com/imbue-ai/mng"
-Repository = "https://github.com/imbue-ai/mng"
+Homepage = "https://github.com/imbue-ai/mngr"
+Repository = "https://github.com/imbue-ai/mngr"
 
 [build-system]
 requires = ["hatchling"]
@@ -55,7 +55,7 @@ addopts = [
   "--cov-report=term-missing",
   "--cov-report=html",
   "--cov-report=xml",
-  "--cov-fail-under=80",
+  "--cov-fail-under=95",
   "--durations=20",
   "--timeout=10",
   "--timeout-method=signal",
