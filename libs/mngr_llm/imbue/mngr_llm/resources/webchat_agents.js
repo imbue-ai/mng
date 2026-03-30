@@ -128,14 +128,18 @@ window.addEventListener("load", function () {
   function applyAgentBranding() {
     if (!agentName) return;
 
-    // Replace the sidebar branding title
+    // Replace the sidebar branding title -- but only when it differs,
+    // to avoid a DOM mutation that would re-trigger our MutationObserver
+    // and cause an infinite loop.
     var title = document.querySelector(".sidebar-branding-title");
-    if (title) {
+    if (title && title.textContent !== agentName) {
       title.textContent = agentName;
     }
 
     // Replace the document title
-    document.title = agentName;
+    if (document.title !== agentName) {
+      document.title = agentName;
+    }
   }
 
   // ── Rendering ────────────────────────────────────────────────
