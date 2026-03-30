@@ -29,6 +29,7 @@ from loguru import logger
 from imbue.imbue_common.logging import log_span
 from imbue.mngr_llm import resources as llm_resources
 from imbue.mngr_llm.resources.webchat_agents import AgentsPlugin
+from imbue.mngr_llm.resources.webchat_default_model import DefaultModelPlugin
 from imbue.mngr_llm.resources.webchat_injected_messages import InjectedMessagesPlugin
 from llm_webchat.config import Config
 from llm_webchat.config import load_config
@@ -108,6 +109,13 @@ def _setup_injected_messages_plugin() -> None:
     get_plugin_manager().register(wrapped)
 
 
+def _setup_default_model_plugin() -> None:
+    """Create and register the default-model plugin with the llm-webchat plugin manager."""
+    default_model_plugin = DefaultModelPlugin()
+    wrapped = types.SimpleNamespace(endpoint=default_model_plugin.endpoint)
+    get_plugin_manager().register(wrapped)
+
+
 def _inject_plugin_static_files() -> None:
     """Register JS plugins and static files (CSS) with llm-webchat.
 
@@ -117,7 +125,8 @@ def _inject_plugin_static_files() -> None:
     agents_js = _resolve_resource_path("webchat_agents.js")
     agents_css = _resolve_resource_path("webchat_agents.css")
     injected_messages_js = _resolve_resource_path("webchat_injected_messages.js")
-    _prepend_to_env_list("LLM_WEBCHAT_JAVASCRIPT_PLUGINS", [agents_js, injected_messages_js])
+    default_model_js = _resolve_resource_path("webchat_default_model.js")
+    _prepend_to_env_list("LLM_WEBCHAT_JAVASCRIPT_PLUGINS", [agents_js, injected_messages_js, default_model_js])
     _prepend_to_env_list("LLM_WEBCHAT_STATIC_PATHS", [agents_css])
 
 
@@ -190,6 +199,7 @@ def main() -> None:
     """Entry point for the llmweb CLI command."""
     with log_span("Starting webchat server (llm-webchat)"):
         _setup_agents_plugin()
+        _setup_default_model_plugin()
         _setup_injected_messages_plugin()
         _inject_plugin_static_files()
         _bridge_web_server_port_env_var()
