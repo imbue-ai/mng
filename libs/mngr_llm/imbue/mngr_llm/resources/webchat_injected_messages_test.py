@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from pathlib import Path
@@ -328,10 +329,14 @@ def test_poll_loop_broadcasts_response_data_for_injected_message(tmp_path: Path)
     assert received_calls[0][0] == "conv-1"
     event = received_calls[0][1]
     assert event["type"] == "injected_message"
-    assert event["response"]["id"] == "resp-1"
-    assert event["response"]["conversation_id"] == "conv-1"
-    assert event["response"]["response"] == "injected notification content"
-    assert event["response"]["prompt"] == ""
+    # The response data is JSON-encoded in the content field so that it
+    # survives the llm-webchat frontend's stream_event destructuring
+    # (which only passes type, content, and model).
+    response_data = json.loads(event["content"])
+    assert response_data["id"] == "resp-1"
+    assert response_data["conversation_id"] == "conv-1"
+    assert response_data["response"] == "injected notification content"
+    assert response_data["prompt"] == ""
 
 
 def test_poll_loop_does_not_broadcast_for_normal_messages(tmp_path: Path) -> None:

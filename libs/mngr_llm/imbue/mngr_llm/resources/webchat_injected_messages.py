@@ -16,6 +16,7 @@ Designed to be registered on the llm-webchat application via the pluggy
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from collections.abc import Callable
@@ -193,11 +194,15 @@ def _run_poll_loop(
                 response_data.id,
                 response_data.conversation_id,
             )
+            # The llm-webchat frontend only passes ``type``, ``content``,
+            # and ``model`` from raw SSE events into the ``stream_event``
+            # hook payload.  To get the full response data through to our
+            # JS plugin, we JSON-encode it into the ``content`` field.
             broadcaster(
                 response_data.conversation_id,
                 {
                     "type": _INJECTED_MESSAGE_EVENT_TYPE,
-                    "response": response_data.model_dump(),
+                    "content": json.dumps(response_data.model_dump()),
                     "buffer_behavior": BufferBehavior.IGNORE,
                 },
             )
