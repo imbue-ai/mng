@@ -20,6 +20,10 @@ from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.skitwright.runner import run_command
 from imbue.skitwright.session import Session
 
+# Generate once at module load so all tests in a pytest session share one
+# Modal environment name, reducing environment accumulation.
+_SESSION_TEST_ENV_NAME = generate_test_environment_name()
+
 
 class E2eSession(Session):
     """Session subclass that adds e2e-specific helpers like tutorial block writing.
@@ -265,7 +269,9 @@ def e2e(
     # Use a timestamp-based mngr_test- prefix so that Modal environment names
     # pass the mngr_test- guard and can be cleaned up by
     # cleanup_old_modal_test_environments.py (which parses dates from names).
-    env["MNGR_PREFIX"] = f"{generate_test_environment_name()}-"
+    # Use the session-scoped name so all tests in a pytest session share one
+    # Modal environment instead of each creating their own.
+    env["MNGR_PREFIX"] = f"{_SESSION_TEST_ENV_NAME}-"
 
     # Add the e2e bin directory to PATH so the connect script is available
     env["PATH"] = f"{_BIN_DIR}:{env.get('PATH', '')}"
