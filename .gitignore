@@ -203,8 +203,8 @@
 **/.cursorindexingignore
 
 # Marimo
-/marimo/_static/
-/marimo/_lsp/
+**/marimo/_static/
+**/marimo/_lsp/
 **/__marimo__/
 
 # task folders for local custom claude workflow
