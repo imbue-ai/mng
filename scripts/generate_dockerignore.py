@@ -54,13 +54,9 @@ def transform_line(line: str) -> str | None:
     if stripped in EXCLUDE_PATTERNS or stripped.lstrip("!") in EXCLUDE_PATTERNS:
         return None
 
-    # Strip leading / -- in gitignore it means root-only, which is already
-    # the default in dockerignore for patterns without **/.
-    negated = stripped.startswith("!")
-    pattern = stripped[1:] if negated else stripped
-    pattern = pattern.lstrip("/")
-
-    return f"!{pattern}" if negated else pattern
+    # Strip leading / and ! prefix, then reconstruct.
+    # / means root-only in gitignore, which is already the default in dockerignore.
+    return ("!" if stripped.startswith("!") else "") + stripped.lstrip("!/")
 
 
 def generate() -> str:
