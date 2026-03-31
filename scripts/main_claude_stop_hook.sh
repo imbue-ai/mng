@@ -180,7 +180,9 @@ if [[ "$CURRENT_BRANCH" == "$BASE_BRANCH" ]]; then
     log_info "Currently on base branch ($BASE_BRANCH) - no PR needed"
     IS_INFORMATIONAL_ONLY=true
 else
-    # Get files that have changed since the (now updated) base branch
+    # Get files that have changed since the (now updated) base branch.
+    # Use origin/$BASE_BRANCH since we fetched and merged it above -- the
+    # local $BASE_BRANCH ref may be stale if it hasn't been pulled.
     CHANGED_FILES=$(git diff --name-only "origin/$BASE_BRANCH"...HEAD 2>/dev/null || echo "")
     if [[ -z "$CHANGED_FILES" ]]; then
         log_info "No files changed compared to origin/$BASE_BRANCH - this was an informational session"
