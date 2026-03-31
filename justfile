@@ -104,7 +104,7 @@ test-offload-release args="":
     trap "rm -f current.tar.gz; rm -rf /tmp/$OFFLOAD_PATCH_UUID; rm -rf $tmpdir" EXIT
 
     # Run offload, and make sure to specifically permit error code 2 (flaky tests). Any other error code is a failure.
-    offload -c offload-modal-release.toml {{args}} run --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" --env "MODAL_TOKEN_ID=$MODAL_TOKEN_ID" --env "MODAL_TOKEN_SECRET=$MODAL_TOKEN_SECRET" --env "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" --env "IS_RELEASE=1" || [[ $? -eq 2 ]]
+    offload -c offload-modal-release.toml {{args}} run --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" --env "MODAL_TOKEN_ID=$MODAL_TOKEN_ID" --env "MODAL_TOKEN_SECRET=$MODAL_TOKEN_SECRET" --env "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" --env "IS_RELEASE=1" --env "PYTEST_MAX_DURATION_SECONDS=900" || [[ $? -eq 2 ]]
 
 test-unit:
   uv run pytest --ignore-glob="**/test_*.py" --cov-fail-under=36
