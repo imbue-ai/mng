@@ -1981,10 +1981,9 @@ def get_files_for_deploy(
     files: dict[Path, Path | str] = {}
 
     local_claude_dir = Path.home() / ".claude"
-    home_files = _collect_claude_home_files_content(local_claude_dir, sync_local_settings=include_user_settings)
 
-    # settings.json always ships (the collector includes it with the correct flags)
-    files[Path("~/.claude/settings.json")] = home_files.pop(Path("settings.json"))
+    # settings.json always ships (generated, not a direct copy)
+    files[Path("~/.claude/settings.json")] = _build_settings_json_content(include_user_settings)
 
     # Always ship .claude.json to $HOME/.claude/ in the deploy image.
     # we set the time to a constant for better caching:
@@ -1996,10 +1995,12 @@ def get_files_for_deploy(
     files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
 
     if include_user_settings:
+        home_files = _collect_claude_home_files_content(local_claude_dir, sync_local_settings=include_user_settings)
+        home_files.pop(Path("settings.json"), None)
         for relative_path, content in home_files.items():
             # Rewrite installPath values at build time to use the sentinel prefix,
             # so the runtime fixup doesn't need to know the build machine's home dir
-            if relative_path == _INSTALLED_PLUGINS_RELATIVE_PATH and isinstance(content, str):
+            if relative_path == _INSTALLED_PLUGINS_RELATIVE_PATH:
                 content = _rewrite_installed_plugins_paths(
                     content, local_claude_dir, Path(_INSTALLED_PLUGINS_SENTINEL_PREFIX)
                 )
