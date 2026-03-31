@@ -84,7 +84,7 @@ def test_schedule_add_deploys_to_modal(monorepo_root: Path) -> None:
             f"Expected app name '{app_name}' in output\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
     finally:
-        _cleanup_modal_app(app_name, env)
+        _cleanup_modal_app(app_name, env, monorepo_root)
 
 
 @pytest.mark.release
@@ -139,7 +139,7 @@ def test_schedule_add_with_verification(monorepo_root: Path) -> None:
             f"Expected app name '{app_name}' in output\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
     finally:
-        _cleanup_modal_app(app_name, env)
+        _cleanup_modal_app(app_name, env, monorepo_root)
 
 
 @pytest.mark.release
@@ -216,10 +216,10 @@ def test_schedule_list_shows_deployed_schedule(monorepo_root: Path) -> None:
         assert record["working_directory"] != ""
         assert record["full_commandline"] != ""
     finally:
-        _cleanup_modal_app(app_name, env)
+        _cleanup_modal_app(app_name, env, monorepo_root)
 
 
-def _cleanup_modal_app(app_name: str, env: dict[str, str]) -> None:
+def _cleanup_modal_app(app_name: str, env: dict[str, str], monorepo_root: Path | None = None) -> None:
     """Stop and clean up a Modal app created during testing."""
     try:
         list_result = subprocess.run(
