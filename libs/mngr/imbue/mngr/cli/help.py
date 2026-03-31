@@ -385,10 +385,7 @@ EXAMPLES
       $ mngr list --exclude 'host.provider == "local"'
 
   List agents with names containing "prod" on Modal:
-      $ mngr list --include 'name.contains("prod") && host.provider == "modal"'
-
-  Stop all agents idle for more than an hour:
-      $ mngr stop --all --include 'idle_seconds > 3600'\
+      $ mngr list --include 'name.contains("prod") && host.provider == "modal"'\
 """,
     see_also=(
         ("list", "List agents with filtering and sorting"),
