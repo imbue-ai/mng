@@ -462,7 +462,7 @@ class AgentObserver(MutableModel):
                 command=[
                     self.mngr_binary,
                     "events",
-                    str(host_name),
+                    host_id_str,
                     str(ACTIVITY_EVENT_SOURCE),
                     "--follow",
                     "--quiet",
