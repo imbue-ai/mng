@@ -1346,7 +1346,7 @@ def _parse_target_host(
 
         # The local provider has a single fixed host; skip the new-host path
         # and use the existing localhost instead.
-        if address.provider_name == LOCAL_PROVIDER_NAME:
+        if address.provider_name.lower() == LOCAL_PROVIDER_NAME:
             return None
 
         # Parse host-level labels
