@@ -471,7 +471,7 @@ def _destroy_single_offline_host(
         # Emit host_destroyed event with all agent IDs
         emit_host_destroyed(mngr_ctx.config, offline.host.id, offline.agent_ids)
     except MngrError as e:
-        _output(f"Error destroying offline host {offline.host.get_name()}: {e}", output_opts)
+        _output(f"Error destroying offline host {host_name}: {e}", output_opts)
 
 
 def _check_all_agents_targeted_on_offline_host(
