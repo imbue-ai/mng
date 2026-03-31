@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mngr.utils.testing import generate_test_environment_name
 from imbue.mngr_schedule.implementations.modal.deploy import get_modal_app_name
 
 
@@ -26,6 +27,9 @@ def _build_subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
     # Remove pytest marker so mngr doesn't reject the call
     env.pop("PYTEST_CURRENT_TEST", None)
+    # Ensure the prefix starts with mngr_test- so the Modal backend's guard
+    # accepts it and the cleanup script can identify these environments.
+    env["MNGR_PREFIX"] = f"{generate_test_environment_name()}-"
     return env
 
 
