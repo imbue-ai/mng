@@ -14,13 +14,9 @@ window.addEventListener("load", function () {
 
   $llm.on("stream_event", function (payload) {
     if (payload && payload.event && payload.event.type === "injected_message") {
-      try {
-        var response = JSON.parse(payload.event.content);
-        if (response && response.conversation_id) {
-          $llm.insertResponse(response.conversation_id, response);
-        }
-      } catch (e) {
-        // Malformed content; nothing useful we can do.
+      var response = JSON.parse(payload.event.content);
+      if (response && response.conversation_id) {
+        $llm.insertResponse(response.conversation_id, response);
       }
       return payload;
     }
