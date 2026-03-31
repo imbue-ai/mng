@@ -1861,14 +1861,12 @@ version = "0.1.0"
 source = { editable = "libs/mngr_recursive" }
 dependencies = [
     { name = "imbue-mngr" },
-    { name = "llm-webchat" },
     { name = "watchdog" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "imbue-mngr", editable = "libs/mngr" },
-    { name = "llm-webchat", specifier = ">=2.2.0" },
     { name = "watchdog", specifier = ">=4.0" },
 ]
 
