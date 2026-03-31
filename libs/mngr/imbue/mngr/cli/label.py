@@ -17,6 +17,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import write_human_line
+from imbue.mngr.cli.stdin_utils import STDIN_PLACEHOLDER
 from imbue.mngr.cli.stdin_utils import expand_stdin_placeholder
 from imbue.mngr.config.data_types import CommonCliOptions
 from imbue.mngr.config.data_types import MngrContext
@@ -256,7 +257,9 @@ def label(ctx: click.Context, **kwargs: Any) -> None:
     agent_identifiers = expand_stdin_placeholder(opts.agents) + list(opts.agent_list)
 
     if not agent_identifiers and not opts.label_all:
-        raise click.UsageError("Must specify at least one agent or use --all (use '-' to read from stdin)")
+        if STDIN_PLACEHOLDER not in opts.agents:
+            raise click.UsageError("Must specify at least one agent or use --all (use '-' to read from stdin)")
+        return
 
     if agent_identifiers and opts.label_all:
         raise click.UsageError("Cannot specify both agent names and --all")

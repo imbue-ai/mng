@@ -22,6 +22,7 @@ from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_format_template_lines
 from imbue.mngr.cli.output_helpers import write_human_line
+from imbue.mngr.cli.stdin_utils import STDIN_PLACEHOLDER
 from imbue.mngr.cli.stdin_utils import expand_stdin_placeholder
 from imbue.mngr.config.data_types import CommonCliOptions
 from imbue.mngr.config.data_types import OutputOptions
@@ -177,7 +178,9 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
             agent_identifiers.append(agent_name)
 
     if not agent_identifiers and not opts.stop_all:
-        raise click.UsageError("Must specify at least one agent or use --all")
+        if STDIN_PLACEHOLDER not in opts.agents:
+            raise click.UsageError("Must specify at least one agent or use --all")
+        return
 
     if agent_identifiers and opts.stop_all:
         raise click.UsageError("Cannot specify both agent names and --all")

@@ -135,7 +135,9 @@ def _message_impl(ctx: click.Context, **kwargs) -> None:
 
     # Validate input: must have agents specified or use --all or use filters
     if not agent_identifiers and not opts.all_agents and not opts.include:
-        raise UserInputError("Must specify at least one agent, use --all, or use --include filters")
+        if not stdin_consumed:
+            raise UserInputError("Must specify at least one agent, use --all, or use --include filters")
+        return
 
     if agent_identifiers and opts.all_agents:
         raise UserInputError("Cannot specify both agent names and --all")

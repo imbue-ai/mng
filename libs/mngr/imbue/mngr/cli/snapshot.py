@@ -23,6 +23,7 @@ from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.cli.output_helpers import on_error
 from imbue.mngr.cli.output_helpers import write_human_line
+from imbue.mngr.cli.stdin_utils import STDIN_PLACEHOLDER
 from imbue.mngr.cli.stdin_utils import expand_stdin_placeholder
 from imbue.mngr.config.data_types import CommonCliOptions
 from imbue.mngr.config.data_types import MngrContext
@@ -525,7 +526,9 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
     host_identifiers = mixed_host_ids + list(opts.hosts)
 
     if not agent_identifiers and not host_identifiers and not opts.all_agents:
-        raise click.UsageError("Must specify at least one agent, host, or use --all")
+        if STDIN_PLACEHOLDER not in opts.identifiers:
+            raise click.UsageError("Must specify at least one agent, host, or use --all")
+        return
 
     if (agent_identifiers or host_identifiers) and opts.all_agents:
         raise click.UsageError("Cannot specify both agent/host names and --all")
@@ -673,7 +676,9 @@ def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
     host_identifiers = mixed_host_ids + list(opts.hosts)
 
     if not agent_identifiers and not host_identifiers and not opts.all_agents:
-        raise click.UsageError("Must specify at least one agent, host, or use --all")
+        if STDIN_PLACEHOLDER not in opts.identifiers:
+            raise click.UsageError("Must specify at least one agent, host, or use --all")
+        return
 
     if (agent_identifiers or host_identifiers) and opts.all_agents:
         raise click.UsageError("Cannot specify both agent/host names and --all")
@@ -773,7 +778,9 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
     agent_identifiers = expand_stdin_placeholder(opts.agents) + list(opts.agent_list)
 
     if not agent_identifiers:
-        raise click.UsageError("Must specify at least one agent")
+        if STDIN_PLACEHOLDER not in opts.agents:
+            raise click.UsageError("Must specify at least one agent")
+        return
 
     if not opts.snapshots and not opts.all_snapshots:
         raise click.UsageError("Must specify --snapshot or --all-snapshots")

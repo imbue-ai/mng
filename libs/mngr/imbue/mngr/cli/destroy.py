@@ -32,6 +32,7 @@ from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_format_template_lines
 from imbue.mngr.cli.output_helpers import write_human_line
+from imbue.mngr.cli.stdin_utils import STDIN_PLACEHOLDER
 from imbue.mngr.cli.stdin_utils import expand_stdin_placeholder
 from imbue.mngr.config.data_types import CommonCliOptions
 from imbue.mngr.config.data_types import MngrContext
@@ -241,7 +242,9 @@ def destroy(ctx: click.Context, **kwargs) -> None:
     effective_destroy_all = opts.destroy_all or is_include_filter_only
 
     if not agent_identifiers and not effective_destroy_all:
-        raise UserInputError("Must specify at least one agent, use --all, or use --include filters")
+        if STDIN_PLACEHOLDER not in opts.agents:
+            raise UserInputError("Must specify at least one agent, use --all, or use --include filters")
+        return
 
     if agent_identifiers and opts.destroy_all:
         raise UserInputError("Cannot specify both agent names and --all")
