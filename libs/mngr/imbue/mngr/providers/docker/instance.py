@@ -205,9 +205,12 @@ class DockerProviderInstance(BaseProviderInstance):
     @cached_property
     def _docker_client(self) -> docker.DockerClient:
         """Lazily create a Docker client."""
-        if self.config.host:
-            return docker.DockerClient(base_url=self.config.host)
-        return docker.from_env()
+        try:
+            if self.config.host:
+                return docker.DockerClient(base_url=self.config.host)
+            return docker.from_env()
+        except docker.errors.DockerException as e:
+            raise MngrError(f"Docker provider failed to connect: {e}") from e
 
     @cached_property
     def _state_volume(self) -> DockerVolume:
