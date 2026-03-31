@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from imbue.mngr.utils.polling import poll_until
+from imbue.mngr.utils.testing import generate_test_environment_name
 from imbue.skitwright.runner import run_command
 from imbue.skitwright.session import Session
 
@@ -258,12 +259,10 @@ def e2e(
     env["MNGR_TEST_ASCIINEMA_DIR"] = str(test_output_dir)
     env.pop("TMUX", None)
 
-    # Transform the inherited prefix from mngr_{uuid}- to mngr_test-{uuid}-
-    # so that Modal environment names (which are {prefix}{user_id}) pass the
-    # mngr_test- guard in the Modal backend. This only affects subprocess
-    # commands; the in-process prefix remains unchanged for tmux cleanup.
-    inherited_prefix = env.get("MNGR_PREFIX", "mngr_")
-    env["MNGR_PREFIX"] = inherited_prefix.replace("mngr_", "mngr_test-", 1)
+    # Use a timestamp-based mngr_test- prefix so that Modal environment names
+    # pass the mngr_test- guard and can be cleaned up by
+    # cleanup_old_modal_test_environments.py (which parses dates from names).
+    env["MNGR_PREFIX"] = f"{generate_test_environment_name()}-"
 
     # Add the e2e bin directory to PATH so the connect script is available
     env["PATH"] = f"{_BIN_DIR}:{env.get('PATH', '')}"
