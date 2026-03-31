@@ -138,6 +138,21 @@ window.addEventListener("load", function () {
     }
   }
 
+  // Watch for DOM mutations so we can re-apply branding after
+  // route changes that recreate the sidebar DOM. The claim()
+  // mechanism uses onbeforeupdate to prevent Mithril from
+  // overwriting the slot on redraws, but when the sidebar
+  // component is fully recreated (e.g. navigating to/from a
+  // plugin route), the slot element is rebuilt with null children
+  // and our text content is lost.
+  var brandingObserver = new MutationObserver(function () {
+    applyAgentBranding();
+  });
+  brandingObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+
   // ── Rendering ────────────────────────────────────────────────
 
   function buildAgentsListHtml() {
