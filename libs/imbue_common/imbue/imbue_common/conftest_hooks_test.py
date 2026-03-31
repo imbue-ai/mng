@@ -119,17 +119,36 @@ def test_max_duration_local_default(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- _compute_lock_deadline ---
 
 
-def test_lock_deadline_none_without_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lock_deadline_uses_default_without_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PYTEST_MAX_DURATION_SECONDS", raising=False)
-    assert _compute_lock_deadline(1000.0) is None
+    monkeypatch.delenv("IS_RELEASE", raising=False)
+    monkeypatch.delenv("IS_ACCEPTANCE", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    # Local default is 300s + 60s grace
+    assert _compute_lock_deadline(1000.0) == 1360.0
 
 
-def test_lock_deadline_computed_with_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lock_deadline_uses_explicit_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PYTEST_MAX_DURATION_SECONDS", "120")
-    deadline = _compute_lock_deadline(1000.0)
-    assert deadline is not None
     # 1000 + 120 + 60 (grace)
-    assert deadline == 1180.0
+    assert _compute_lock_deadline(1000.0) == 1180.0
+
+
+def test_lock_deadline_uses_ci_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYTEST_MAX_DURATION_SECONDS", raising=False)
+    monkeypatch.delenv("IS_RELEASE", raising=False)
+    monkeypatch.delenv("IS_ACCEPTANCE", raising=False)
+    monkeypatch.setenv("CI", "1")
+    # CI default is 150s + 60s grace
+    assert _compute_lock_deadline(1000.0) == 1210.0
+
+
+def test_lock_deadline_uses_acceptance_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYTEST_MAX_DURATION_SECONDS", raising=False)
+    monkeypatch.delenv("IS_RELEASE", raising=False)
+    monkeypatch.setenv("IS_ACCEPTANCE", "1")
+    # Acceptance default is 360s + 60s grace
+    assert _compute_lock_deadline(1000.0) == 1420.0
 
 
 # --- _try_break_stale_lock ---
