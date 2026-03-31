@@ -102,7 +102,7 @@ def _create_greeting_conversation(agent_work_dir: str, llm_user_path: str) -> st
     Returns the conversation ID on success, or None on failure.
     """
     model_id = read_default_chat_model(agent_work_dir)
-    cmd = ["llm", "inject", "-m", model_id, "--prompt", "", _GREETING_MESSAGE]
+    cmd = ["llm", "inject", "-m", model_id, "--prompt", _DEFAULT_CONVERSATION_NAME_TAG, _GREETING_MESSAGE]
 
     env = dict(os.environ)
     if llm_user_path:
