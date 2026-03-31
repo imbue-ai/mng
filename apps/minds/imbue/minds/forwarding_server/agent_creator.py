@@ -34,6 +34,7 @@ from imbue.minds.config.data_types import MindPaths
 from imbue.minds.errors import GitCloneError
 from imbue.minds.errors import GitOperationError
 from imbue.minds.errors import MngrCommandError
+from imbue.minds.forwarding_server.mngr_settings import configure_mngr_settings
 from imbue.minds.forwarding_server.parent_tracking import setup_mind_branch_and_parent
 from imbue.minds.forwarding_server.vendor_mngr import apply_vendor_overrides
 from imbue.minds.forwarding_server.vendor_mngr import default_vendor_configs
@@ -199,6 +200,9 @@ def run_mngr_create(
         "--id",
         str(agent_id),
         "--no-connect",
+        # stick the source into some canonical location
+        "--target-path",
+        "/code/",
         "--type",
         agent_type,
         "--host-env",
@@ -365,6 +369,9 @@ class AgentCreator(MutableModel):
 
                 log_queue.put("[minds] Setting up branch and parent tracking...")
                 setup_mind_branch_and_parent(mind_dir, AgentName(agent_name), GitUrl(git_url), on_output=emit_log)
+
+                log_queue.put("[minds] Configuring mngr settings...")
+                configure_mngr_settings(mind_dir, AgentName(agent_name), agent_id, on_output=emit_log)
 
                 settings = load_creation_settings(mind_dir)
 

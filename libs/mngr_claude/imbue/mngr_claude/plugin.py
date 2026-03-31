@@ -209,6 +209,14 @@ class ClaudeAgentConfig(AgentTypeConfig):
         "in ~/.claude.json before startup. This prevents the trust dialog from appearing. "
         "Also dismisses the effort callout dialog.",
     )
+    model: str | None = Field(
+        default=None,
+        description="Model to use for this agent (e.g. 'opus[1m]'). Written to $CLAUDE_CONFIG_DIR/settings.json.",
+    )
+    is_fast: bool = Field(
+        default=False,
+        description="Whether to enable fast mode for this agent. Written to $CLAUDE_CONFIG_DIR/settings.json.",
+    )
     emit_common_transcript: bool = Field(
         default=True,
         description="Emit a common, agent-agnostic transcript alongside the raw Claude transcript. "
@@ -240,7 +248,11 @@ def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
     return files
 
 
-def _build_settings_json_content(sync_local: bool) -> str:
+def _build_settings_json_content(
+    sync_local: bool,
+    model: str | None = None,
+    is_fast: bool = False,
+) -> str:
     """Build settings.json content for remote/deploy per-agent config dirs.
 
     Used for remote hosts and deploy only. Local hosts symlink settings.json
@@ -248,16 +260,18 @@ def _build_settings_json_content(sync_local: bool) -> str:
 
     Uses the local file as a base when sync_local is True and the file exists,
     otherwise uses generated defaults. Forces skipDangerousModePermissionPrompt=True
-    and disables fastMode (not supported via the API on remote hosts).
     """
     local_path = Path.home() / ".claude" / "settings.json"
     if sync_local and local_path.exists():
         data: dict[str, Any] = json.loads(local_path.read_text())
-        if data.get("fastMode") is True:
-            logger.warning("Disabling fast mode for remote deployment because it is not yet supported via the API")
-            data["fastMode"] = False
     else:
         data = _generate_claude_home_settings()
+    if model is not None:
+        data["model"] = model
+    if is_fast:
+        data["fastMode"] = True
+    else:
+        data["fastMode"] = False
     data["skipDangerousModePermissionPrompt"] = True
     return json.dumps(data, indent=2) + "\n"
 
@@ -633,6 +647,44 @@ def _sync_local_user_resources(host: OnlineHostInterface, config_dir: Path, *, s
             )
 
 
+def _apply_settings_json_overrides(
+    host: OnlineHostInterface,
+    config_dir: Path,
+    config: ClaudeAgentConfig,
+) -> None:
+    """Apply per-agent settings overrides (model, is_fast) to settings.json.
+
+    Only called for local hosts. When overrides are needed, reads existing
+    settings (following symlinks if present), then writes a regular file
+    with the overrides applied. Replaces any existing symlink to avoid
+    modifying the user's global settings.
+    """
+    if config.model is None and not config.is_fast:
+        return
+
+    settings_path = config_dir / "settings.json"
+
+    data: dict[str, Any] = {}
+    try:
+        content = host.read_text_file(settings_path)
+    except FileNotFoundError:
+        content = None
+    else:
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            logger.warning("Corrupt settings.json, replacing with overrides only")
+
+    if config.model is not None:
+        data["model"] = config.model
+    if config.is_fast:
+        data["fastMode"] = True
+
+    # Remove existing file/symlink before writing a regular file
+    host.execute_idempotent_command(f"rm -f {shlex.quote(str(settings_path))}", timeout_seconds=5.0)
+    host.write_text_file(settings_path, json.dumps(data, indent=2) + "\n")
+
+
 def _load_claude_resource_script(filename: str) -> str:
     """Load a shell script from the mngr_claude resources package."""
     resource_files = importlib.resources.files(_claude_resources)
@@ -645,9 +697,9 @@ def _provision_background_scripts(
 ) -> None:
     """Write the background task scripts to $MNGR_AGENT_STATE_DIR/commands/.
 
-    Provisions stream_transcript.sh, claude_background_tasks.sh, and
-    common_transcript.sh so they can be launched by the agent's
-    assemble_command at runtime.
+    Provisions stream_transcript.sh, claude_background_tasks.sh,
+    common_transcript.sh, and wait_for_stop_hook.sh so they can be
+    launched by the agent's assemble_command or hooks at runtime.
 
     Note: mngr_log.sh (shared logging library) is provisioned by
     Host.provision_agent() to both host-level and agent-level commands
@@ -658,7 +710,12 @@ def _provision_background_scripts(
 
     # Claude-specific scripts from this plugin's resources
     threads: list[ObservableThread] = []
-    for script_name in ("stream_transcript.sh", "claude_background_tasks.sh", "common_transcript.sh"):
+    for script_name in (
+        "stream_transcript.sh",
+        "claude_background_tasks.sh",
+        "common_transcript.sh",
+        "wait_for_stop_hook.sh",
+    ):
         script_content = _load_claude_resource_script(script_name)
         script_path = commands_dir / script_name
         with log_span("Writing {} to agent state dir", script_name):
@@ -1269,6 +1326,8 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
         if config.sync_home_settings:
             _sync_local_user_resources(host, config_dir, symlink=config.symlink_user_resources)
 
+        _apply_settings_json_overrides(host, config_dir, config)
+
     def _setup_remote_config_dir(
         self,
         host: OnlineHostInterface,
@@ -1285,7 +1344,14 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
         file_transfers: list[tuple[Path, bytes]] = []
         # 1. Always ship settings.json
         file_transfers.append(
-            (config_dir / "settings.json", _build_settings_json_content(config.sync_home_settings).encode("utf-8"))
+            (
+                config_dir / "settings.json",
+                _build_settings_json_content(
+                    config.sync_home_settings,
+                    model=config.model,
+                    is_fast=config.is_fast,
+                ).encode("utf-8"),
+            )
         )
 
         # 2. Transfer other home dir files (skills, agents, commands) if syncing is enabled
