@@ -998,7 +998,7 @@ class ModalProviderInstance(BaseProviderInstance):
             )
             self._write_host_record(updated_host_record)
 
-    def _build_modal_image(
+    def _get_modal_image_definition(
         self,
         base_image: str | None = None,
         dockerfile: Path | None = None,
@@ -1892,7 +1892,7 @@ log "=== Shutdown script completed ==="
             else:
                 # Prepare the Modal image definition (lazy -- does not trigger a remote build)
                 with log_span("Preparing Modal image definition"):
-                    modal_image = self._build_modal_image(
+                    modal_image = self._get_modal_image_definition(
                         base_image, dockerfile_path, context_dir_path, config.secrets, config.docker_build_args
                     )
 
