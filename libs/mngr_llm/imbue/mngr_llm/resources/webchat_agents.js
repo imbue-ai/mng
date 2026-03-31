@@ -101,6 +101,12 @@ window.addEventListener("load", function () {
 
   // ── Agent name branding ───────────────────────────────────────
 
+  // Claim the sidebar-branding slot so the upstream app does not
+  // render its default "LLM Webchat" title. Once claimed, mithril
+  // will not touch the slot element, so we can safely render into
+  // it from the "ready" callback.
+  $llm.claim("sidebar-branding");
+
   function fetchAgentName() {
     fetch(basePath + "/api/agent-info")
       .then(function (response) {
@@ -120,12 +126,10 @@ window.addEventListener("load", function () {
   function applyAgentBranding() {
     if (!agentName) return;
 
-    // Replace the sidebar branding title -- but only when it differs,
-    // to avoid a DOM mutation that would re-trigger our MutationObserver
-    // and cause an infinite loop.
-    var title = document.querySelector(".sidebar-branding-title");
-    if (title && title.textContent !== agentName) {
-      title.textContent = agentName;
+    // Render the agent name into the claimed sidebar-branding slot.
+    var slot = document.querySelector('[data-slot="sidebar-branding"]');
+    if (slot && slot.textContent !== agentName) {
+      slot.textContent = agentName;
     }
 
     // Replace the document title
@@ -258,16 +262,5 @@ window.addEventListener("load", function () {
 
   $llm.on("ready", function () {
     fetchAgentName();
-
-    // Observe the #app container for mithril re-renders so we
-    // can re-apply the agent name branding when the sidebar is
-    // rebuilt.
-    var appRoot = document.getElementById("app");
-    if (appRoot) {
-      var observer = new MutationObserver(function () {
-        applyAgentBranding();
-      });
-      observer.observe(appRoot, { childList: true, subtree: true });
-    }
   });
 });

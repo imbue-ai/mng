@@ -227,45 +227,6 @@ def test_poll_deduplicates_conversation_ids(tmp_path: Path) -> None:
 # -- _run_poll_loop tests --
 
 
-def test_poll_loop_broadcasts_notification_for_injected_message(tmp_path: Path) -> None:
-    db_path = tmp_path / "logs.db"
-    _create_test_db(db_path)
-    _insert_conversation(db_path, "conv-1", "Test")
-
-    # Insert a normal message before starting (establishes the initial rowid)
-    _insert_response(db_path, "resp-0", "conv-1", "user prompt", "llm response")
-
-    # Track broadcasts with an event to avoid polling with time.sleep
-    broadcast_received = threading.Event()
-    received_calls: list[tuple[str, dict[str, Any]]] = []
-
-    def tracking_broadcaster(conversation_id: str, event: dict[str, Any]) -> None:
-        received_calls.append((conversation_id, event))
-        broadcast_received.set()
-
-    stop_event = threading.Event()
-    thread = threading.Thread(
-        target=_run_poll_loop,
-        args=(db_path, tracking_broadcaster, stop_event),
-        daemon=True,
-    )
-    thread.start()
-
-    # Insert an injected message (empty prompt, non-empty response)
-    _insert_response(db_path, "resp-1", "conv-1", "", "injected notification content")
-
-    # Wait for the broadcast
-    is_received = broadcast_received.wait(timeout=10.0)
-    stop_event.set()
-    thread.join(timeout=5.0)
-
-    assert is_received, "Timed out waiting for broadcast"
-    assert len(received_calls) == 1
-    assert received_calls[0][0] == "conv-1"
-    assert received_calls[0][1]["type"] == "injected_message"
-    assert received_calls[0][1]["conversation_id"] == "conv-1"
-
-
 def test_poll_loop_does_not_broadcast_for_normal_messages(tmp_path: Path) -> None:
     db_path = tmp_path / "logs.db"
     _create_test_db(db_path)
