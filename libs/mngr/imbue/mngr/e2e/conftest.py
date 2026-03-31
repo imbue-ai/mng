@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import tomllib
 from collections.abc import Generator
 from datetime import datetime
 from datetime import timezone
@@ -208,8 +209,6 @@ def _delete_modal_environment(env: dict[str, str]) -> None:
     if not config_path.exists():
         return
     try:
-        import tomllib
-
         with open(config_path, "rb") as f:
             root_config = tomllib.load(f)
         profile_id = root_config.get("profile")
