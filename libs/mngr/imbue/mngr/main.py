@@ -47,6 +47,7 @@ from imbue.mngr.cli.transcript import transcript
 from imbue.mngr.config.loader import block_disabled_plugins
 from imbue.mngr.config.pre_readers import read_disabled_plugins
 from imbue.mngr.errors import BaseMngrError
+from imbue.mngr.errors import ConfigParseError
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.providers.registry import get_all_provider_args_help_sections
 from imbue.mngr.providers.registry import load_all_registries
@@ -354,7 +355,13 @@ cli.add_command(migrate)
 
 # Register plugin commands after built-in commands but before applying CLI options.
 # This ordering allows plugins to add CLI options to other plugin commands.
-PLUGIN_COMMANDS = _register_plugin_commands()
+# Wrapped in try/except because this runs at module import time, before Click's
+# exception handling is active, so ConfigParseError would produce a stack trace.
+try:
+    PLUGIN_COMMANDS = _register_plugin_commands()
+except ConfigParseError as e:
+    e.show()
+    sys.exit(1)
 
 for cmd in BUILTIN_COMMANDS + PLUGIN_COMMANDS:
     apply_plugin_cli_options(cmd)
