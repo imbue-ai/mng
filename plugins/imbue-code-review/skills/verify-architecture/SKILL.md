@@ -25,7 +25,7 @@ Spawn a `validate-diff` Agent. Provide the base branch name and the problem desc
 
 Based on the agent's response:
 - If the diff is empty, STOP and ask the user whether the work has been committed yet or whether the base branch is wrong.
-- If it reports significant unrelated changes, you MUST stop and consult the user -- do not dismiss this or proceed on your own. Unrelated changes in the diff will cause the analysis agent to waste effort on irrelevant code and produce worse results. Explain that this skill can only verify one logical change at a time. Ask which change they want to focus on (e.g. the main goal of the branch vs. an incidental fix). Then when spawning the analysis agent in Phase 3, explicitly tell it to ignore the changes that are not part of the chosen focus.
+- If it reports changes that don't belong to this branch (i.e., changes you didn't make -- even seemingly minor ones like import reordering or config tweaks), you MUST stop and consult the user. These indicate the base branch is wrong. Do not dismiss them as "from a merge" or "not our doing" -- that is exactly the problem. Ask the user what the correct base branch is, or which change to focus on if the branch intentionally contains multiple logical changes. Then when spawning the analysis agent in Phase 3, explicitly tell it to ignore the changes that are not part of the chosen focus.
 - If it reports the work looks incomplete, flag that to the user and ask whether to proceed anyway.
 
 ## Phase 3: Spawn Analysis Agent
