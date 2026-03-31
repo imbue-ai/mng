@@ -174,6 +174,7 @@ def test_create_with_explicit_branch_name(e2e: E2eSession) -> None:
 
 @pytest.mark.release
 @pytest.mark.tmux
+@pytest.mark.rsync
 def test_create_with_transfer_git_mirror(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can create a git mirror instead of a worktree:
@@ -194,6 +195,7 @@ def test_create_with_transfer_git_mirror(e2e: E2eSession) -> None:
 
 @pytest.mark.release
 @pytest.mark.tmux
+@pytest.mark.rsync
 def test_create_git_mirror_with_existing_branch(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can disable new branch creation entirely by omitting the :NEW part (requires --transfer=none or --transfer=git-mirror due to how worktrees work, and --transfer=none implies no new branch):
@@ -259,6 +261,7 @@ def test_create_with_shallow_depth(e2e: E2eSession) -> None:
 
 @pytest.mark.release
 @pytest.mark.tmux
+@pytest.mark.rsync
 def test_create_from_another_agent(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can clone from an existing agent's work directory:
