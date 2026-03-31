@@ -56,6 +56,7 @@ from imbue.mngr_claude.plugin import _has_api_credentials_available
 from imbue.mngr_claude.plugin import _install_claude
 from imbue.mngr_claude.plugin import _parse_claude_version_output
 from imbue.mngr_claude.plugin import _read_macos_keychain_credential
+from imbue.mngr_claude.plugin import _rewrite_installed_plugins_paths
 from imbue.mngr_claude.plugin import agent_field_generators
 from imbue.mngr_claude.plugin import get_files_for_deploy
 from imbue.mngr_claude.plugin import on_before_create
@@ -2546,3 +2547,158 @@ def test_transfer_source_plugin_data_skips_when_no_plugin_dir(
 
     # Should not raise
     agent._transfer_source_plugin_data(host, source_dir)
+
+
+# =============================================================================
+# _rewrite_installed_plugins_paths Tests
+# =============================================================================
+
+
+def test_rewrite_installed_plugins_paths_rebases_install_paths() -> None:
+    """installPath values under local_claude_dir are rebased onto remote_config_dir."""
+    local_claude_dir = Path("/Users/testuser/.claude")
+    remote_config_dir = Path("/mngr/agents/abc123/plugin/claude/anthropic")
+    content = json.dumps(
+        {
+            "version": 2,
+            "plugins": {
+                "my-plugin@my-org": [
+                    {
+                        "scope": "user",
+                        "installPath": "/Users/testuser/.claude/plugins/cache/my-org/my-plugin/1.0.0",
+                        "version": "1.0.0",
+                    }
+                ]
+            },
+        }
+    ).encode("utf-8")
+
+    result = json.loads(_rewrite_installed_plugins_paths(content, local_claude_dir, remote_config_dir))
+
+    entry = result["plugins"]["my-plugin@my-org"][0]
+    assert entry["installPath"] == "/mngr/agents/abc123/plugin/claude/anthropic/plugins/cache/my-org/my-plugin/1.0.0"
+
+
+def test_rewrite_installed_plugins_paths_handles_multiple_plugins() -> None:
+    """All plugins in the file have their installPath rewritten."""
+    local_claude_dir = Path("/home/user/.claude")
+    remote_config_dir = Path("/remote/config")
+    content = json.dumps(
+        {
+            "version": 2,
+            "plugins": {
+                "plugin-a@org-a": [
+                    {
+                        "installPath": "/home/user/.claude/plugins/cache/org-a/plugin-a/1.0.0",
+                        "version": "1.0.0",
+                    }
+                ],
+                "plugin-b@org-b": [
+                    {
+                        "installPath": "/home/user/.claude/plugins/cache/org-b/plugin-b/2.0.0",
+                        "version": "2.0.0",
+                    }
+                ],
+            },
+        }
+    ).encode("utf-8")
+
+    result = json.loads(_rewrite_installed_plugins_paths(content, local_claude_dir, remote_config_dir))
+
+    assert result["plugins"]["plugin-a@org-a"][0]["installPath"] == "/remote/config/plugins/cache/org-a/plugin-a/1.0.0"
+    assert result["plugins"]["plugin-b@org-b"][0]["installPath"] == "/remote/config/plugins/cache/org-b/plugin-b/2.0.0"
+
+
+def test_rewrite_installed_plugins_paths_preserves_non_matching_paths() -> None:
+    """installPath values that don't start with local_claude_dir are left unchanged."""
+    local_claude_dir = Path("/Users/testuser/.claude")
+    remote_config_dir = Path("/remote/config")
+    content = json.dumps(
+        {
+            "version": 2,
+            "plugins": {
+                "other-plugin@other-org": [
+                    {
+                        "installPath": "/some/other/path/plugins/cache/other-org/other-plugin/1.0.0",
+                        "version": "1.0.0",
+                    }
+                ]
+            },
+        }
+    ).encode("utf-8")
+
+    result = json.loads(_rewrite_installed_plugins_paths(content, local_claude_dir, remote_config_dir))
+
+    assert (
+        result["plugins"]["other-plugin@other-org"][0]["installPath"]
+        == "/some/other/path/plugins/cache/other-org/other-plugin/1.0.0"
+    )
+
+
+def test_rewrite_installed_plugins_paths_preserves_other_fields() -> None:
+    """Fields other than installPath are preserved unchanged."""
+    local_claude_dir = Path("/Users/testuser/.claude")
+    remote_config_dir = Path("/remote/config")
+    content = json.dumps(
+        {
+            "version": 2,
+            "plugins": {
+                "my-plugin@my-org": [
+                    {
+                        "scope": "user",
+                        "installPath": "/Users/testuser/.claude/plugins/cache/my-org/my-plugin/1.0.0",
+                        "version": "1.0.0",
+                        "installedAt": "2026-01-14T22:13:26.484Z",
+                        "gitCommitSha": "abc123",
+                    }
+                ]
+            },
+        }
+    ).encode("utf-8")
+
+    result = json.loads(_rewrite_installed_plugins_paths(content, local_claude_dir, remote_config_dir))
+
+    entry = result["plugins"]["my-plugin@my-org"][0]
+    assert entry["scope"] == "user"
+    assert entry["version"] == "1.0.0"
+    assert entry["installedAt"] == "2026-01-14T22:13:26.484Z"
+    assert entry["gitCommitSha"] == "abc123"
+    assert result["version"] == 2
+
+
+def test_rewrite_installed_plugins_paths_handles_empty_plugins() -> None:
+    """An installed_plugins.json with no plugins is handled gracefully."""
+    local_claude_dir = Path("/Users/testuser/.claude")
+    remote_config_dir = Path("/remote/config")
+    content = json.dumps({"version": 2, "plugins": {}}).encode("utf-8")
+
+    result = json.loads(_rewrite_installed_plugins_paths(content, local_claude_dir, remote_config_dir))
+
+    assert result["version"] == 2
+    assert result["plugins"] == {}
+
+
+def test_rewrite_installed_plugins_paths_does_not_match_similar_prefix() -> None:
+    """A path like /Users/testuser/.claude2/ must not match /Users/testuser/.claude/."""
+    local_claude_dir = Path("/Users/testuser/.claude")
+    remote_config_dir = Path("/remote/config")
+    content = json.dumps(
+        {
+            "version": 2,
+            "plugins": {
+                "plugin@org": [
+                    {
+                        "installPath": "/Users/testuser/.claude2/plugins/cache/org/plugin/1.0.0",
+                        "version": "1.0.0",
+                    }
+                ]
+            },
+        }
+    ).encode("utf-8")
+
+    result = json.loads(_rewrite_installed_plugins_paths(content, local_claude_dir, remote_config_dir))
+
+    # Should NOT be rewritten because .claude2 != .claude
+    assert (
+        result["plugins"]["plugin@org"][0]["installPath"] == "/Users/testuser/.claude2/plugins/cache/org/plugin/1.0.0"
+    )

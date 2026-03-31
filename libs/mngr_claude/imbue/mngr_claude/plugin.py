@@ -90,6 +90,8 @@ _CLAUDE_HOME_SYNC_ITEMS: Final[tuple[str, ...]] = (
     "plugins",
 )
 
+_INSTALLED_PLUGINS_RELATIVE_PATH: Final[Path] = Path("plugins") / "installed_plugins.json"
+
 
 def _resolve_adopt_session(adopt_session_arg: str) -> tuple[str, Path]:
     """Resolve an --adopt-session argument to a (session_id, project_dir) pair.
@@ -238,6 +240,24 @@ def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
         else:
             files[Path(item_name)] = item_path
     return files
+
+
+@pure
+def _rewrite_installed_plugins_paths(content: bytes, local_claude_dir: Path, remote_config_dir: Path) -> bytes:
+    """Rewrite installPath values in installed_plugins.json for a remote config dir.
+
+    Rebases absolute local paths (under local_claude_dir) onto remote_config_dir
+    so that Claude Code can find plugin files on the remote host.
+    """
+    data: dict[str, Any] = json.loads(content)
+    local_prefix = str(local_claude_dir) + "/"
+    for plugin_entries in data.get("plugins", {}).values():
+        for entry in plugin_entries:
+            install_path = entry.get("installPath", "")
+            if install_path.startswith(local_prefix):
+                relative = install_path[len(local_prefix) :]
+                entry["installPath"] = str(remote_config_dir / relative)
+    return (json.dumps(data, indent=2) + "\n").encode("utf-8")
 
 
 def _build_settings_json_content(sync_local: bool) -> str:
@@ -1296,7 +1316,10 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
                 # settings.json is handled separately above
                 if relative_path == Path("settings.json"):
                     continue
-                file_transfers.append((config_dir / relative_path, source_path.read_bytes()))
+                file_bytes = source_path.read_bytes()
+                if relative_path == _INSTALLED_PLUGINS_RELATIVE_PATH:
+                    file_bytes = _rewrite_installed_plugins_paths(file_bytes, local_claude_dir, config_dir)
+                file_transfers.append((config_dir / relative_path, file_bytes))
 
         # 3. Always ship .claude.json
         # Resolve the work_dir on the remote host so the trust entry matches
