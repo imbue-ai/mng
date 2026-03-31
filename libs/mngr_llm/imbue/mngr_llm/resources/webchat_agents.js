@@ -313,7 +313,9 @@ window.addEventListener("load", function () {
       }
     }
 
-    // Inject an icon button into the collapsed sidebar content.
+    // Inject an icon button into the collapsed sidebar content,
+    // before the new-conversation (+) button so the order matches
+    // the expanded sidebar (branding, agents, new-conversation).
     if (!injectedCollapsed) {
       var collapsedContent = document.querySelector(".sidebar-collapsed-content");
       if (collapsedContent) {
@@ -327,7 +329,16 @@ window.addEventListener("load", function () {
           event.preventDefault();
           navigateToAgents();
         });
-        collapsedContent.appendChild(btn);
+
+        // The collapsed content has [expand, new-conversation].
+        // Insert before the last button (new-conversation / +).
+        var collapsedButtons = collapsedContent.querySelectorAll(".sidebar-icon-button");
+        var newConvButton = collapsedButtons.length > 1 ? collapsedButtons[collapsedButtons.length - 1] : null;
+        if (newConvButton) {
+          collapsedContent.insertBefore(btn, newConvButton);
+        } else {
+          collapsedContent.appendChild(btn);
+        }
         injectedCollapsed = true;
       }
     }
