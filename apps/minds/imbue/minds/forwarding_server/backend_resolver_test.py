@@ -433,8 +433,8 @@ def test_stream_manager_on_discovery_stream_output_ignores_empty_lines() -> None
     assert manager.resolver.list_known_agent_ids() == ()
 
 
-def test_stream_manager_on_discovery_stream_output_ignores_non_full_events() -> None:
-    """Non-DISCOVERY_FULL events are ignored and do not update the resolver."""
+def test_stream_manager_on_discovery_stream_output_ignores_unrecognized_events() -> None:
+    """Unrecognized event types are ignored and do not update the resolver."""
     manager = _make_stream_manager()
     # Use an unrecognized event type so parse_discovery_event_line returns None
     line = json.dumps(
