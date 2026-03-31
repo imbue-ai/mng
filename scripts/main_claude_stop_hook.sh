@@ -146,6 +146,17 @@ if ! git rev-parse --verify "origin/$BASE_BRANCH" >/dev/null 2>&1; then
     fi
 fi
 
+# Merge the remote tracking branch for the current branch (if it exists),
+# so we incorporate any commits pushed by other processes (e.g. reviewers).
+if git rev-parse --verify "origin/$CURRENT_BRANCH" >/dev/null 2>&1; then
+    log_info "Merging origin/$CURRENT_BRANCH..."
+    if ! git merge "origin/$CURRENT_BRANCH" --no-edit; then
+        log_error "Merge conflict detected while merging origin/$CURRENT_BRANCH."
+        log_error "Please resolve the merge conflicts before continuing."
+        exit 2
+    fi
+fi
+
 # Merge the base branch from origin (if it exists)
 if git rev-parse --verify "origin/$BASE_BRANCH" >/dev/null 2>&1; then
     log_info "Merging origin/$BASE_BRANCH..."
