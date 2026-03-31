@@ -39,8 +39,12 @@ def created_test_coder() -> Generator[dict[str, object], None, None]:
     init_result = run_mngr("--version")
     assert init_result.returncode == 0, "mngr not available: {}".format(init_result.stderr)
 
+    # Ensure .claude/settings.local.json is gitignored so mngr can write hooks
+    gitignore_path = mind_dir / ".gitignore"
+    gitignore_path.write_text(".claude/settings.local.json\n")
+
     # Initialize git repo in mind dir
-    init_and_commit_git_repo(mind_dir, mind_dir.parent, allow_empty=True)
+    init_and_commit_git_repo(mind_dir, mind_dir.parent, allow_empty=False)
 
     # Create the agent directly via mngr create (cwd must be mind_dir for --transfer=none)
     create_result = run_mngr(
