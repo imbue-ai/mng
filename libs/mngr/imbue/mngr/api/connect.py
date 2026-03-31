@@ -21,7 +21,7 @@ SIGNAL_EXIT_CODE_DESTROY: Final[int] = 10
 SIGNAL_EXIT_CODE_STOP: Final[int] = 11
 
 
-def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path, agent_command: str) -> str:
+def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str:
     """Build a shell script that tracks SSH activity while running tmux.
 
     The script:
@@ -50,8 +50,14 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path, agent_
         f'printf \'{{\\n  "time": %d,\\n  "ssh_pid": %d\\n}}\\n\' "$TIME_MS" "$$" > \'{activity_file}\'; '
         f"sleep 5; done) & "
         "MNGR_ACTIVITY_PID=$!; "
-        # resize all tmux windows to be the correct size and signal the agent that it needs to redraw. We do this with a delay so that it happens after attaching.
-        f"(sleep 5 && tmux list-windows -t '{session_name}' -F '#I' | xargs -I{{}} tmux resize-window -t '{session_name}':{{}} -A && sleep 1 && pkill -SIGWINCH -f {shlex.quote(agent_command)}) & "
+        # After attaching, resize all tmux windows to match the client and send
+        # SIGWINCH to the pane processes so they redraw at the correct size.
+        # Uses ';' (not '&&') so the SIGWINCH is sent even if resize-window is
+        # a no-op. Targets the pane PID directly instead of pkill -f to avoid
+        # pattern-matching failures with complex command lines.
+        f"(sleep 3 && tmux list-windows -t '{session_name}' -F '#I' | xargs -I{{}} tmux resize-window -t '{session_name}':{{}} -A; "
+        f"sleep 1; "
+        f"tmux list-panes -t '{session_name}' -F '#{{pane_pid}}' | xargs -I{{}} kill -WINCH {{}}) 2>/dev/null & "
         # actually attach
         f"tmux attach -t '{session_name}'; "
         "kill $MNGR_ACTIVITY_PID 2>/dev/null; "
@@ -205,8 +211,7 @@ def connect_to_agent(
         ssh_args = _build_ssh_args(host, connection_opts)
 
         # Build wrapper script that tracks SSH activity while running tmux
-        agent_command = agent.get_expected_process_name()
-        wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir, agent_command)
+        wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir)
         # Pass the wrapper as a single remote command string so SSH doesn't
         # split it into separate words. SSH concatenates multiple remote command
         # arguments with spaces, which would cause 'bash -c' to only receive
