@@ -359,6 +359,19 @@ def setup_test_mngr_env(
 
 
 @pytest.fixture
+def allow_uv_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Undo UV_OFFLINE and UV_FROZEN set by the autouse fixture.
+
+    Use this fixture for tests that need to install packages into isolated
+    venvs (e.g., test_install.py). The autouse fixture sets these to prevent
+    unnecessary network access during normal tests, but install tests need
+    uv to resolve and fetch packages.
+    """
+    monkeypatch.delenv("UV_OFFLINE", raising=False)
+    monkeypatch.delenv("UV_FROZEN", raising=False)
+
+
+@pytest.fixture
 def local_host(local_provider: LocalProviderInstance) -> Host:
     """Create a local Host via the local provider.
 
