@@ -2,11 +2,13 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mngr.api.create import _create_new_host
 from imbue.mngr.api.create import _generate_unique_host_name
 from imbue.mngr.api.create import _write_host_env_vars
 from imbue.mngr.api.create import resolve_target_host
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import HostNameConflictError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.host import HostEnvironmentOptions
@@ -171,6 +173,58 @@ def test_generate_unique_host_name_raises_after_exhausting_attempts(
 
     with pytest.raises(MngrError, match="Failed to generate a unique host name"):
         _generate_unique_host_name(local_provider, target, temp_mngr_ctx)
+
+
+def test_create_new_host_retries_on_name_conflict(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """resolve_target_host retries with a new name when create_host raises HostNameConflictError.
+
+    Uses a provider subclass that raises HostNameConflictError on the first
+    call then succeeds, to verify the retry loop in resolve_target_host.
+    """
+    create_count = 0
+    original_create_host = LocalProviderInstance.create_host
+
+    def create_host_that_conflicts_once(self: LocalProviderInstance, name: HostName, **kwargs: object) -> Host:
+        nonlocal create_count
+        create_count += 1
+        if create_count == 1:
+            raise HostNameConflictError(name)
+        return original_create_host(self, name=name, **kwargs)
+
+    test_provider_cls = type(
+        "_ConflictTestProvider",
+        (LocalProviderInstance,),
+        {
+            "get_host_name": lambda self, style: HostName("localhost"),
+            "create_host": create_host_that_conflicts_once,
+        },
+    )
+    provider = test_provider_cls(
+        name=local_provider.name,
+        host_dir=local_provider.host_dir,
+        mngr_ctx=local_provider.mngr_ctx,
+    )
+
+    target = NewHostOptions(
+        provider=ProviderInstanceName("local"),
+        name=None,
+        name_style=HostNameStyle.COOLNAME,
+        tags={},
+    )
+
+    # First call should raise HostNameConflictError
+    with pytest.raises(HostNameConflictError):
+        _create_new_host(provider, HostName("localhost"), target, temp_mngr_ctx)
+    assert create_count == 1
+
+    # Second call should succeed (the retry logic in resolve_target_host
+    # would call _create_new_host again with a new name)
+    result = _create_new_host(provider, HostName("localhost"), target, temp_mngr_ctx)
+    assert create_count == 2
+    assert isinstance(result, OnlineHostInterface)
 
 
 def test_write_host_env_vars_later_env_file_overrides_earlier(
