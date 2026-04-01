@@ -295,16 +295,16 @@ def _compute_max_duration() -> float:
     return 300.0
 
 
-def _compute_lock_deadline(start_time: float) -> float:
+def _compute_lock_deadline(start_time: float) -> float | None:
     """Compute the lock deadline as an absolute timestamp.
 
-    Always returns a deadline so that other pytest processes can break
-    a stale lock when the holder exceeds its time budget. The budget
-    is determined by _compute_max_duration(), which selects an appropriate
-    limit for every context (CI, acceptance, release, local dev, or an
-    explicit PYTEST_MAX_DURATION_SECONDS override). A grace period is
-    added to account for collection, teardown, and other overhead.
+    Returns a deadline only when PYTEST_MAX_DURATION_SECONDS is explicitly set, indicating
+    that the caller is aware of a time budget (e.g. invoked from a hook or script).
+    When no explicit budget is set, returns None so that other processes will not
+    kill this one (though they can still clean up a dead PID).
     """
+    if "PYTEST_MAX_DURATION_SECONDS" not in os.environ:
+        return None
     max_duration = _compute_max_duration()
     return start_time + max_duration + _LOCK_DEADLINE_GRACE_SECONDS
 
