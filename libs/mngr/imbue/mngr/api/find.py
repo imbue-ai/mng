@@ -470,10 +470,12 @@ def find_and_maybe_start_agent_by_name_or_id(
             f"{agent_id}@{host_name}.{provider_name}" for agent_id, host_name, provider_name in missing_from_host
         )
         if not matching:
-            # We don't want to hard-fail if we still have a unique agent to connect to,
-            # but since we'd fail just below anyway (no matching agents), take the
-            # opportunity to raise as RuntimeError instead of UserInputError so the
-            # unexpected-error handler suggests reporting to GitHub.
+            # This is an internal consistency error: discovery found agents but
+            # they weren't on their hosts. We don't want to hard-fail if we still
+            # have a unique agent to connect to, but since we'd fail just below
+            # anyway (no matching agents), take the opportunity to raise as
+            # RuntimeError instead of UserInputError so the unexpected-error
+            # handler suggests reporting to GitHub.
             raise RuntimeError(
                 f"Agent '{agent_str}' was found during discovery but not on host(s). "
                 f"Missing: {missing_details}. "
