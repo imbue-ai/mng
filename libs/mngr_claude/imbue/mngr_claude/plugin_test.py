@@ -50,11 +50,9 @@ from imbue.mngr_claude.plugin import ClaudeAgent
 from imbue.mngr_claude.plugin import ClaudeAgentConfig
 from imbue.mngr_claude.plugin import CostThresholdDialogIndicator
 from imbue.mngr_claude.plugin import WaitingReason
-from imbue.mngr_claude.plugin import _apply_settings_json_overrides
 from imbue.mngr_claude.plugin import _build_install_command_hint
 from imbue.mngr_claude.plugin import _build_settings_json_content
 from imbue.mngr_claude.plugin import _claude_json_has_primary_api_key
-from imbue.mngr_claude.plugin import _collect_claude_home_files_content
 from imbue.mngr_claude.plugin import _fixup_installed_plugins_json
 from imbue.mngr_claude.plugin import _get_claude_version
 from imbue.mngr_claude.plugin import _has_api_credentials_available
@@ -62,6 +60,7 @@ from imbue.mngr_claude.plugin import _install_claude
 from imbue.mngr_claude.plugin import _parse_claude_version_output
 from imbue.mngr_claude.plugin import _read_macos_keychain_credential
 from imbue.mngr_claude.plugin import _rewrite_installed_plugins_paths
+from imbue.mngr_claude.plugin import _setup_local_settings_json
 from imbue.mngr_claude.plugin import agent_field_generators
 from imbue.mngr_claude.plugin import get_files_for_deploy
 from imbue.mngr_claude.plugin import on_before_create
@@ -2777,56 +2776,12 @@ def test_rewrite_installed_plugins_paths_does_not_match_similar_prefix() -> None
 
 
 # =============================================================================
-# _collect_claude_home_files_content Tests
-# =============================================================================
-
-
-def test_collect_claude_home_files_content_includes_rebuilt_settings(tmp_path: Path) -> None:
-    """settings.json is rebuilt with skipDangerousModePermissionPrompt, not copied verbatim."""
-    claude_dir = tmp_path / ".claude"
-    claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text('{"custom": true}')
-
-    with patch("imbue.mngr_claude.plugin.Path.home", return_value=tmp_path):
-        result = _collect_claude_home_files_content(claude_dir, sync_local_settings=True)
-
-    assert Path("settings.json") in result
-    settings = json.loads(result[Path("settings.json")])
-    assert settings["skipDangerousModePermissionPrompt"] is True
-    assert settings["custom"] is True
-
-
-def test_collect_claude_home_files_content_reads_other_files(tmp_path: Path) -> None:
-    """Non-settings files are read as text content."""
-    claude_dir = tmp_path / ".claude"
-    skills_dir = claude_dir / "skills" / "test-skill"
-    skills_dir.mkdir(parents=True)
-    (skills_dir / "SKILL.md").write_text("# Test Skill")
-
-    result = _collect_claude_home_files_content(claude_dir, sync_local_settings=False)
-
-    assert result[Path("skills/test-skill/SKILL.md")] == "# Test Skill"
-
-
-def test_collect_claude_home_files_content_generated_defaults_when_no_settings(tmp_path: Path) -> None:
-    """When sync_local_settings is False or settings.json absent, uses generated defaults."""
-    claude_dir = tmp_path / ".claude"
-    claude_dir.mkdir()
-
-    result = _collect_claude_home_files_content(claude_dir, sync_local_settings=False)
-
-    assert Path("settings.json") in result
-    settings = json.loads(result[Path("settings.json")])
-    assert settings["skipDangerousModePermissionPrompt"] is True
-
-
-# =============================================================================
 # _fixup_installed_plugins_json Tests
 # =============================================================================
 
 
-def test_fixup_installed_plugins_json_rewrites_paths_on_local_host(tmp_path: Path) -> None:
-    """Fixup rewrites installPaths from ~/.claude/ to config_dir/ on a local host."""
+def test_fixup_installed_plugins_json_rewrites_paths(tmp_path: Path) -> None:
+    """Fixup rewrites installPaths from ~/.claude/ to config_dir/."""
     host = cast(OnlineHostInterface, FakeHost())
     config_dir = tmp_path / "config"
     plugins_dir = config_dir / "plugins"
@@ -2868,15 +2823,14 @@ def test_fixup_installed_plugins_json_noop_when_no_file(tmp_path: Path) -> None:
     _fixup_installed_plugins_json(host, config_dir)
 
 
-def test_fixup_installed_plugins_json_uses_marker_for_deploy(tmp_path: Path) -> None:
-    """Fixup reads source dir from marker file (deploy case) and removes it after."""
+def test_fixup_installed_plugins_json_rewrites_sentinel_for_deploy(tmp_path: Path) -> None:
+    """Fixup rewrites sentinel-prefixed paths (deploy case) to config_dir."""
     host = cast(OnlineHostInterface, FakeHost())
     config_dir = tmp_path / "config"
     plugins_dir = config_dir / "plugins"
     plugins_dir.mkdir(parents=True)
 
-    # Simulate deploy: installPaths reference the build machine's home
-    build_machine_claude_dir = Path("/Users/builduser/.claude")
+    # Simulate deploy: installPaths use the sentinel prefix (written by get_files_for_deploy)
     installed_plugins = plugins_dir / "installed_plugins.json"
     installed_plugins.write_text(
         json.dumps(
@@ -2885,7 +2839,7 @@ def test_fixup_installed_plugins_json_uses_marker_for_deploy(tmp_path: Path) -> 
                 "plugins": {
                     "test@org": [
                         {
-                            "installPath": "/Users/builduser/.claude/plugins/cache/org/test/1.0.0",
+                            "installPath": "/__mngr_plugins_source__/plugins/cache/org/test/1.0.0",
                             "version": "1.0.0",
                         }
                     ]
@@ -2893,10 +2847,6 @@ def test_fixup_installed_plugins_json_uses_marker_for_deploy(tmp_path: Path) -> 
             }
         )
     )
-
-    # Write the marker file
-    marker = plugins_dir / ".installed_plugins_source_dir"
-    marker.write_text(str(build_machine_claude_dir))
 
     _fixup_installed_plugins_json(host, config_dir)
 
@@ -2904,32 +2854,26 @@ def test_fixup_installed_plugins_json_uses_marker_for_deploy(tmp_path: Path) -> 
     assert result["plugins"]["test@org"][0]["installPath"] == str(
         config_dir / "plugins" / "cache" / "org" / "test" / "1.0.0"
     )
-    # Marker should be removed
-    assert not marker.exists()
 
 
-def test_fixup_installed_plugins_json_breaks_symlink(tmp_path: Path) -> None:
-    """When plugins/ is a symlink, fixup breaks it into a real dir with file-level symlinks."""
-    host = cast(OnlineHostInterface, FakeHost())
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
+# =============================================================================
+# get_files_for_deploy sentinel rewrite Tests
+# =============================================================================
 
-    # Create the source plugins directory
-    source_plugins = tmp_path / "source_plugins"
-    source_plugins.mkdir()
-    cache_dir = source_plugins / "cache" / "org" / "test" / "1.0.0"
-    cache_dir.mkdir(parents=True)
-    (cache_dir / "manifest.json").write_text("{}")
 
-    local_claude_dir = Path.home() / ".claude"
-    (source_plugins / "installed_plugins.json").write_text(
+def test_get_files_for_deploy_rewrites_install_paths_to_sentinel(temp_mngr_ctx: MngrContext, tmp_path: Path) -> None:
+    """get_files_for_deploy rewrites installPath values to use the sentinel prefix."""
+    claude_dir = Path.home() / ".claude"
+    plugins_dir = claude_dir / "plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+    (plugins_dir / "installed_plugins.json").write_text(
         json.dumps(
             {
                 "version": 2,
                 "plugins": {
                     "test@org": [
                         {
-                            "installPath": f"{local_claude_dir}/plugins/cache/org/test/1.0.0",
+                            "installPath": f"{claude_dir}/plugins/cache/org/test/1.0.0",
                             "version": "1.0.0",
                         }
                     ]
@@ -2938,52 +2882,19 @@ def test_fixup_installed_plugins_json_breaks_symlink(tmp_path: Path) -> None:
         )
     )
 
-    # Symlink config_dir/plugins -> source_plugins
-    plugins_symlink = config_dir / "plugins"
-    plugins_symlink.symlink_to(source_plugins)
-    assert plugins_symlink.is_symlink()
-
-    _fixup_installed_plugins_json(host, config_dir)
-
-    # Should no longer be a symlink
-    assert not plugins_symlink.is_symlink()
-    assert plugins_symlink.is_dir()
-
-    # installed_plugins.json should have rewritten paths
-    result = json.loads((plugins_symlink / "installed_plugins.json").read_text())
-    assert result["plugins"]["test@org"][0]["installPath"] == str(
-        config_dir / "plugins" / "cache" / "org" / "test" / "1.0.0"
-    )
-
-    # Cache dir should still be accessible (via symlink to source)
-    assert (plugins_symlink / "cache" / "org" / "test" / "1.0.0" / "manifest.json").exists()
-
-    # Original source should NOT be modified
-    original = json.loads((source_plugins / "installed_plugins.json").read_text())
-    assert original["plugins"]["test@org"][0]["installPath"] == f"{local_claude_dir}/plugins/cache/org/test/1.0.0"
-
-
-# =============================================================================
-# get_files_for_deploy marker file Tests
-# =============================================================================
-
-
-def test_get_files_for_deploy_includes_source_dir_marker_when_plugins_present(
-    temp_mngr_ctx: MngrContext, tmp_path: Path
-) -> None:
-    """get_files_for_deploy includes the source dir marker when installed_plugins.json exists."""
-    claude_dir = Path.home() / ".claude"
-    plugins_dir = claude_dir / "plugins"
-    plugins_dir.mkdir(parents=True, exist_ok=True)
-    (plugins_dir / "installed_plugins.json").write_text('{"version": 2, "plugins": {}}')
-
     result = get_files_for_deploy(
         mngr_ctx=temp_mngr_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
     )
 
+    plugins_json_key = Path("~/.claude/plugins/installed_plugins.json")
+    assert plugins_json_key in result
+    plugins_json_content = result[plugins_json_key]
+    assert isinstance(plugins_json_content, str)
+    data = json.loads(plugins_json_content)
+    assert data["plugins"]["test@org"][0]["installPath"] == "/__mngr_plugins_source__/plugins/cache/org/test/1.0.0"
+    # No marker file should be present
     marker_key = Path("~/.claude/plugins/.installed_plugins_source_dir")
-    assert marker_key in result
-    assert result[marker_key] == str(claude_dir)
+    assert marker_key not in result
 
 
 # =============================================================================
@@ -3046,108 +2957,72 @@ def test_build_settings_json_content_disables_local_is_fast_when_config_does_not
 
 
 # =============================================================================
-# _apply_settings_json_overrides tests
+# _setup_local_settings_json tests
 # =============================================================================
 
 
-def test_apply_settings_json_overrides_noop_when_no_overrides(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides is a no-op when model=None and is_fast=False."""
+def test_setup_local_settings_json_symlinks_when_no_overrides(tmp_path: Path) -> None:
+    """_setup_local_settings_json symlinks to ~/.claude/settings.json when no overrides."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    settings_path = config_dir / "settings.json"
-    original = json.dumps({"existing": True})
-    settings_path.write_text(original)
 
     host = cast(OnlineHostInterface, FakeHost())
     config = ClaudeAgentConfig(check_installation=False)
-    _apply_settings_json_overrides(host, config_dir, config)
 
-    # File unchanged
-    assert settings_path.read_text() == original
+    # Create a source settings.json at the real ~/.claude/ location
+    source = Path.home() / ".claude" / "settings.json"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source_existed = source.exists()
+
+    _setup_local_settings_json(host, config_dir, config)
+
+    settings_path = config_dir / "settings.json"
+    if source_existed:
+        # Should be a symlink to the source
+        assert settings_path.is_symlink()
+    else:
+        # No source to symlink to -- settings.json not created
+        assert not settings_path.exists()
 
 
-def test_apply_settings_json_overrides_creates_file_with_model(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides creates settings.json with model when none exists."""
+def test_setup_local_settings_json_creates_file_with_model(tmp_path: Path) -> None:
+    """_setup_local_settings_json creates settings.json with model when none exists."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
 
     host = cast(OnlineHostInterface, FakeHost())
     config = ClaudeAgentConfig(check_installation=False, model="opus[1m]")
-    _apply_settings_json_overrides(host, config_dir, config)
+    _setup_local_settings_json(host, config_dir, config)
 
     settings_path = config_dir / "settings.json"
     data = json.loads(settings_path.read_text())
     assert data["model"] == "opus[1m]"
 
 
-def test_apply_settings_json_overrides_creates_file_with_is_fast(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides creates settings.json with fastMode when none exists."""
+def test_setup_local_settings_json_creates_file_with_is_fast(tmp_path: Path) -> None:
+    """_setup_local_settings_json creates settings.json with fastMode when none exists."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
 
     host = cast(OnlineHostInterface, FakeHost())
     config = ClaudeAgentConfig(check_installation=False, is_fast=True)
-    _apply_settings_json_overrides(host, config_dir, config)
+    _setup_local_settings_json(host, config_dir, config)
 
     settings_path = config_dir / "settings.json"
     data = json.loads(settings_path.read_text())
     assert data["fastMode"] is True
 
 
-def test_apply_settings_json_overrides_merges_with_existing(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides merges overrides into existing settings."""
+def test_setup_local_settings_json_applies_overrides(tmp_path: Path) -> None:
+    """_setup_local_settings_json writes a regular file with overrides applied."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    settings_path = config_dir / "settings.json"
-    settings_path.write_text(json.dumps({"existing": "value", "skipDangerousModePermissionPrompt": True}))
 
     host = cast(OnlineHostInterface, FakeHost())
     config = ClaudeAgentConfig(check_installation=False, model="sonnet", is_fast=True)
-    _apply_settings_json_overrides(host, config_dir, config)
+    _setup_local_settings_json(host, config_dir, config)
 
+    settings_path = config_dir / "settings.json"
     data = json.loads(settings_path.read_text())
-    assert data["existing"] == "value"
     assert data["model"] == "sonnet"
     assert data["fastMode"] is True
-    assert data["skipDangerousModePermissionPrompt"] is True
-
-
-def test_apply_settings_json_overrides_replaces_symlink(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides replaces a symlink with a regular file."""
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    # Create a "global" settings file and symlink to it
-    global_settings = tmp_path / "global_settings.json"
-    global_settings.write_text(json.dumps({"global": True}))
-    settings_path = config_dir / "settings.json"
-    settings_path.symlink_to(global_settings)
-
-    host = cast(OnlineHostInterface, FakeHost())
-    config = ClaudeAgentConfig(check_installation=False, model="opus[1m]")
-    _apply_settings_json_overrides(host, config_dir, config)
-
-    # settings.json should now be a regular file (not a symlink)
-    assert not settings_path.is_symlink()
-    data = json.loads(settings_path.read_text())
-    assert data["model"] == "opus[1m]"
-    # Existing content from the symlink target is preserved
-    assert data["global"] is True
-    # Global file should be unmodified
-    assert json.loads(global_settings.read_text()) == {"global": True}
-
-
-def test_apply_settings_json_overrides_replaces_corrupt_json(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides replaces corrupt settings.json with overrides only."""
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    settings_path = config_dir / "settings.json"
-    settings_path.write_text("not valid json{{{")
-
-    host = cast(OnlineHostInterface, FakeHost())
-    config = ClaudeAgentConfig(check_installation=False, model="opus[1m]")
-    _apply_settings_json_overrides(host, config_dir, config)
-
-    # Corrupt file should be replaced with valid JSON containing only the override
-    data = json.loads(settings_path.read_text())
-    assert data["model"] == "opus[1m]"
-    assert len(data) == 1

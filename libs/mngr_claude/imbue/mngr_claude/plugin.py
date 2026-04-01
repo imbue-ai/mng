@@ -85,22 +85,17 @@ _READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
 # Paths within ~/.claude/ to sync to the per-agent config dir.
 # Used by both get_files_for_deploy() and provision() to ensure consistency.
-_CLAUDE_HOME_SYNC_ITEMS: Final[tuple[str, ...]] = (
-    "settings.json",
-    "skills",
-    "agents",
-    "commands",
-    "plugins",
-)
+_CLAUDE_HOME_SYNC_DIRS: Final[tuple[str, ...]] = ("skills", "agents", "commands", "plugins")
 
 _INSTALLED_PLUGINS_RELATIVE_PATH: Final[Path] = Path("plugins") / "installed_plugins.json"
 
-_INSTALLED_PLUGINS_SOURCE_DIR_MARKER: Final[Path] = Path("plugins") / ".installed_plugins_source_dir"
-"""Metadata file written at deploy build time containing the build machine's claude dir.
+_INSTALLED_PLUGINS_SENTINEL_PREFIX: Final[str] = "/__mngr_plugins_source__"
+"""Sentinel prefix written into installPath values at deploy build time.
 
-At runtime, ``_fixup_installed_plugins_json`` reads this to determine the original
-installPath prefix, rewrites paths to point to the per-agent config dir, then
-removes the marker.
+At build time, ``get_files_for_deploy`` rewrites absolute local paths
+(e.g. /Users/ev/.claude/plugins/cache/...) to use this sentinel prefix.
+At runtime, the fixup rewrites the sentinel to the actual per-agent config dir.
+This avoids depending on the build machine's home directory path.
 """
 
 
@@ -237,52 +232,6 @@ class ClaudeAgentConfig(AgentTypeConfig):
         "events/claude/common_transcript/events.jsonl. The common format includes user messages, "
         "assistant messages, and tool call/result summaries.",
     )
-
-
-def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
-    """Collect files from ~/.claude/ directory items for deployment.
-
-    Returns dict mapping relative paths (e.g., Path("settings.json"),
-    Path("skills/my-skill/SKILL.md")) to local source paths. Iterates over
-    _CLAUDE_HOME_SYNC_ITEMS to collect files from both regular files
-    and directories (recursively).
-    """
-    files: dict[Path, Path] = {}
-    for item_name in _CLAUDE_HOME_SYNC_ITEMS:
-        item_path = claude_dir / item_name
-        if not item_path.exists():
-            continue
-        if item_path.is_dir():
-            for file_path in item_path.rglob("*"):
-                if file_path.is_file():
-                    files[file_path.relative_to(claude_dir)] = file_path
-        else:
-            files[Path(item_name)] = item_path
-    return files
-
-
-def _collect_claude_home_files_content(
-    claude_dir: Path,
-    *,
-    sync_local_settings: bool,
-) -> dict[Path, str]:
-    """Collect files from ~/.claude/ as content strings for remote/deploy use.
-
-    Returns dict mapping relative paths (e.g., Path("settings.json"),
-    Path("skills/my-skill/SKILL.md")) to their string content.
-
-    settings.json is always rebuilt via _build_settings_json_content to
-    force skipDangerousModePermissionPrompt and disable fastMode. All other
-    files in _CLAUDE_HOME_SYNC_ITEMS are read as-is. Callers are responsible
-    for any further transforms (e.g., installPath rewriting).
-    """
-    files: dict[Path, str] = {}
-    files[Path("settings.json")] = _build_settings_json_content(sync_local_settings)
-    for relative_path, source_path in _collect_claude_home_dir_files(claude_dir).items():
-        if relative_path == Path("settings.json"):
-            continue
-        files[relative_path] = source_path.read_text()
-    return files
 
 
 @pure
@@ -677,28 +626,20 @@ def _provision_remote_api_key(
 
 
 def _sync_local_user_resources(host: OnlineHostInterface, config_dir: Path, *, symlink: bool) -> None:
-    """Sync user resources from ~/.claude/ into the per-agent config dir.
+    """Sync user resource directories from ~/.claude/ into the per-agent config dir.
 
-    Symlinks or copies settings.json, skills/, agents/, commands/, plugins/
-    depending on the ``symlink`` flag.
+    Symlinks or copies skills/, agents/, commands/, plugins/ depending on the
+    ``symlink`` flag. settings.json is handled separately by
+    _setup_local_settings_json.
     """
     home_claude = Path.home() / ".claude"
-    for item_name in _CLAUDE_HOME_SYNC_ITEMS:
-        source = home_claude / item_name
-        if not source.exists():
-            continue
-        dest = config_dir / item_name
-        if symlink:
+    link_or_copy_dir = "ln -sf" if symlink else "cp -r"
+    for dir_name in _CLAUDE_HOME_SYNC_DIRS:
+        source = home_claude / dir_name
+        if source.exists():
             host.execute_idempotent_command(
-                f"ln -sf {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0
-            )
-        elif source.is_dir():
-            host.execute_idempotent_command(
-                f"cp -r {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0
-            )
-        else:
-            host.execute_idempotent_command(
-                f"cp {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0
+                f"{link_or_copy_dir} {shlex.quote(str(source))} {shlex.quote(str(config_dir / dir_name))}",
+                timeout_seconds=5.0,
             )
 
 
@@ -710,31 +651,33 @@ def _rsync_claude_home_directories(
 ) -> None:
     """Transfer directory items from ~/.claude/ to a remote config dir using rsync.
 
-    Uses host.copy_directory (rsync) for bulk transfer of directories like
-    skills/, agents/, commands/, plugins/. Individual files like settings.json
-    are handled separately by the caller since they require generation/merging.
+    Uses a single host.copy_directory (rsync) call with include/exclude filters
+    to transfer all directories (skills/, agents/, commands/, plugins/) at once.
+    Individual files like settings.json are handled separately by the caller
+    since they require generation/merging.
     """
-    for item_name in _CLAUDE_HOME_SYNC_ITEMS:
-        item_path = local_claude_dir / item_name
-        if not item_path.exists() or not item_path.is_dir():
+    include_args: list[str] = []
+    for dir_name in _CLAUDE_HOME_SYNC_DIRS:
+        if not (local_claude_dir / dir_name).exists():
             continue
-        with log_span("Rsyncing {} to per-agent config dir", item_name):
-            host.copy_directory(local_host, item_path, config_dir / item_name)
+        include_args.extend([f"--include={dir_name}/", f"--include={dir_name}/**"])
+    if not include_args:
+        return
+    include_args.append("--exclude=*")
+    with log_span("Rsyncing claude home directories to per-agent config dir"):
+        host.copy_directory(local_host, local_claude_dir, config_dir, extra_args=" ".join(include_args))
 
 
 def _fixup_installed_plugins_json(host: OnlineHostInterface, config_dir: Path) -> None:
     """Rewrite installPath values in the per-agent installed_plugins.json.
 
-    Called after _sync_local_user_resources or _rsync_claude_home_directories
-    to ensure every per-agent config dir has a self-contained
-    installed_plugins.json with paths pointing to config_dir/plugins/cache/...
-    (rather than the source ~/.claude/ directory).
+    Called after rsync (remote) or copy (local) has placed the file in
+    config_dir. Reads via host.read_text_file so it works transparently
+    for both local and remote hosts.
 
-    Determines the original claude dir prefix from either a deploy marker file
-    (written by get_files_for_deploy) or the current machine's ~/.claude/.
-    If the plugins/ directory is a symlink, breaks it into a real directory
-    with file-level symlinks so the rewritten file can be written without
-    modifying the source.
+    Handles three source path cases:
+    - Deploy runtime: paths use the sentinel prefix (written by get_files_for_deploy)
+    - Remote/local: paths use the current machine's ~/.claude/
     """
     installed_plugins_path = config_dir / _INSTALLED_PLUGINS_RELATIVE_PATH
     try:
@@ -742,54 +685,47 @@ def _fixup_installed_plugins_json(host: OnlineHostInterface, config_dir: Path) -
     except FileNotFoundError:
         return
 
-    marker_path = config_dir / _INSTALLED_PLUGINS_SOURCE_DIR_MARKER
-    try:
-        source_claude_dir = Path(host.read_text_file(marker_path).strip())
-        host.execute_idempotent_command(f"rm -f {shlex.quote(str(marker_path))}", timeout_seconds=5.0)
-    except FileNotFoundError:
+    # Try sentinel prefix first (deploy case), then fall back to local ~/.claude/
+    source_claude_dir: Path
+    if _INSTALLED_PLUGINS_SENTINEL_PREFIX in content:
+        source_claude_dir = Path(_INSTALLED_PLUGINS_SENTINEL_PREFIX)
+    else:
         source_claude_dir = Path.home() / ".claude"
 
     rewritten = _rewrite_installed_plugins_paths(content, source_claude_dir, config_dir)
     if rewritten == content:
         return
 
-    plugins_dir = config_dir / "plugins"
-    if plugins_dir.is_symlink():
-        source_dir = plugins_dir.resolve()
-        plugins_dir.unlink()
-        plugins_dir.mkdir(parents=True)
-        for item in source_dir.iterdir():
-            if item.name != "installed_plugins.json" and item.name != _INSTALLED_PLUGINS_SOURCE_DIR_MARKER.name:
-                (plugins_dir / item.name).symlink_to(item)
-
     host.write_text_file(installed_plugins_path, rewritten)
 
 
-def _apply_settings_json_overrides(
+def _setup_local_settings_json(
     host: OnlineHostInterface,
     config_dir: Path,
     config: ClaudeAgentConfig,
 ) -> None:
-    """Apply per-agent settings overrides (model, is_fast) to settings.json.
+    """Set up settings.json in the per-agent config dir on a local host.
 
-    Only called for local hosts. When overrides are needed, reads existing
-    settings (following symlinks if present), then writes a regular file
-    with the overrides applied. Replaces any existing symlink to avoid
-    modifying the user's global settings.
+    When no overrides are needed, symlinks to ~/.claude/settings.json.
+    When overrides (model, is_fast) are present, reads the user's settings
+    as a base and writes a modified copy with overrides applied.
     """
+    settings_path = config_dir / "settings.json"
+    source = Path.home() / ".claude" / "settings.json"
+
     if config.model is None and not config.is_fast:
+        # No overrides -- symlink to the user's settings
+        if source.exists():
+            host.execute_idempotent_command(
+                f"ln -sf {shlex.quote(str(source))} {shlex.quote(str(settings_path))}", timeout_seconds=5.0
+            )
         return
 
-    settings_path = config_dir / "settings.json"
-
+    # Overrides needed -- read source as base, apply overrides, write a regular file
     data: dict[str, Any] = {}
-    try:
-        content = host.read_text_file(settings_path)
-    except FileNotFoundError:
-        content = None
-    else:
+    if source.exists():
         try:
-            data = json.loads(content)
+            data = json.loads(source.read_text())
         except json.JSONDecodeError:
             logger.warning("Corrupt settings.json, replacing with overrides only")
 
@@ -798,8 +734,6 @@ def _apply_settings_json_overrides(
     if config.is_fast:
         data["fastMode"] = True
 
-    # Remove existing file/symlink before writing a regular file
-    host.execute_idempotent_command(f"rm -f {shlex.quote(str(settings_path))}", timeout_seconds=5.0)
     host.write_text_file(settings_path, json.dumps(data, indent=2) + "\n")
 
 
@@ -1473,9 +1407,10 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
 
         if config.sync_home_settings:
             _sync_local_user_resources(host, config_dir, symlink=config.symlink_user_resources)
-            _fixup_installed_plugins_json(host, config_dir)
+            if not config.symlink_user_resources:
+                _fixup_installed_plugins_json(host, config_dir)
 
-        _apply_settings_json_overrides(host, config_dir, config)
+        _setup_local_settings_json(host, config_dir, config)
 
     def _setup_remote_config_dir(
         self,
@@ -1975,10 +1910,9 @@ def get_files_for_deploy(
     files: dict[Path, Path | str] = {}
 
     local_claude_dir = Path.home() / ".claude"
-    home_files = _collect_claude_home_files_content(local_claude_dir, sync_local_settings=include_user_settings)
 
-    # settings.json always ships (the collector includes it with the correct flags)
-    files[Path("~/.claude/settings.json")] = home_files.pop(Path("settings.json"))
+    # settings.json always ships (generated, not a direct copy)
+    files[Path("~/.claude/settings.json")] = _build_settings_json_content(include_user_settings)
 
     # Always ship .claude.json to $HOME/.claude/ in the deploy image.
     # we set the time to a constant for better caching:
@@ -1990,11 +1924,23 @@ def get_files_for_deploy(
     files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
 
     if include_user_settings:
-        for relative_path, content in home_files.items():
-            files[Path("~/.claude") / relative_path] = content
-        # Write source dir marker so runtime fixup can rewrite installPaths
-        if _INSTALLED_PLUGINS_RELATIVE_PATH in home_files:
-            files[Path("~/.claude") / _INSTALLED_PLUGINS_SOURCE_DIR_MARKER] = str(local_claude_dir)
+        # Collect directory contents (skills, agents, commands, plugins)
+        for dir_name in _CLAUDE_HOME_SYNC_DIRS:
+            dir_path = local_claude_dir / dir_name
+            if not dir_path.exists():
+                continue
+            for file_path in dir_path.rglob("*"):
+                if not file_path.is_file():
+                    continue
+                relative_path = file_path.relative_to(local_claude_dir)
+                content = file_path.read_text()
+                # Rewrite installPath values at build time to use the sentinel prefix,
+                # so the runtime fixup doesn't need to know the build machine's home dir
+                if relative_path == _INSTALLED_PLUGINS_RELATIVE_PATH:
+                    content = _rewrite_installed_plugins_paths(
+                        content, local_claude_dir, Path(_INSTALLED_PLUGINS_SENTINEL_PREFIX)
+                    )
+                files[Path("~/.claude") / relative_path] = content
 
         # ~/.claude/.credentials.json (OAuth tokens)
         credentials = local_claude_dir / ".credentials.json"
