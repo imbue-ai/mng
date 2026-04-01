@@ -413,8 +413,8 @@ def _destroy_single_online_agent(
     branches_to_remove: list[tuple[str, Path]],
 ) -> None:
     """Destroy a single agent on an online host. Thread-safe."""
+    agent_display = f"{agent.name}@{host.get_name()}"
     try:
-        agent_display = f"{agent.name}@{host.get_name()}"
         if agent.is_running() and not opts.force:
             _output(
                 f"Agent {agent_display} is running. Use --force to destroy running agents.",
