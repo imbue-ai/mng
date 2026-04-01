@@ -1195,7 +1195,7 @@ def test_create_with_invalid_provider_name(
     temp_work_dir: Path,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """mngr create with an unknown provider name should fail with a clear error."""
+    """mngr create with an unknown provider name should fail with a non-zero exit code."""
     result = cli_runner.invoke(
         create,
         [
