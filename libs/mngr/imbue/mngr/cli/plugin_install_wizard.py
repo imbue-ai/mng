@@ -1,7 +1,7 @@
 """Interactive plugin install wizard for mngr.
 
-Presents recommended plugins in a TUI and lets the user select which
-ones to install.  Selected plugins are installed in a single
+Presents recommended plugins in a two-phase TUI and lets the user select
+which ones to install.  Selected plugins are installed in a single
 ``uv tool install`` invocation.
 """
 
@@ -33,6 +33,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.plugin_catalog import CatalogEntry
+from imbue.mngr.plugin_catalog import SignalCheck
 from imbue.mngr.plugin_catalog import check_signal
 from imbue.mngr.plugin_catalog import get_installable_packages
 from imbue.mngr.primitives import PluginTier
@@ -74,12 +75,12 @@ class _WizardInputFilter(MutableModel):
 
 
 @pure
-def _get_selected_package_names(
+def _get_selected_entries(
     plugins: tuple[CatalogEntry, ...],
     checkboxes: list[CheckBox],
-) -> list[str]:
-    """Extract the package names of all checked plugins."""
-    return [plugin.package_name for plugin, cb in zip(plugins, checkboxes, strict=True) if cb.get_state()]
+) -> list[CatalogEntry]:
+    """Return the catalog entries whose checkboxes are checked."""
+    return [plugin for plugin, cb in zip(plugins, checkboxes, strict=True) if cb.get_state()]
 
 
 @pure
@@ -91,25 +92,30 @@ def _filter_already_installed(
     return tuple(p for p in plugins if p.package_name not in installed_names)
 
 
-def _should_preselect(entry: CatalogEntry) -> bool:
-    """Determine if a catalog entry should be preselected in the wizard.
+def _should_preselect_basic(entry: CatalogEntry) -> bool:
+    """Determine if a BASIC-tier entry should be preselected in phase 1.
 
-    BASIC-tier entries are preselected by default. If a signal is specified,
-    preselection depends on the signal check passing. EXTRA-tier entries
-    are never preselected.
+    Preselected if there is no signal, or if the signal check passes.
     """
-    if entry.tier != PluginTier.BASIC:
-        return False
     if entry.signal is None:
         return True
     return check_signal(entry.signal)
 
 
-def _run_install_wizard(plugins: tuple[CatalogEntry, ...]) -> list[str]:
-    """Run the install wizard TUI.
+def _run_selection_screen(
+    plugins: tuple[CatalogEntry, ...],
+    preselect: dict[str, bool],
+    header_text: str,
+) -> list[CatalogEntry] | None:
+    """Run a single TUI selection screen.
 
-    Returns the list of selected package names, or an empty list if cancelled.
+    Returns the list of selected entries, or None if cancelled.
+    ``preselect`` maps entry_point_name to whether that entry should
+    start checked.
     """
+    if not plugins:
+        return []
+
     name_width = max(len(p.package_name) for p in plugins)
 
     checkboxes: list[CheckBox] = []
@@ -117,7 +123,7 @@ def _run_install_wizard(plugins: tuple[CatalogEntry, ...]) -> list[str]:
 
     for plugin in plugins:
         label = f"{plugin.package_name.ljust(name_width)}  {plugin.description}"
-        cb = CheckBox(label, state=_should_preselect(plugin))
+        cb = CheckBox(label, state=preselect.get(plugin.entry_point_name, False))
         checkboxes.append(cb)
         list_items.append(AttrMap(cb, None, focus_map="reversed"))
 
@@ -130,7 +136,7 @@ def _run_install_wizard(plugins: tuple[CatalogEntry, ...]) -> list[str]:
         [
             AttrMap(Text("Plugin Install Wizard", align="center"), "header"),
             Divider(),
-            Text("mngr has a flexible plugin architecture. Here are some recommended\nplugins for you to install:"),
+            Text(header_text),
             Divider(),
         ]
     )
@@ -139,7 +145,7 @@ def _run_install_wizard(plugins: tuple[CatalogEntry, ...]) -> list[str]:
         [
             Divider(),
             AttrMap(
-                Text("  Space: Toggle | Up/Down: Navigate | Enter: Install | q/Ctrl+C: Cancel"),
+                Text("  Space: Toggle | Up/Down: Navigate | Enter: Confirm | q/Ctrl+C: Cancel"),
                 "status",
             ),
         ]
@@ -167,9 +173,74 @@ def _run_install_wizard(plugins: tuple[CatalogEntry, ...]) -> list[str]:
     loop.run()
 
     if not state.is_confirmed:
-        return []
+        return None
 
-    return _get_selected_package_names(plugins, checkboxes)
+    return _get_selected_entries(plugins, checkboxes)
+
+
+def _get_accepted_signals(selected: list[CatalogEntry]) -> set[SignalCheck]:
+    """Return the set of signals whose BASIC plugin was selected."""
+    return {entry.signal for entry in selected if entry.signal is not None}
+
+
+def _run_two_phase_wizard(available: tuple[CatalogEntry, ...]) -> list[str]:
+    """Run the two-phase install wizard.
+
+    Phase 1: BASIC-tier plugins (preselected based on signal detection).
+    Phase 2: EXTRA-tier plugins, filtered to only show extras whose
+             signal's BASIC plugin was accepted in phase 1 (or extras
+             with no signal). Preselection based on is_recommended.
+
+    Returns the list of selected package names, or an empty list if cancelled.
+    """
+    basic = tuple(e for e in available if e.tier == PluginTier.BASIC)
+    extras = tuple(e for e in available if e.tier == PluginTier.EXTRA)
+
+    # Phase 1: BASIC plugins
+    basic_preselect = {e.entry_point_name: _should_preselect_basic(e) for e in basic}
+
+    if basic:
+        phase1_result = _run_selection_screen(
+            basic,
+            basic_preselect,
+            "Select which agent types and providers to enable.\nDetected tools are pre-selected:",
+        )
+        if phase1_result is None:
+            return []
+    else:
+        phase1_result = []
+
+    # Determine which signals were accepted
+    accepted_signals = _get_accepted_signals(phase1_result)
+
+    # Phase 2: EXTRA plugins, filtered by accepted signals
+    visible_extras = tuple(e for e in extras if e.signal is None or e.signal in accepted_signals)
+
+    if visible_extras:
+        extras_preselect = {e.entry_point_name: e.is_recommended for e in visible_extras}
+
+        phase2_result = _run_selection_screen(
+            visible_extras,
+            extras_preselect,
+            "Do you want to install any extras?",
+        )
+        if phase2_result is None:
+            return []
+    else:
+        phase2_result = []
+
+    # Combine selections from both phases
+    all_selected = phase1_result + phase2_result
+
+    # Deduplicate by package name (multiple entry points can share a package)
+    seen: set[str] = set()
+    package_names: list[str] = []
+    for entry in all_selected:
+        if entry.package_name not in seen:
+            seen.add(entry.package_name)
+            package_names.append(entry.package_name)
+
+    return package_names
 
 
 _RELAUNCH_HINT: Final[str] = (
@@ -198,7 +269,7 @@ def _install_wizard_impl() -> None:
         write_human_line("All plugins are already installed.")
         return
 
-    selected = _run_install_wizard(available)
+    selected = _run_two_phase_wizard(available)
 
     write_human_line(_RELAUNCH_HINT)
 
@@ -235,12 +306,16 @@ CommandHelpMetadata(
     key="plugin.install-wizard",
     one_line_description="Interactive wizard to install recommended plugins",
     synopsis="mngr plugin install-wizard",
-    description="""Presents a TUI with recommended plugins and lets you select which
-ones to install. Plugins are installed in a single operation.
+    description="""Presents a two-phase TUI for selecting plugins to install.
 
-BASIC-tier plugins are pre-selected when their signal check passes
-(e.g. the CLI tool is found on PATH). Use Space to toggle selections,
-Enter to confirm, and q or Ctrl+C to cancel.""",
+Phase 1 shows agent types and providers (BASIC tier). Tools detected
+on your system are pre-selected.
+
+Phase 2 shows optional extras, filtered to only include extras related
+to the agent types you selected. Recommended extras are pre-selected.
+
+Use Space to toggle selections, Enter to confirm, and q or Ctrl+C
+to cancel.""",
     examples=(("Launch the plugin install wizard", "mngr plugin install-wizard"),),
     see_also=(
         ("plugin add", "Install a plugin package"),
