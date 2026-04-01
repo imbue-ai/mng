@@ -33,7 +33,6 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.plugin_catalog import CatalogEntry
-from imbue.mngr.plugin_catalog import SIGNAL_CHECKS
 from imbue.mngr.plugin_catalog import check_signal
 from imbue.mngr.plugin_catalog import get_installable_packages
 from imbue.mngr.primitives import PluginTier
@@ -103,10 +102,7 @@ def _should_preselect(entry: CatalogEntry) -> bool:
         return False
     if entry.signal is None:
         return True
-    signal_check = SIGNAL_CHECKS.get(entry.signal)
-    if signal_check is None:
-        return False
-    return check_signal(signal_check)
+    return check_signal(entry.signal)
 
 
 def _run_install_wizard(plugins: tuple[CatalogEntry, ...]) -> list[str]:

@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from urwid.widget.wimp import CheckBox
 
 from imbue.mngr.cli.plugin_install_wizard import _filter_already_installed
@@ -13,6 +11,9 @@ from imbue.mngr.primitives import PluginTier
 # Tests for _should_preselect
 # =============================================================================
 
+_PASSING_SIGNAL = SignalCheck(command=("true",))
+_FAILING_SIGNAL = SignalCheck(command=("false",))
+
 
 def test_should_preselect_basic_with_passing_signal() -> None:
     """BASIC tier with passing signal should be preselected."""
@@ -21,11 +22,9 @@ def test_should_preselect_basic_with_passing_signal() -> None:
         package_name="test",
         description="test",
         tier=PluginTier.BASIC,
-        signal="test_signal",
+        signal=_PASSING_SIGNAL,
     )
-    test_signal = SignalCheck(command=("true",))
-    with patch("imbue.mngr.cli.plugin_install_wizard.SIGNAL_CHECKS", {"test_signal": test_signal}):
-        assert _should_preselect(entry) is True
+    assert _should_preselect(entry) is True
 
 
 def test_should_preselect_basic_with_failing_signal() -> None:
@@ -35,11 +34,9 @@ def test_should_preselect_basic_with_failing_signal() -> None:
         package_name="test",
         description="test",
         tier=PluginTier.BASIC,
-        signal="test_signal",
+        signal=_FAILING_SIGNAL,
     )
-    test_signal = SignalCheck(command=("false",))
-    with patch("imbue.mngr.cli.plugin_install_wizard.SIGNAL_CHECKS", {"test_signal": test_signal}):
-        assert _should_preselect(entry) is False
+    assert _should_preselect(entry) is False
 
 
 def test_should_preselect_extra_tier_is_never_preselected() -> None:
@@ -49,7 +46,7 @@ def test_should_preselect_extra_tier_is_never_preselected() -> None:
         package_name="test",
         description="test",
         tier=PluginTier.EXTRA,
-        signal="claude",
+        signal=_PASSING_SIGNAL,
     )
     assert _should_preselect(entry) is False
 
@@ -64,18 +61,6 @@ def test_should_preselect_basic_no_signal() -> None:
         signal=None,
     )
     assert _should_preselect(entry) is True
-
-
-def test_should_preselect_basic_unknown_signal() -> None:
-    """BASIC tier with unknown signal key should not be preselected."""
-    entry = CatalogEntry(
-        entry_point_name="test",
-        package_name="test",
-        description="test",
-        tier=PluginTier.BASIC,
-        signal="nonexistent_signal_key",
-    )
-    assert _should_preselect(entry) is False
 
 
 # =============================================================================

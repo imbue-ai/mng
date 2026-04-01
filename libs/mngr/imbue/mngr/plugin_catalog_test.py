@@ -1,5 +1,4 @@
 from imbue.mngr.plugin_catalog import PLUGIN_CATALOG
-from imbue.mngr.plugin_catalog import SIGNAL_CHECKS
 from imbue.mngr.plugin_catalog import SignalCheck
 from imbue.mngr.plugin_catalog import check_signal
 from imbue.mngr.plugin_catalog import get_all_cataloged_entry_point_names
@@ -21,11 +20,11 @@ def test_catalog_entry_point_names_are_unique() -> None:
     assert len(names) == len(set(names))
 
 
-def test_catalog_all_signals_reference_valid_keys() -> None:
+def test_catalog_signals_are_signal_check_instances() -> None:
     for entry in PLUGIN_CATALOG:
         if entry.signal is not None:
-            assert entry.signal in SIGNAL_CHECKS, (
-                f"Entry {entry.entry_point_name} references unknown signal '{entry.signal}'"
+            assert isinstance(entry.signal, SignalCheck), (
+                f"Entry {entry.entry_point_name} signal is {type(entry.signal)}, expected SignalCheck"
             )
 
 
@@ -38,13 +37,12 @@ def test_catalog_contains_expected_basic_entry_points() -> None:
     assert "tutor" in basic_names
 
 
-def test_catalog_basic_entries_with_signal_reference_valid_keys() -> None:
-    """BASIC entries that have a signal should reference a valid signal key."""
-    for entry in PLUGIN_CATALOG:
-        if entry.tier == PluginTier.BASIC and entry.signal is not None:
-            assert entry.signal in SIGNAL_CHECKS, (
-                f"BASIC entry {entry.entry_point_name} references unknown signal '{entry.signal}'"
-            )
+def test_catalog_entries_sharing_signal_use_same_instance() -> None:
+    """Entries that share a signal should reference the exact same object."""
+    claude_entry = get_catalog_entry("claude")
+    fixme_entry = get_catalog_entry("fixme_fairy")
+    assert claude_entry is not None and fixme_entry is not None
+    assert claude_entry.signal is fixme_entry.signal
 
 
 # =============================================================================

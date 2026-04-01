@@ -16,6 +16,7 @@ from imbue.mngr.primitives import PluginTier
 class SignalCheck(FrozenModel):
     """A heuristic to detect if the user likely wants a plugin enabled.
 
+    Subclass and set ``command`` to define a concrete signal check.
     The command is run as a subprocess. Exit code 0 means the signal
     passes (the user probably wants this plugin). Any nonzero exit or
     FileNotFoundError means the signal does not pass.
@@ -24,13 +25,42 @@ class SignalCheck(FrozenModel):
     command: tuple[str, ...] = Field(description="Command to run; exit 0 = signal passes")
 
 
-SIGNAL_CHECKS: Final[dict[str, SignalCheck]] = {
-    "claude": SignalCheck(command=("claude", "--version")),
-    "opencode": SignalCheck(command=("opencode", "--version")),
-    "pi": SignalCheck(command=("sh", "-c", "pi --help 2>&1 | grep -q 'pi - AI coding assistant'")),
-    "llm": SignalCheck(command=("sh", "-c", "llm --help 2>&1 | grep -q datasette.io")),
-    "modal": SignalCheck(command=("sh", "-c", "test -f ~/.modal.toml")),
-}
+class ClaudeSignalCheck(SignalCheck):
+    """Detects whether the Claude Code CLI is installed."""
+
+    command: tuple[str, ...] = ("claude", "--version")
+
+
+class OpenCodeSignalCheck(SignalCheck):
+    """Detects whether the OpenCode CLI is installed."""
+
+    command: tuple[str, ...] = ("opencode", "--version")
+
+
+class PiSignalCheck(SignalCheck):
+    """Detects whether the Pi coding agent CLI is installed."""
+
+    command: tuple[str, ...] = ("sh", "-c", "pi --help 2>&1 | grep -q 'pi - AI coding assistant'")
+
+
+class LlmSignalCheck(SignalCheck):
+    """Detects whether Simon Willison's llm CLI is installed."""
+
+    command: tuple[str, ...] = ("sh", "-c", "llm --help 2>&1 | grep -q datasette.io")
+
+
+class ModalSignalCheck(SignalCheck):
+    """Detects whether Modal credentials are configured."""
+
+    command: tuple[str, ...] = ("sh", "-c", "test -f ~/.modal.toml")
+
+
+# Shared instances for use across catalog entries.
+_CLAUDE_SIGNAL: Final[ClaudeSignalCheck] = ClaudeSignalCheck()
+_OPENCODE_SIGNAL: Final[OpenCodeSignalCheck] = OpenCodeSignalCheck()
+_PI_SIGNAL: Final[PiSignalCheck] = PiSignalCheck()
+_LLM_SIGNAL: Final[LlmSignalCheck] = LlmSignalCheck()
+_MODAL_SIGNAL: Final[ModalSignalCheck] = ModalSignalCheck()
 
 
 class CatalogEntry(FrozenModel):
@@ -40,7 +70,7 @@ class CatalogEntry(FrozenModel):
     package_name: str = Field(description="PyPI package name")
     description: str = Field(description="Human-readable description")
     tier: PluginTier = Field(description="BASIC (preselected when signal passes) or EXTRA (manual opt-in)")
-    signal: str | None = Field(default=None, description="Key into SIGNAL_CHECKS, or None")
+    signal: SignalCheck | None = Field(default=None, description="Signal check, or None")
     is_recommended: bool = Field(default=False, description="Whether this plugin is recommended for most users")
 
 
@@ -52,7 +82,7 @@ PLUGIN_CATALOG: Final[tuple[CatalogEntry, ...]] = (
         package_name="imbue-mngr-claude",
         description="Claude agent type plugin for mngr",
         tier=PluginTier.BASIC,
-        signal="claude",
+        signal=_CLAUDE_SIGNAL,
         is_recommended=True,
     ),
     CatalogEntry(
@@ -60,7 +90,7 @@ PLUGIN_CATALOG: Final[tuple[CatalogEntry, ...]] = (
         package_name="imbue-mngr-opencode",
         description="OpenCode agent type plugin for mngr",
         tier=PluginTier.BASIC,
-        signal="opencode",
+        signal=_OPENCODE_SIGNAL,
         is_recommended=True,
     ),
     CatalogEntry(
@@ -68,21 +98,21 @@ PLUGIN_CATALOG: Final[tuple[CatalogEntry, ...]] = (
         package_name="imbue-mngr-pi-coding",
         description="Pi coding agent type plugin for mngr",
         tier=PluginTier.BASIC,
-        signal="pi",
+        signal=_PI_SIGNAL,
     ),
     CatalogEntry(
         entry_point_name="llm",
         package_name="imbue-mngr-llm",
         description="LLM agent plugin for mngr - runs the llm CLI tool as an agent",
         tier=PluginTier.BASIC,
-        signal="llm",
+        signal=_LLM_SIGNAL,
     ),
     CatalogEntry(
         entry_point_name="modal",
         package_name="imbue-mngr-modal",
         description="Modal provider backend plugin for mngr",
         tier=PluginTier.BASIC,
-        signal="modal",
+        signal=_MODAL_SIGNAL,
         is_recommended=True,
     ),
     CatalogEntry(
@@ -98,42 +128,42 @@ PLUGIN_CATALOG: Final[tuple[CatalogEntry, ...]] = (
         package_name="imbue-mngr-claude",
         description="Code guardian agent for mngr",
         tier=PluginTier.EXTRA,
-        signal="claude",
+        signal=_CLAUDE_SIGNAL,
     ),
     CatalogEntry(
         entry_point_name="fixme_fairy",
         package_name="imbue-mngr-claude",
         description="Fixme fairy agent for mngr",
         tier=PluginTier.EXTRA,
-        signal="claude",
+        signal=_CLAUDE_SIGNAL,
     ),
     CatalogEntry(
         entry_point_name="headless_claude",
         package_name="imbue-mngr-claude",
         description="Headless Claude agent for mngr",
         tier=PluginTier.EXTRA,
-        signal="claude",
+        signal=_CLAUDE_SIGNAL,
     ),
     CatalogEntry(
         entry_point_name="claude_mind",
         package_name="imbue-mngr-claude-mind",
         description="Claude mind agent plugin for mngr - base class for mind agents built on Claude Code",
         tier=PluginTier.EXTRA,
-        signal="claude",
+        signal=_CLAUDE_SIGNAL,
     ),
     CatalogEntry(
         entry_point_name="elena_code",
         package_name="imbue-mngr-elena-code",
         description="Elena Code agent plugin for mngr - a conversational AI mind powered by Claude Code",
         tier=PluginTier.EXTRA,
-        signal="claude",
+        signal=_CLAUDE_SIGNAL,
     ),
     CatalogEntry(
         entry_point_name="test_coder",
         package_name="imbue-mngr-test-coder",
         description="Test agent type plugin for mngr - uses matched-responses model for testing without API keys",
         tier=PluginTier.EXTRA,
-        signal="llm",
+        signal=_LLM_SIGNAL,
     ),
     # --- EXTRA tier, no signal ---
     CatalogEntry(
