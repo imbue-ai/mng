@@ -11,7 +11,8 @@ from pathlib import Path
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.list import list_agents
-from imbue.mngr.config.loader import load_mngr_context
+from imbue.mngr.config.loader import load_config
+from imbue.mngr.main import create_plugin_manager
 from imbue.mngr.primitives import ErrorBehavior
 
 
@@ -33,7 +34,8 @@ def main() -> None:
 
     cg = ConcurrencyGroup(name="repro")
     with cg:
-        mngr_ctx = load_mngr_context(concurrency_group=cg)
+        pm = create_plugin_manager()
+        mngr_ctx = load_config(pm, cg)
 
         initial_fds = count_open_fds()
         print(f"Initial FDs: {initial_fds}")
