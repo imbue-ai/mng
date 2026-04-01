@@ -222,6 +222,11 @@ def get_all_cataloged_entry_point_names() -> frozenset[str]:
     return frozenset(_CATALOG_BY_ENTRY_POINT.keys())
 
 
+def get_basic_tier_entry_point_names() -> frozenset[str]:
+    """Return entry point names for all BASIC-tier plugins."""
+    return frozenset(e.entry_point_name for e in PLUGIN_CATALOG if e.tier == PluginTier.BASIC)
+
+
 def check_signal(signal: SignalCheck) -> bool:
     """Run a signal check and return whether it passes.
 

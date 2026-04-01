@@ -24,6 +24,7 @@ from imbue.mngr.config.consts import PROFILES_DIRNAME
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.plugin_catalog import get_basic_tier_entry_point_names
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
@@ -443,17 +444,15 @@ def isolated_mngr_venv(tmp_path: Path) -> Path:
 def enabled_plugins() -> frozenset[str]:
     """Return the set of plugin entry point names to enable for this test.
 
-    Override this fixture in test files or local conftest.py to enable
-    specific plugins::
+    Defaults to the BASIC-tier plugins (claude, opencode, pi_coding,
+    llm, modal, tutor).  Override in test files or local conftest.py
+    for different configurations::
 
         @pytest.fixture
         def enabled_plugins():
-            return frozenset({"opencode"})
-
-    By default no external plugins are loaded, ensuring tests are
-    isolated from the developer's installed plugin set.
+            return frozenset()
     """
-    return frozenset()
+    return get_basic_tier_entry_point_names()
 
 
 @pytest.fixture(autouse=True)
