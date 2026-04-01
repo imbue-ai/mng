@@ -50,7 +50,6 @@ from imbue.mngr_claude.plugin import ClaudeAgent
 from imbue.mngr_claude.plugin import ClaudeAgentConfig
 from imbue.mngr_claude.plugin import CostThresholdDialogIndicator
 from imbue.mngr_claude.plugin import WaitingReason
-from imbue.mngr_claude.plugin import _apply_settings_json_overrides
 from imbue.mngr_claude.plugin import _build_install_command_hint
 from imbue.mngr_claude.plugin import _build_settings_json_content
 from imbue.mngr_claude.plugin import _claude_json_has_primary_api_key
@@ -61,6 +60,7 @@ from imbue.mngr_claude.plugin import _install_claude
 from imbue.mngr_claude.plugin import _parse_claude_version_output
 from imbue.mngr_claude.plugin import _read_macos_keychain_credential
 from imbue.mngr_claude.plugin import _rewrite_installed_plugins_paths
+from imbue.mngr_claude.plugin import _setup_local_settings_json
 from imbue.mngr_claude.plugin import agent_field_generators
 from imbue.mngr_claude.plugin import get_files_for_deploy
 from imbue.mngr_claude.plugin import on_before_create
@@ -2957,108 +2957,72 @@ def test_build_settings_json_content_disables_local_is_fast_when_config_does_not
 
 
 # =============================================================================
-# _apply_settings_json_overrides tests
+# _setup_local_settings_json tests
 # =============================================================================
 
 
-def test_apply_settings_json_overrides_noop_when_no_overrides(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides is a no-op when model=None and is_fast=False."""
+def test_setup_local_settings_json_symlinks_when_no_overrides(tmp_path: Path) -> None:
+    """_setup_local_settings_json symlinks to ~/.claude/settings.json when no overrides."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    settings_path = config_dir / "settings.json"
-    original = json.dumps({"existing": True})
-    settings_path.write_text(original)
 
     host = cast(OnlineHostInterface, FakeHost())
     config = ClaudeAgentConfig(check_installation=False)
-    _apply_settings_json_overrides(host, config_dir, config)
 
-    # File unchanged
-    assert settings_path.read_text() == original
+    # Create a source settings.json at the real ~/.claude/ location
+    source = Path.home() / ".claude" / "settings.json"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source_existed = source.exists()
+
+    _setup_local_settings_json(host, config_dir, config)
+
+    settings_path = config_dir / "settings.json"
+    if source_existed:
+        # Should be a symlink to the source
+        assert settings_path.is_symlink()
+    else:
+        # No source to symlink to -- settings.json not created
+        assert not settings_path.exists()
 
 
-def test_apply_settings_json_overrides_creates_file_with_model(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides creates settings.json with model when none exists."""
+def test_setup_local_settings_json_creates_file_with_model(tmp_path: Path) -> None:
+    """_setup_local_settings_json creates settings.json with model when none exists."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
 
     host = cast(OnlineHostInterface, FakeHost())
     config = ClaudeAgentConfig(check_installation=False, model="opus[1m]")
-    _apply_settings_json_overrides(host, config_dir, config)
+    _setup_local_settings_json(host, config_dir, config)
 
     settings_path = config_dir / "settings.json"
     data = json.loads(settings_path.read_text())
     assert data["model"] == "opus[1m]"
 
 
-def test_apply_settings_json_overrides_creates_file_with_is_fast(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides creates settings.json with fastMode when none exists."""
+def test_setup_local_settings_json_creates_file_with_is_fast(tmp_path: Path) -> None:
+    """_setup_local_settings_json creates settings.json with fastMode when none exists."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
 
     host = cast(OnlineHostInterface, FakeHost())
     config = ClaudeAgentConfig(check_installation=False, is_fast=True)
-    _apply_settings_json_overrides(host, config_dir, config)
+    _setup_local_settings_json(host, config_dir, config)
 
     settings_path = config_dir / "settings.json"
     data = json.loads(settings_path.read_text())
     assert data["fastMode"] is True
 
 
-def test_apply_settings_json_overrides_merges_with_existing(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides merges overrides into existing settings."""
+def test_setup_local_settings_json_applies_overrides(tmp_path: Path) -> None:
+    """_setup_local_settings_json writes a regular file with overrides applied."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    settings_path = config_dir / "settings.json"
-    settings_path.write_text(json.dumps({"existing": "value", "skipDangerousModePermissionPrompt": True}))
 
     host = cast(OnlineHostInterface, FakeHost())
     config = ClaudeAgentConfig(check_installation=False, model="sonnet", is_fast=True)
-    _apply_settings_json_overrides(host, config_dir, config)
+    _setup_local_settings_json(host, config_dir, config)
 
+    settings_path = config_dir / "settings.json"
     data = json.loads(settings_path.read_text())
-    assert data["existing"] == "value"
     assert data["model"] == "sonnet"
     assert data["fastMode"] is True
-    assert data["skipDangerousModePermissionPrompt"] is True
-
-
-def test_apply_settings_json_overrides_replaces_symlink(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides replaces a symlink with a regular file."""
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    # Create a "global" settings file and symlink to it
-    global_settings = tmp_path / "global_settings.json"
-    global_settings.write_text(json.dumps({"global": True}))
-    settings_path = config_dir / "settings.json"
-    settings_path.symlink_to(global_settings)
-
-    host = cast(OnlineHostInterface, FakeHost())
-    config = ClaudeAgentConfig(check_installation=False, model="opus[1m]")
-    _apply_settings_json_overrides(host, config_dir, config)
-
-    # settings.json should now be a regular file (not a symlink)
-    assert not settings_path.is_symlink()
-    data = json.loads(settings_path.read_text())
-    assert data["model"] == "opus[1m]"
-    # Existing content from the symlink target is preserved
-    assert data["global"] is True
-    # Global file should be unmodified
-    assert json.loads(global_settings.read_text()) == {"global": True}
-
-
-def test_apply_settings_json_overrides_replaces_corrupt_json(tmp_path: Path) -> None:
-    """_apply_settings_json_overrides replaces corrupt settings.json with overrides only."""
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    settings_path = config_dir / "settings.json"
-    settings_path.write_text("not valid json{{{")
-
-    host = cast(OnlineHostInterface, FakeHost())
-    config = ClaudeAgentConfig(check_installation=False, model="opus[1m]")
-    _apply_settings_json_overrides(host, config_dir, config)
-
-    # Corrupt file should be replaced with valid JSON containing only the override
-    data = json.loads(settings_path.read_text())
-    assert data["model"] == "opus[1m]"
-    assert len(data) == 1

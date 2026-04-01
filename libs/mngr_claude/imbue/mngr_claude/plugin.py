@@ -85,7 +85,6 @@ _READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
 # Paths within ~/.claude/ to sync to the per-agent config dir.
 # Used by both get_files_for_deploy() and provision() to ensure consistency.
-_CLAUDE_HOME_SYNC_FILES: Final[tuple[str, ...]] = ("settings.json",)
 _CLAUDE_HOME_SYNC_DIRS: Final[tuple[str, ...]] = ("skills", "agents", "commands", "plugins")
 
 _INSTALLED_PLUGINS_RELATIVE_PATH: Final[Path] = Path("plugins") / "installed_plugins.json"
@@ -627,20 +626,13 @@ def _provision_remote_api_key(
 
 
 def _sync_local_user_resources(host: OnlineHostInterface, config_dir: Path, *, symlink: bool) -> None:
-    """Sync user resources from ~/.claude/ into the per-agent config dir.
+    """Sync user resource directories from ~/.claude/ into the per-agent config dir.
 
-    Symlinks or copies settings.json, skills/, agents/, commands/, plugins/
-    depending on the ``symlink`` flag.
+    Symlinks or copies skills/, agents/, commands/, plugins/ depending on the
+    ``symlink`` flag. settings.json is handled separately by
+    _setup_local_settings_json.
     """
     home_claude = Path.home() / ".claude"
-    link_or_copy = "ln -sf" if symlink else "cp"
-    for file_name in _CLAUDE_HOME_SYNC_FILES:
-        source = home_claude / file_name
-        if source.exists():
-            host.execute_idempotent_command(
-                f"{link_or_copy} {shlex.quote(str(source))} {shlex.quote(str(config_dir / file_name))}",
-                timeout_seconds=5.0,
-            )
     link_or_copy_dir = "ln -sf" if symlink else "cp -r"
     for dir_name in _CLAUDE_HOME_SYNC_DIRS:
         source = home_claude / dir_name
@@ -707,31 +699,33 @@ def _fixup_installed_plugins_json(host: OnlineHostInterface, config_dir: Path) -
     host.write_text_file(installed_plugins_path, rewritten)
 
 
-def _apply_settings_json_overrides(
+def _setup_local_settings_json(
     host: OnlineHostInterface,
     config_dir: Path,
     config: ClaudeAgentConfig,
 ) -> None:
-    """Apply per-agent settings overrides (model, is_fast) to settings.json.
+    """Set up settings.json in the per-agent config dir on a local host.
 
-    Only called for local hosts. When overrides are needed, reads existing
-    settings (following symlinks if present), then writes a regular file
-    with the overrides applied. Replaces any existing symlink to avoid
-    modifying the user's global settings.
+    When no overrides are needed, symlinks to ~/.claude/settings.json.
+    When overrides (model, is_fast) are present, reads the user's settings
+    as a base and writes a modified copy with overrides applied.
     """
+    settings_path = config_dir / "settings.json"
+    source = Path.home() / ".claude" / "settings.json"
+
     if config.model is None and not config.is_fast:
+        # No overrides -- symlink to the user's settings
+        if source.exists():
+            host.execute_idempotent_command(
+                f"ln -sf {shlex.quote(str(source))} {shlex.quote(str(settings_path))}", timeout_seconds=5.0
+            )
         return
 
-    settings_path = config_dir / "settings.json"
-
+    # Overrides needed -- read source as base, apply overrides, write a regular file
     data: dict[str, Any] = {}
-    try:
-        content = host.read_text_file(settings_path)
-    except FileNotFoundError:
-        content = None
-    else:
+    if source.exists():
         try:
-            data = json.loads(content)
+            data = json.loads(source.read_text())
         except json.JSONDecodeError:
             logger.warning("Corrupt settings.json, replacing with overrides only")
 
@@ -740,8 +734,6 @@ def _apply_settings_json_overrides(
     if config.is_fast:
         data["fastMode"] = True
 
-    # Remove existing file/symlink before writing a regular file
-    host.execute_idempotent_command(f"rm -f {shlex.quote(str(settings_path))}", timeout_seconds=5.0)
     host.write_text_file(settings_path, json.dumps(data, indent=2) + "\n")
 
 
@@ -1418,7 +1410,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
             if not config.symlink_user_resources:
                 _fixup_installed_plugins_json(host, config_dir)
 
-        _apply_settings_json_overrides(host, config_dir, config)
+        _setup_local_settings_json(host, config_dir, config)
 
     def _setup_remote_config_dir(
         self,
