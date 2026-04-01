@@ -2798,7 +2798,7 @@ def test_fixup_installed_plugins_json_rewrites_paths(tmp_path: Path) -> None:
         )
     )
 
-    _fixup_installed_plugins_json(host, config_dir)
+    _fixup_installed_plugins_json(host, local_claude_dir, config_dir)
 
     result = json.loads(installed_plugins.read_text())
     assert result["plugins"]["test@org"][0]["installPath"] == str(
@@ -2813,40 +2813,7 @@ def test_fixup_installed_plugins_json_noop_when_no_file(tmp_path: Path) -> None:
     config_dir.mkdir()
 
     # Should not raise
-    _fixup_installed_plugins_json(host, config_dir)
-
-
-def test_fixup_installed_plugins_json_rewrites_sentinel_for_deploy(tmp_path: Path) -> None:
-    """Fixup rewrites sentinel-prefixed paths (deploy case) to config_dir."""
-    host = cast(OnlineHostInterface, FakeHost())
-    config_dir = tmp_path / "config"
-    plugins_dir = config_dir / "plugins"
-    plugins_dir.mkdir(parents=True)
-
-    # Simulate deploy: installPaths use the sentinel prefix (written by get_files_for_deploy)
-    installed_plugins = plugins_dir / "installed_plugins.json"
-    installed_plugins.write_text(
-        json.dumps(
-            {
-                "version": 2,
-                "plugins": {
-                    "test@org": [
-                        {
-                            "installPath": "/__mngr_plugins_source__/plugins/cache/org/test/1.0.0",
-                            "version": "1.0.0",
-                        }
-                    ]
-                },
-            }
-        )
-    )
-
-    _fixup_installed_plugins_json(host, config_dir)
-
-    result = json.loads(installed_plugins.read_text())
-    assert result["plugins"]["test@org"][0]["installPath"] == str(
-        config_dir / "plugins" / "cache" / "org" / "test" / "1.0.0"
-    )
+    _fixup_installed_plugins_json(host, Path.home() / ".claude", config_dir)
 
 
 # =============================================================================

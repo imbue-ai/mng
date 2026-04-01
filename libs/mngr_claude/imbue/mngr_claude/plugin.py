@@ -674,9 +674,9 @@ def _rsync_claude_home_directories(
         host.copy_directory(local_host, local_claude_dir, config_dir, extra_args=" ".join(include_args))
 
 
-def _fixup_installed_plugins_json(host: OnlineHostInterface, config_dir: Path) -> None:
-    """Rewrite installPath values in installed_plugins.json from their
-    original prefix to the per-agent config_dir.
+def _fixup_installed_plugins_json(host: OnlineHostInterface, source_claude_dir: Path, config_dir: Path) -> None:
+    """Rewrite installPath values in installed_plugins.json from
+    source_claude_dir to config_dir.
 
     installed_plugins.json contains absolute paths (e.g.
     /Users/ev/.claude/plugins/cache/...) that won't resolve on a
@@ -687,10 +687,6 @@ def _fixup_installed_plugins_json(host: OnlineHostInterface, config_dir: Path) -
     Called after rsync (remote) or copy (local) has placed the file in
     config_dir. Works transparently for local and remote hosts via
     host.read_text_file / host.write_text_file.
-
-    Source prefix detection:
-    - Deploy: paths use the sentinel prefix (rewritten at build time by get_files_for_deploy)
-    - Remote/local: paths use the current machine's ~/.claude/
     """
     installed_plugins_path = config_dir / _INSTALLED_PLUGINS_RELATIVE_PATH
     try:
@@ -698,18 +694,32 @@ def _fixup_installed_plugins_json(host: OnlineHostInterface, config_dir: Path) -
     except FileNotFoundError:
         return
 
-    # Try sentinel prefix first (deploy case), then fall back to local ~/.claude/
-    source_claude_dir: Path
-    if _INSTALLED_PLUGINS_SENTINEL_PREFIX in content:
-        source_claude_dir = Path(_INSTALLED_PLUGINS_SENTINEL_PREFIX)
-    else:
-        source_claude_dir = Path.home() / ".claude"
-
     rewritten = _rewrite_installed_plugins_paths(content, source_claude_dir, config_dir)
     if rewritten == content:
         return
 
     host.write_text_file(installed_plugins_path, rewritten)
+
+
+def _resolve_installed_plugins_sentinel(host: OnlineHostInterface) -> None:
+    """Resolve sentinel-prefixed installPaths in ~/.claude/plugins/installed_plugins.json.
+
+    Deploy images have installPath values rewritten to a sentinel prefix at
+    build time (because the container's home directory isn't known then). This
+    resolves them to the actual ~/.claude/ path in place, so all downstream
+    provisioning code can assume paths use ~/.claude/ as the prefix.
+
+    No-op if the file doesn't exist or doesn't contain the sentinel.
+    """
+    local_claude_dir = Path.home() / ".claude"
+    installed_plugins_path = local_claude_dir / _INSTALLED_PLUGINS_RELATIVE_PATH
+    if not installed_plugins_path.exists():
+        return
+    content = installed_plugins_path.read_text()
+    if _INSTALLED_PLUGINS_SENTINEL_PREFIX not in content:
+        return
+    rewritten = _rewrite_installed_plugins_paths(content, Path(_INSTALLED_PLUGINS_SENTINEL_PREFIX), local_claude_dir)
+    installed_plugins_path.write_text(rewritten)
 
 
 def _setup_local_settings_json(
@@ -1415,7 +1425,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
             if not config.symlink_user_resources:
                 # In copy mode, rewrite installPath values from ~/.claude/ to config_dir
                 # (in symlink mode the original paths resolve correctly through the symlinks)
-                _fixup_installed_plugins_json(host, config_dir)
+                _fixup_installed_plugins_json(host, Path.home() / ".claude", config_dir)
 
         _setup_local_settings_json(host, config_dir, config)
 
@@ -1456,7 +1466,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
             if not isinstance(local_host_ref, OnlineHostInterface):
                 raise MngrError("Local host is not online")
             _rsync_claude_home_directories(host, local_host_ref, local_claude_dir, config_dir)
-            _fixup_installed_plugins_json(host, config_dir)
+            _fixup_installed_plugins_json(host, local_claude_dir, config_dir)
 
         # 3. Always ship .claude.json (generated content, not a direct copy)
         # Resolve the work_dir on the remote host so the trust entry matches
@@ -1551,6 +1561,13 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
         - rsync/none: trust is prompted for the work_dir
         - trust_working_directory=True: trust is auto-added for work_dir
         """
+        # Resolve sentinel-prefixed installPaths in ~/.claude/ if present.
+        # Deploy images have paths rewritten to a sentinel at build time
+        # (because the container's home dir isn't known at build). Resolve
+        # them to the actual ~/.claude/ path now, so all downstream code
+        # can assume paths use ~/.claude/ as the prefix.
+        _resolve_installed_plugins_sentinel(host)
+
         with mngr_ctx.concurrency_group.make_concurrency_group("claude_provisioning") as concurrency_group:
             config = self.agent_config
 
