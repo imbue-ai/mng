@@ -87,7 +87,6 @@ _READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 # Used by both get_files_for_deploy() and provision() to ensure consistency.
 _CLAUDE_HOME_SYNC_FILES: Final[tuple[str, ...]] = ("settings.json",)
 _CLAUDE_HOME_SYNC_DIRS: Final[tuple[str, ...]] = ("skills", "agents", "commands", "plugins")
-_CLAUDE_HOME_SYNC_ITEMS: Final[tuple[str, ...]] = _CLAUDE_HOME_SYNC_FILES + _CLAUDE_HOME_SYNC_DIRS
 
 _INSTALLED_PLUGINS_RELATIVE_PATH: Final[Path] = Path("plugins") / "installed_plugins.json"
 
@@ -241,20 +240,21 @@ def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
 
     Returns dict mapping relative paths (e.g., Path("settings.json"),
     Path("skills/my-skill/SKILL.md")) to local source paths. Iterates over
-    _CLAUDE_HOME_SYNC_ITEMS to collect files from both regular files
-    and directories (recursively).
+    _CLAUDE_HOME_SYNC_FILES and _CLAUDE_HOME_SYNC_DIRS to collect
+    files and directory contents (recursively).
     """
     files: dict[Path, Path] = {}
-    for item_name in _CLAUDE_HOME_SYNC_ITEMS:
-        item_path = claude_dir / item_name
-        if not item_path.exists():
+    for file_name in _CLAUDE_HOME_SYNC_FILES:
+        file_path = claude_dir / file_name
+        if file_path.exists():
+            files[Path(file_name)] = file_path
+    for dir_name in _CLAUDE_HOME_SYNC_DIRS:
+        dir_path = claude_dir / dir_name
+        if not dir_path.exists():
             continue
-        if item_path.is_dir():
-            for file_path in item_path.rglob("*"):
-                if file_path.is_file():
-                    files[file_path.relative_to(claude_dir)] = file_path
-        else:
-            files[Path(item_name)] = item_path
+        for file_path in dir_path.rglob("*"):
+            if file_path.is_file():
+                files[file_path.relative_to(claude_dir)] = file_path
     return files
 
 
@@ -270,7 +270,7 @@ def _collect_claude_home_files_content(
 
     settings.json is always rebuilt via _build_settings_json_content to
     force skipDangerousModePermissionPrompt and disable fastMode. All other
-    files in _CLAUDE_HOME_SYNC_ITEMS are read as-is. Callers are responsible
+    files in _CLAUDE_HOME_SYNC_DIRS are read as-is. Callers are responsible
     for any further transforms (e.g., installPath rewriting).
     """
     files: dict[Path, str] = {}
@@ -680,22 +680,21 @@ def _sync_local_user_resources(host: OnlineHostInterface, config_dir: Path, *, s
     depending on the ``symlink`` flag.
     """
     home_claude = Path.home() / ".claude"
-    for item_name in _CLAUDE_HOME_SYNC_ITEMS:
-        source = home_claude / item_name
-        if not source.exists():
-            continue
-        dest = config_dir / item_name
-        if symlink:
+    link_or_copy = "ln -sf" if symlink else "cp"
+    for file_name in _CLAUDE_HOME_SYNC_FILES:
+        source = home_claude / file_name
+        if source.exists():
             host.execute_idempotent_command(
-                f"ln -sf {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0
+                f"{link_or_copy} {shlex.quote(str(source))} {shlex.quote(str(config_dir / file_name))}",
+                timeout_seconds=5.0,
             )
-        elif source.is_dir():
+    link_or_copy_dir = "ln -sf" if symlink else "cp -r"
+    for dir_name in _CLAUDE_HOME_SYNC_DIRS:
+        source = home_claude / dir_name
+        if source.exists():
             host.execute_idempotent_command(
-                f"cp -r {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0
-            )
-        else:
-            host.execute_idempotent_command(
-                f"cp {shlex.quote(str(source))} {shlex.quote(str(dest))}", timeout_seconds=5.0
+                f"{link_or_copy_dir} {shlex.quote(str(source))} {shlex.quote(str(config_dir / dir_name))}",
+                timeout_seconds=5.0,
             )
 
 
