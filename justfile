@@ -92,7 +92,7 @@ test-offload-release args="":
 
     # Invalidate offload's image cache when build inputs change.
     CACHE_KEY=$(cat .offload-base-commit libs/mngr/imbue/mngr/resources/Dockerfile offload-modal-release.toml | shasum -a 256 | cut -d' ' -f1)
-    CACHE_KEY_FILE=".offload-cache-key-release"
+    CACHE_KEY_FILE=".offload-cache-key"
     if [ -f "$CACHE_KEY_FILE" ] && [ "$(cat "$CACHE_KEY_FILE")" = "$CACHE_KEY" ]; then
         echo "[test-offload-release] Image cache key matches, reusing cached image."
     else

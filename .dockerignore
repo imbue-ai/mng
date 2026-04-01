@@ -257,7 +257,6 @@ scripts/notify_user.local.sh
 # Offload caches and local files
 .offload/**
 .offload-cache-key
-.offload-cache-key-release
 test-results
 
 # Minds deploy-time build artifacts
