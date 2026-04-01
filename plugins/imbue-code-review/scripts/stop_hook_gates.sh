@@ -46,6 +46,31 @@ fi
 HASH="${1:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 
 # ---------------------------------------------------------------------------
+# Fast path: skip if all gates already passed at this exact commit.
+#
+# When all gates pass (or the diff is empty), we record the HEAD hash.
+# If the next invocation sees the same hash, there is nothing new to review.
+# This covers "no changes since last review" without re-checking each gate.
+# ---------------------------------------------------------------------------
+LAST_PASSED=".reviewer/outputs/stop_hook_last_passed"
+if [[ -f "$LAST_PASSED" ]] && [[ "$(cat "$LAST_PASSED" 2>/dev/null)" == "$HASH" ]]; then
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Fast path: skip if the branch has no changes relative to the base branch.
+#
+# If the diff is empty, there is nothing to review -- no code to autofix, no
+# architecture to verify, and a no-op session is not worth conversation review.
+# ---------------------------------------------------------------------------
+BASE_BRANCH="${GIT_BASE_BRANCH:-main}"
+if git diff --quiet "${BASE_BRANCH}...HEAD" 2>/dev/null; then
+    mkdir -p .reviewer/outputs 2>/dev/null || true
+    echo "$HASH" > "$LAST_PASSED" 2>/dev/null || true
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # Safety hatch: prevent infinite stop-hook loops.
 #
 # Track consecutive blocks in .reviewer/outputs/stop_hook_consecutive_blocks.
@@ -118,8 +143,10 @@ if [[ "$CONVO_NEEDED" == "true" ]]; then
 fi
 
 if [[ ${#MISSING[@]} -eq 0 ]]; then
-    # All gates passed -- clear the block tracker
+    # All gates passed -- clear the block tracker and record the pass
     rm -f "$BLOCK_TRACKER"
+    mkdir -p "$(dirname "$LAST_PASSED")" 2>/dev/null || true
+    echo "$HASH" > "$LAST_PASSED" 2>/dev/null || true
     exit 0
 fi
 
