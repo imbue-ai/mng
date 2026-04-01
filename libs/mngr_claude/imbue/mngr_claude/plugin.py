@@ -85,13 +85,9 @@ _READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
 # Paths within ~/.claude/ to sync to the per-agent config dir.
 # Used by both get_files_for_deploy() and provision() to ensure consistency.
-_CLAUDE_HOME_SYNC_ITEMS: Final[tuple[str, ...]] = (
-    "settings.json",
-    "skills",
-    "agents",
-    "commands",
-    "plugins",
-)
+_CLAUDE_HOME_SYNC_FILES: Final[tuple[str, ...]] = ("settings.json",)
+_CLAUDE_HOME_SYNC_DIRS: Final[tuple[str, ...]] = ("skills", "agents", "commands", "plugins")
+_CLAUDE_HOME_SYNC_ITEMS: Final[tuple[str, ...]] = _CLAUDE_HOME_SYNC_FILES + _CLAUDE_HOME_SYNC_DIRS
 
 _INSTALLED_PLUGINS_RELATIVE_PATH: Final[Path] = Path("plugins") / "installed_plugins.json"
 
@@ -717,11 +713,10 @@ def _rsync_claude_home_directories(
     since they require generation/merging.
     """
     include_args: list[str] = []
-    for item_name in _CLAUDE_HOME_SYNC_ITEMS:
-        item_path = local_claude_dir / item_name
-        if not item_path.exists() or not item_path.is_dir():
+    for dir_name in _CLAUDE_HOME_SYNC_DIRS:
+        if not (local_claude_dir / dir_name).exists():
             continue
-        include_args.extend([f"--include={item_name}/", f"--include={item_name}/**"])
+        include_args.extend([f"--include={dir_name}/", f"--include={dir_name}/**"])
     if not include_args:
         return
     include_args.append("--exclude=*")
