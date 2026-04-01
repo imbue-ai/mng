@@ -45,7 +45,7 @@ Add tests to the appropriate existing test file, or create a new file if the blo
 
 ### Requirements for each test function
 
-Each function MUST call `e2e.write_tutorial_block("""...""")` as its first statement, with the **exact** text of the script block (the matcher checks this). Example:
+Each function MUST call `e2e.write_tutorial_block("""...""")` as its first statement, with the **exact** text of the script block (the matcher checks this). The block text will be dedented and stripped automatically, so indent it naturally with the surrounding Python code. Example:
 ```python
 @pytest.mark.release
 def test_foo(e2e: E2eSession, agent_name: str) -> None:
