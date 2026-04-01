@@ -5,6 +5,7 @@ test, poll for completion, gather results, and pull code changes.
 """
 
 import json
+import math
 import secrets
 import threading
 import time
@@ -17,6 +18,7 @@ from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.model_update import to_update
 from imbue.mngr.api.create import create as api_create
+from imbue.mngr.api.create import resolve_target_host
 from imbue.mngr.api.data_types import CreateAgentResult
 from imbue.mngr.api.list import ListResult
 from imbue.mngr.api.list import list_agents
@@ -259,20 +261,28 @@ def _create_tmr_agent(
     config: TmrLaunchConfig,
     mngr_ctx: MngrContext,
     initial_message: str | None = None,
+    existing_host: OnlineHostInterface | None = None,
+    host_name: HostName | None = None,
 ) -> CreateAgentResult:
     """Create an agent on the configured provider with an optional initial message.
+
+    If existing_host is provided, the agent is placed on that host instead of
+    creating a new one (used for host sharing in remote providers).
 
     The initial_message is passed via CreateAgentOptions so it is delivered
     during agent creation (more reliable than sending after creation).
     """
     agent_options = _build_agent_options(agent_name, branch_name, config, initial_message=initial_message)
-
     source_location = HostLocation(host=config.source_host, path=config.source_dir)
-    snapshot = config.snapshot
-    build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
-    is_local = config.provider_name.lower() == LOCAL_PROVIDER_NAME
-    host_name = None if is_local else HostName(str(agent_name))
-    target_host = NewHostOptions(provider=config.provider_name, name=host_name, build=build)
+
+    if existing_host is not None:
+        target_host: OnlineHostInterface | NewHostOptions = existing_host
+    else:
+        snapshot = config.snapshot
+        build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
+        is_local = config.provider_name.lower() == LOCAL_PROVIDER_NAME
+        resolved_host_name = None if is_local else host_name
+        target_host = NewHostOptions(provider=config.provider_name, name=resolved_host_name, build=build)
 
     return api_create(
         source_location=source_location,
@@ -288,6 +298,8 @@ def launch_test_agent(
     mngr_ctx: MngrContext,
     pytest_flags: tuple[str, ...],
     prompt_suffix: str = "",
+    existing_host: OnlineHostInterface | None = None,
+    host_name: HostName | None = None,
 ) -> tuple[TestAgentInfo, OnlineHostInterface]:
     """Launch a single agent to run and optionally fix one test."""
     agent_name_suffix = _sanitize_test_name_for_agent(test_node_id)
@@ -301,6 +313,8 @@ def launch_test_agent(
         config=config,
         mngr_ctx=mngr_ctx,
         initial_message=build_test_agent_prompt(test_node_id, pytest_flags, prompt_suffix),
+        existing_host=existing_host,
+        host_name=host_name,
     )
 
     branch = f"mngr-tmr/{agent_name_suffix}-{short_id}"
@@ -351,6 +365,42 @@ def _create_snapshot_host(
         _stop_agent_on_host(snapshotter_host, snapshotter_agent_id, agent_name)
 
 
+def _create_host_pool(
+    host_count: int,
+    config: TmrLaunchConfig,
+    mngr_ctx: MngrContext,
+    run_name: str,
+    max_parallel: int,
+) -> list[OnlineHostInterface]:
+    """Pre-create a pool of hosts for remote agent placement.
+
+    Host names follow the pattern {run_name}-host-{seq} (0-indexed).
+    Returns the successfully created hosts (may be fewer than host_count on errors).
+    """
+    hosts: list[OnlineHostInterface] = []
+    snapshot = config.snapshot
+    build = NewHostBuildOptions(snapshot=snapshot) if snapshot is not None else NewHostBuildOptions()
+
+    with ConcurrencyGroupExecutor(
+        parent_cg=mngr_ctx.concurrency_group,
+        name="tmr_create_hosts",
+        max_workers=max_parallel,
+    ) as executor:
+        futures = []
+        for i in range(host_count):
+            host_name = HostName(f"{run_name}-host-{i}")
+            new_host_opts = NewHostOptions(provider=config.provider_name, name=host_name, build=build)
+            futures.append(executor.submit(resolve_target_host, new_host_opts, mngr_ctx))
+        for future in futures:
+            try:
+                hosts.append(future.result())
+            except (MngrError, HostError, OSError, BaseExceptionGroup) as exc:
+                logger.warning("Failed to create host: {}", exc)
+
+    logger.info("Created {} host(s) for agent placement", len(hosts))
+    return hosts
+
+
 def launch_all_test_agents(
     test_node_ids: list[str],
     config: TmrLaunchConfig,
@@ -360,6 +410,8 @@ def launch_all_test_agents(
     use_snapshot: bool = False,
     max_parallel: int = 4,
     launch_delay_seconds: float = 2.0,
+    agents_per_host: int = 4,
+    run_name: str = "tmr",
 ) -> tuple[list[TestAgentInfo], dict[str, OnlineHostInterface], SnapshotName | None]:
     """Launch agents for all collected tests.
 
@@ -371,6 +423,10 @@ def launch_all_test_agents(
     (without an initial message) purely to trigger provisioning. Its host is
     snapshotted and the snapshotter is stopped. All test agents are then
     launched from the snapshot for faster startup.
+
+    For remote providers, agents_per_host controls how many agents share a single
+    host. Hosts are pre-created in a pool and agents are assigned round-robin.
+    For local providers, this setting is ignored (all agents share localhost).
     """
     agents: list[TestAgentInfo] = []
     agent_hosts: dict[str, OnlineHostInterface] = {}
@@ -391,6 +447,14 @@ def launch_all_test_agents(
                 config.provider_name,
             )
 
+    # For remote providers, pre-create a pool of shared hosts
+    is_local = launch_config.provider_name.lower() == LOCAL_PROVIDER_NAME
+    host_pool: list[OnlineHostInterface] = []
+    if not is_local and agents_per_host > 0:
+        host_count = math.ceil(len(test_node_ids) / agents_per_host)
+        if host_count > 0:
+            host_pool = _create_host_pool(host_count, launch_config, mngr_ctx, run_name, max_parallel)
+
     # Launch all test agents with staggered submissions to avoid rate limits
     with ConcurrencyGroupExecutor(
         parent_cg=mngr_ctx.concurrency_group,
@@ -401,6 +465,9 @@ def launch_all_test_agents(
         for i, test_node_id in enumerate(test_node_ids):
             if i > 0 and launch_delay_seconds > 0:
                 time.sleep(launch_delay_seconds)
+            # Assign to a host from the pool (round-robin), or create a new one
+            existing_host = host_pool[i % len(host_pool)] if host_pool else None
+            host_name = HostName(f"{run_name}-host-{i}") if not is_local and not host_pool else None
             futures.append(
                 executor.submit(
                     launch_test_agent,
@@ -409,6 +476,8 @@ def launch_all_test_agents(
                     mngr_ctx,
                     pytest_flags,
                     prompt_suffix,
+                    existing_host,
+                    host_name,
                 )
             )
         for future in futures:

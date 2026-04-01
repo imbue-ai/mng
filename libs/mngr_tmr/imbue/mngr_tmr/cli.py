@@ -77,6 +77,7 @@ class TmrCliOptions(CommonCliOptions):
     use_snapshot: bool
     snapshot: str | None
     max_parallel: int
+    agents_per_host: int
     max_agents: int
     launch_delay: float
     poll_interval: float
@@ -420,6 +421,13 @@ def _run_integrator_phase(
     help="Maximum number of agents to launch concurrently (launch-time parallelism)",
 )
 @click.option(
+    "--agents-per-host",
+    default=4,
+    show_default=True,
+    type=int,
+    help="Number of agents sharing each remote host (ignored for local provider)",
+)
+@click.option(
     "--max-agents",
     default=0,
     show_default=True,
@@ -615,6 +623,8 @@ def _run_tmr_pipeline(
             use_snapshot=opts.use_snapshot and provided_snapshot is None,
             max_parallel=opts.max_parallel,
             launch_delay_seconds=opts.launch_delay,
+            agents_per_host=opts.agents_per_host,
+            run_name=e2e_run_prefix,
         )
         _emit_agents_launched(len(agent_infos), output_opts)
         remaining_node_ids = []
