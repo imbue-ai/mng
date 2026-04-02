@@ -4,6 +4,8 @@ import pytest
 from inline_snapshot import snapshot
 
 from imbue.imbue_common.ratchet_testing import standard_ratchet_checks as rc
+from imbue.imbue_common.ratchet_testing.common_ratchets import RegexRatchetRule
+from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule
 from imbue.imbue_common.ratchet_testing.ratchets import check_no_ruff_errors
 from imbue.imbue_common.ratchet_testing.ratchets import check_no_type_errors
 
@@ -253,3 +255,33 @@ def test_no_type_errors() -> None:
 def test_no_ruff_errors() -> None:
     """Ensure the codebase has zero ruff linting errors."""
     check_no_ruff_errors(_DIR)
+
+
+# --- Hardcoded path ratchets ---
+
+_PREVENT_HARDCODED_CLAUDE_DIR = RegexRatchetRule(
+    rule_name="hardcoded Path.home() / '.claude' directory references",
+    rule_description=(
+        "Use get_claude_config_dir() or get_user_claude_config_dir() from "
+        "claude_config.py instead of hardcoding Path.home() / '.claude'. "
+        "This allows the config directory to be overridden via CLAUDE_CONFIG_DIR "
+        "and ORIGINAL_CLAUDE_CONFIG_DIR environment variables."
+    ),
+    pattern_string=r"""Path\.home\(\)\s*/\s*["']\.claude["']""",
+)
+
+# Excluded patterns: test files construct paths directly for setup, and
+# claude_config.py contains the intentional default fallback.
+_HARDCODED_CLAUDE_DIR_EXCLUSIONS = (
+    "test_ratchets.py",
+    "*_test.py",
+    "test_*.py",
+    "conftest.py",
+    "testing.py",
+    "claude_config.py",
+)
+
+
+def test_prevent_hardcoded_claude_dir() -> None:
+    chunks = check_ratchet_rule(_PREVENT_HARDCODED_CLAUDE_DIR, _DIR, _HARDCODED_CLAUDE_DIR_EXCLUSIONS)
+    assert len(chunks) <= snapshot(0), _PREVENT_HARDCODED_CLAUDE_DIR.format_failure(chunks)

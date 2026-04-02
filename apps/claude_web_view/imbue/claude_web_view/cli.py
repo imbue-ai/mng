@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import socket
 import sys
 import webbrowser
@@ -10,9 +11,17 @@ import uvicorn
 from .server import create_app
 
 
+def _get_claude_config_dir() -> Path:
+    """Return the Claude Code config directory ($CLAUDE_CONFIG_DIR or ~/.claude)."""
+    env_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path.home() / ".claude"
+
+
 def find_transcript_by_session_id(session_id: str) -> Path | None:
-    """Find transcript file for given session ID by searching ~/.claude/projects/."""
-    claude_dir = Path.home() / ".claude" / "projects"
+    """Find transcript file for given session ID by searching the Claude config dir."""
+    claude_dir = _get_claude_config_dir() / "projects"
     if not claude_dir.exists():
         return None
 
@@ -82,7 +91,7 @@ Examples:
         found_path = find_transcript_by_session_id(args.session_id)
         if found_path is None:
             print(f"Error: No transcript found for session {args.session_id}", file=sys.stderr)
-            print("Searched in ~/.claude/projects/*/", file=sys.stderr)
+            print(f"Searched in {_get_claude_config_dir() / 'projects'}/*/", file=sys.stderr)
             sys.exit(1)
         assert found_path is not None  # type narrowing for ty
         transcript_path = found_path

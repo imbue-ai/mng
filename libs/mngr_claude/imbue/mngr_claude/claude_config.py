@@ -1,6 +1,7 @@
 import copy
 import fcntl
 import json
+import os
 import shutil
 from collections.abc import Generator
 from collections.abc import Mapping
@@ -68,6 +69,36 @@ class ClaudeBypassPermissionsNotAcceptedError(ConfigError):
             "Run `mngr create` interactively (without --no-connect) to be prompted, "
             "or run Claude Code manually and dismiss the warning."
         )
+
+
+def get_claude_config_dir() -> Path:
+    """Return the Claude Code config directory.
+
+    Reads $CLAUDE_CONFIG_DIR if set, otherwise defaults to ~/.claude/.
+    This returns the "current" config directory -- inside an mngr agent it
+    points to the per-agent isolated config dir.
+    """
+    env_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path.home() / ".claude"
+
+
+def get_user_claude_config_dir() -> Path:
+    """Return the user-scope Claude Code config directory.
+
+    Inside an mngr agent, $CLAUDE_CONFIG_DIR points to the agent's isolated
+    config dir, but code that needs the user's original config (e.g. to copy
+    credentials or settings) should call this function instead.
+
+    Resolution order:
+    1. $ORIGINAL_CLAUDE_CONFIG_DIR (set by mngr when creating agents)
+    2. Falls back to get_claude_config_dir() ($CLAUDE_CONFIG_DIR or ~/.claude/)
+    """
+    original = os.environ.get("ORIGINAL_CLAUDE_CONFIG_DIR")
+    if original:
+        return Path(original)
+    return get_claude_config_dir()
 
 
 def get_claude_config_path() -> Path:
