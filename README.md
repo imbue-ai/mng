@@ -14,7 +14,7 @@ Programmatically manage any agent, anywhere.
 > Most agent tooling is a managed cloud: opaque infrastructure, per-seat pricing, hard to script. 
 > `mngr` takes the opposite approach.
 > Agents run on compute you control, that you access via SSH, and that shuts down when idle. 
-> It's built on primitives you already know (SSH, git, tmux, docker), and lets seamlessly you scale from running a single Claude locally to running 100's of agents across remote hosts, containers, and sandboxes.
+> It's built on primitives you already know (SSH, git, tmux, docker), and lets you seamlessly scale from running a single Claude locally to running 100's of agents across remote hosts, containers, and sandboxes.
 
 ---
 
