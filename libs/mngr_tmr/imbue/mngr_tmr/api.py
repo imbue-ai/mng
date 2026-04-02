@@ -64,7 +64,7 @@ def try_list_agents(mngr_ctx: MngrContext) -> ListResult | None:
     """List agents via the ``mngr list`` CLI, returning None on failure or timeout."""
     try:
         return cli_list_agents(mngr_ctx.concurrency_group)
-    except CliError as exc:
+    except (CliError, OSError) as exc:
         logger.warning("mngr list failed: {}", exc)
         return None
 
