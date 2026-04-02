@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from abc import ABC
 from abc import abstractmethod
 from contextlib import contextmanager
@@ -44,7 +45,19 @@ from imbue.mngr.primitives import TransferMode
 # Default timeout for waiting for agent readiness before sending messages.
 # With hook-based polling, we return early when the agent signals readiness,
 # so this is a max wait time, not an unconditional delay.
+# Can be overridden via the MNGR_AGENT_READY_TIMEOUT environment variable.
 DEFAULT_AGENT_READY_TIMEOUT_SECONDS: Final[float] = 10.0
+
+
+def get_agent_ready_timeout() -> float:
+    """Return the agent ready timeout, respecting MNGR_AGENT_READY_TIMEOUT env var.
+
+    Falls back to DEFAULT_AGENT_READY_TIMEOUT_SECONDS if the env var is not set.
+    """
+    env_val = os.environ.get("MNGR_AGENT_READY_TIMEOUT")
+    if env_val is not None:
+        return float(env_val)
+    return DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 
 
 class HostInterface(MutableModel, ABC):
@@ -771,7 +784,7 @@ class CreateAgentOptions(FrozenModel):
         description="Message to send when the agent is started (resumed) after being stopped",
     )
     ready_timeout_seconds: float = Field(
-        default=DEFAULT_AGENT_READY_TIMEOUT_SECONDS,
+        default_factory=get_agent_ready_timeout,
         description="Timeout in seconds to wait for agent readiness before sending initial message",
     )
     git: AgentGitOptions | None = Field(

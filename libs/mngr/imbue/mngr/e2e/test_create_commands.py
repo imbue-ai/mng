@@ -55,7 +55,7 @@ def test_create_with_idle_mode_and_timeout(e2e: E2eSession) -> None:
     agents = parsed["agents"]
     matching = [a for a in agents if a["name"] == "my-task"]
     assert len(matching) == 1
-    assert matching[0]["idle_timeout"] == 60
+    assert matching[0]["idle_timeout_seconds"] == 60
 
 
 @pytest.mark.release

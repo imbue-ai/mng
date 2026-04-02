@@ -674,6 +674,11 @@ def _create_agent(
     if isinstance(resolved_target_host, OnlineHostInterface):
         _apply_host_labels(resolved_target_host, opts.host_label)
 
+    # Apply lifecycle options (idle timeout, activity sources) to existing/local hosts.
+    # For new hosts, lifecycle is passed via NewHostOptions and applied by resolve_target_host.
+    if isinstance(resolved_target_host, OnlineHostInterface):
+        _apply_host_lifecycle(resolved_target_host, setup.host_lifecycle)
+
     # Set auto-derived labels (project, remote) on the agent (labels are agent-level, not host-level).
     # User-specified --label values take precedence over auto-derived ones.
     auto_labels = setup.auto_labels.model_dump(exclude_none=True)
@@ -1010,6 +1015,18 @@ def _resolve_source_location(
         or opts.source_agent is not None
         or opts.source_host is not None
     )
+    # If the parsed source looks like a path that doesn't exist on disk, it might
+    # actually be an agent name (e.g. "--from other-agent"). Fall through to full
+    # resolution which can distinguish agent names from paths.
+    if not has_agent_or_host and parsed is not None and parsed.path is not None:
+        candidate = Path(parsed.path)
+        if (
+            not candidate.is_absolute()
+            and not str(candidate).startswith(("./", "../", "~"))
+            and not candidate.exists()
+        ):
+            has_agent_or_host = True
+
     if not has_agent_or_host:
         # Just a local path -- use the fast local-provider path
         if parsed is not None and parsed.path is not None:
@@ -1565,6 +1582,19 @@ def _apply_host_labels(host: OnlineHostInterface, label_strings: tuple[str, ...]
             labels_to_add[key.strip()] = value.strip()
     if labels_to_add:
         host.add_tags(labels_to_add)
+
+
+def _apply_host_lifecycle(host: OnlineHostInterface, lifecycle: HostLifecycleOptions) -> None:
+    """Apply lifecycle options (idle timeout, activity sources) to an existing host."""
+    if lifecycle.idle_timeout_seconds is None and lifecycle.idle_mode is None and lifecycle.activity_sources is None:
+        return
+    current = host.get_activity_config()
+    new_config = lifecycle.to_activity_config(
+        default_idle_timeout_seconds=current.idle_timeout_seconds,
+        default_idle_mode=IdleMode.IO,
+        default_activity_sources=current.activity_sources,
+    )
+    host.set_activity_config(new_config)
 
 
 def _ensure_clean_work_dir(location: HostLocation) -> None:

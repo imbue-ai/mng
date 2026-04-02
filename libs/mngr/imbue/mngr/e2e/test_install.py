@@ -12,6 +12,11 @@ import pytest
 
 from imbue.mngr.e2e.conftest import MinimalInstallEnv
 
+# The isolated_mngr_venv fixture needs to install packages, which requires
+# uv to access the network/cache. The autouse fixture sets UV_OFFLINE=1
+# and UV_FROZEN=1 which blocks this. Request allow_uv_network to undo those.
+pytestmark = pytest.mark.usefixtures("allow_uv_network")
+
 
 @pytest.mark.release
 @pytest.mark.timeout(60)

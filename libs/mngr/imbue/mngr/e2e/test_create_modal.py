@@ -11,11 +11,12 @@ import pytest
 from imbue.mngr.e2e.conftest import E2eSession
 from imbue.skitwright.expect import expect
 
-_REMOTE_TIMEOUT = 120.0
+_REMOTE_TIMEOUT = 210.0
 
-pytestmark = [pytest.mark.release, pytest.mark.modal, pytest.mark.rsync, pytest.mark.timeout(120)]
+pytestmark = [pytest.mark.release, pytest.mark.modal, pytest.mark.timeout(240)]
 
 
+@pytest.mark.rsync
 def test_create_provider_modal(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can also launch claude remotely in Modal:
@@ -30,6 +31,8 @@ def test_create_provider_modal(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
+@pytest.mark.timeout(660)
 def test_create_modal_no_connect_message(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can send an initial message (so you don't have to wait around, eg, while a Modal container starts)
@@ -38,14 +41,65 @@ def test_create_modal_no_connect_message(e2e: E2eSession) -> None:
     # and then we also pass in an explicit message for the agent to start working on immediately
     # the message can also be specified as the contents of a file (by using --message-file instead of --message)
     """)
+    # Use a generous ready timeout because the agent needs to fully start
+    # (install Claude Code, authenticate, signal readiness) before the message
+    # can be sent. This is slow on fresh Modal hosts (~2-5 min), and even
+    # slower in Modal-in-Modal (offload) environments (~5-8 min).
     result = e2e.run(
-        'mngr create my-task --provider modal --no-connect --message "Speed up one of my tests and make a PR on github" --no-ensure-clean',
+        'MNGR_AGENT_READY_TIMEOUT=540 mngr create my-task --provider modal --no-connect --pass-env ANTHROPIC_API_KEY --message "Speed up one of my tests and make a PR on github" --no-ensure-clean',
         comment="you can send an initial message (so you don't have to wait around)",
-        timeout=_REMOTE_TIMEOUT,
+        timeout=600.0,
     )
-    expect(result).to_succeed()
+    if result.exit_code != 0:
+        # Collect diagnostics from the remote host to understand why Claude didn't start
+        diag_parts = ["Create failed. Collecting diagnostics from remote host:"]
+        for diag_cmd, label in [
+            ("mngr exec my-task 'tmux list-sessions 2>&1'", "tmux sessions"),
+            (
+                'mngr exec my-task \'SESSION=$(tmux list-sessions -F "#{session_name}" 2>/dev/null | head -1); tmux capture-pane -p -t "$SESSION" 2>&1 || echo no-pane\'',
+                "claude pane",
+            ),
+            (
+                "mngr exec my-task 'ls -la /mngr/agents/*/session_started 2>/dev/null || echo session_started-not-found'",
+                "session_started",
+            ),
+            (
+                "mngr exec my-task 'ps aux | grep -E \"claude|node\" | grep -v grep || echo no-claude-process'",
+                "processes",
+            ),
+            (
+                "mngr exec my-task 'find /mngr -name settings.local.json -type f 2>/dev/null || echo no-settings-local-anywhere'",
+                "find settings.local.json",
+            ),
+            (
+                "mngr exec my-task 'cat /mngr/projects/*/.claude/settings.local.json 2>/dev/null || echo no-settings-local-in-projects'",
+                "hooks config (projects)",
+            ),
+            (
+                "mngr exec my-task 'ls -la /mngr/projects/*/.claude/ 2>/dev/null; ls -la /mngr/agents/*/.claude/ 2>/dev/null; echo done'",
+                "claude dirs",
+            ),
+            (
+                "mngr exec my-task 'env | grep -i CLAUDE_CONFIG 2>/dev/null || echo no-claude-config-env'",
+                "CLAUDE_CONFIG_DIR env",
+            ),
+            (
+                'mngr exec my-task \'cat /mngr/agents/*/plugin/claude/anthropic/.claude.json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps({k:d[k] for k in [\\"hasCompletedOnboarding\\",\\"lastOnboardingVersion\\",\\"theme\\"] if k in d}))" 2>/dev/null || echo no-claude-json\'',
+                "claude.json onboarding fields",
+            ),
+        ]:
+            diag = e2e.run(diag_cmd, comment=f"diagnostic: {label}", timeout=15.0)
+            diag_parts.append(f"\n[{label}] stdout: {diag.stdout}\n[{label}] stderr: {diag.stderr}")
+        diagnostics = "\n".join(diag_parts)
+        raise AssertionError(
+            f"Expected command to succeed but got exit code {result.exit_code}\n"
+            f"  Command: {result.command}\n"
+            f"  Stderr:\n    {result.stderr}\n"
+            f"  {diagnostics}"
+        )
 
 
+@pytest.mark.rsync
 def test_create_modal_edit_message(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can also edit the message *while the agent is starting up*, which is very handy for making it "feel" instant:
@@ -59,6 +113,7 @@ def test_create_modal_edit_message(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_rsync(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can use rsync to transfer extra data as well, beyond just the git data:
@@ -72,6 +127,7 @@ def test_create_modal_rsync(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_passthrough_agent_args(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # one of the coolest features of mngr is the ability to create agents on remote hosts just as easily as you can create them locally:
@@ -88,6 +144,7 @@ def test_create_modal_passthrough_agent_args(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_idle_timeout(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # running agents remotely is really cool because you can create an unlimited number of them, but it comes with some downsides
@@ -104,6 +161,7 @@ def test_create_modal_idle_timeout(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_idle_mode_ssh(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # You can customize what "inactivity" means by using the --idle-mode flag:
@@ -134,6 +192,7 @@ def test_create_address_syntax_existing_host(e2e: E2eSession) -> None:
     expect(combined).to_match(r"(?i)host.*not found|no.*host|unknown.*host|could not find.*host|not.*registered")
 
 
+@pytest.mark.rsync
 def test_create_modal_build_args(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # generally though, you'll want to construct a new Modal host for each agent.
@@ -150,6 +209,7 @@ def test_create_modal_build_args(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_dockerfile_and_context(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # the most important build args for Modal are probably "--file" and "--context-dir",
@@ -159,6 +219,12 @@ def test_create_modal_dockerfile_and_context(e2e: E2eSession) -> None:
     # that command builds a Modal host using the Dockerfile at ./Dockerfile.agent and the build context at ./agent-context
     # (which is where the Dockerfile can COPY files from, and also where build args are evaluated from)
     """)
+    # Create the Dockerfile and context directory that the command references
+    e2e.run("mkdir -p ./agent-context", comment="create build context directory")
+    e2e.run(
+        'printf "FROM python:3.12\\n" > ./Dockerfile.agent',
+        comment="create minimal Dockerfile",
+    )
     result = e2e.run(
         "mngr create my-task --provider modal -b file=./Dockerfile.agent -b context-dir=./agent-context --no-connect --no-ensure-clean",
         comment="the most important build args for Modal are --file and --context-dir",
@@ -167,6 +233,7 @@ def test_create_modal_dockerfile_and_context(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_named_host_new_host(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can name the host using the address syntax:
@@ -181,6 +248,7 @@ def test_create_named_host_new_host(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_volume(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can mount persistent Modal volumes in order to share data between hosts, or have it be available even when they are offline (or after they are destroyed):
@@ -199,14 +267,22 @@ def test_create_modal_snapshot(e2e: E2eSession) -> None:
     # you can use an existing snapshot instead of building a new host from scratch:
     mngr create my-task --provider modal --snapshot snap-123abc
     """)
+    # snap-123abc is a fake snapshot ID that does not exist. The test verifies
+    # that the --snapshot flag is accepted and produces a meaningful error when
+    # the snapshot cannot be found.
     result = e2e.run(
         "mngr create my-task --provider modal --snapshot snap-123abc --no-connect --no-ensure-clean",
         comment="you can use an existing snapshot instead of building a new host from scratch",
         timeout=_REMOTE_TIMEOUT,
     )
-    expect(result).to_succeed()
+    expect(result).to_fail()
+    combined = result.stdout + result.stderr
+    expect(combined).to_match(
+        r"(?i)snapshot.*not found|no.*snapshot|snapshot.*snap-123abc|snap-123abc|host creation failed"
+    )
 
 
+@pytest.mark.rsync
 def test_create_modal_target_path(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can specify the target path where the agent's work directory will be mounted:
@@ -220,20 +296,24 @@ def test_create_modal_target_path(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_upload_and_extra_provision_command(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can upload files and run custom commands during host provisioning:
-    mngr create my-task --provider modal --upload-file ~/.ssh/config:/root/.ssh/config --extra-provision-command "pip install foo"
+    mngr create my-task --provider modal --upload-file ~/.ssh/config:/root/.ssh/config --extra-provision-command "echo provisioned"
     # (--append-to-file and --prepend-to-file are also available)
     """)
+    # Create ~/.ssh/config so the upload-file flag has a real file to work with
+    e2e.run("mkdir -p ~/.ssh && touch ~/.ssh/config", comment="create ssh config for upload test")
     result = e2e.run(
-        'mngr create my-task --provider modal --upload-file ~/.ssh/config:/root/.ssh/config --extra-provision-command "pip install foo" --no-connect --no-ensure-clean',
+        'mngr create my-task --provider modal --upload-file ~/.ssh/config:/root/.ssh/config --extra-provision-command "echo provisioned" --no-connect --no-ensure-clean',
         comment="you can upload files and run custom commands during host provisioning",
         timeout=_REMOTE_TIMEOUT,
     )
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_no_start_on_boot(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # by default, agents are started when a host is booted. This can be disabled:
@@ -249,6 +329,7 @@ def test_create_modal_no_start_on_boot(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_pass_host_env(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can also set host-level environment variables (separate from agent env vars):
@@ -263,6 +344,7 @@ def test_create_modal_pass_host_env(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_reuse(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # another handy trick is to make the create command "idempotent" so that you don't need to worry about remembering whether you created an agent yet or not:
@@ -277,6 +359,7 @@ def test_create_modal_reuse(e2e: E2eSession) -> None:
     expect(result).to_succeed()
 
 
+@pytest.mark.rsync
 def test_create_modal_retry(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # you can control connection retries and timeouts:

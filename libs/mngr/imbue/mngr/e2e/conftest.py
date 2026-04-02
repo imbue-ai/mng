@@ -15,9 +15,14 @@ import pytest
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.utils.polling import poll_until
+from imbue.mngr.utils.testing import generate_test_environment_name
 from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.skitwright.runner import run_command
 from imbue.skitwright.session import Session
+
+# Generate once at module load so all tests in a pytest session share one
+# Modal environment name, reducing environment accumulation.
+_SESSION_TEST_ENV_NAME = generate_test_environment_name()
 
 
 class E2eSession(Session):
@@ -261,12 +266,12 @@ def e2e(
     env["MNGR_TEST_ASCIINEMA_DIR"] = str(test_output_dir)
     env.pop("TMUX", None)
 
-    # Transform the inherited prefix from mngr_{uuid}- to mngr_test-{uuid}-
-    # so that Modal environment names (which are {prefix}{user_id}) pass the
-    # mngr_test- guard in the Modal backend. This only affects subprocess
-    # commands; the in-process prefix remains unchanged for tmux cleanup.
-    inherited_prefix = env.get("MNGR_PREFIX", "mngr_")
-    env["MNGR_PREFIX"] = inherited_prefix.replace("mngr_", "mngr_test-", 1)
+    # Use a timestamp-based mngr_test- prefix so that Modal environment names
+    # pass the mngr_test- guard and can be cleaned up by
+    # cleanup_old_modal_test_environments.py (which parses dates from names).
+    # Use the session-scoped name so all tests in a pytest session share one
+    # Modal environment instead of each creating their own.
+    env["MNGR_PREFIX"] = f"{_SESSION_TEST_ENV_NAME}-"
 
     # Add the e2e bin directory to PATH so the connect script is available
     env["PATH"] = f"{_BIN_DIR}:{env.get('PATH', '')}"
