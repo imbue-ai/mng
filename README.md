@@ -30,45 +30,55 @@ curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.
 Think of `mngr` as "git for agents": just like git allows you to `commit`/`push`/`pull`/`fork`/`clone` *versions of code*, `mngr` allows you to `create`/`destroy`/`list`/`clone`/`message` *agents*.
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#EFF6FF', 'primaryTextColor': '#1E3A5F', 'primaryBorderColor': '#3B82F6', 'lineColor': '#64748B', 'edgeLabelBackground': '#FFFFFF', 'fontSize': '15px'}}}%%
-flowchart LR
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#EFF6FF', 'primaryTextColor': '#1E3A5F', 'primaryBorderColor': '#3B82F6', 'lineColor': '#64748B', 'edgeLabelBackground': '#FFFFFF', 'fontSize': '15px', 'wrap': false}, 'flowchart': {'curve': 'linear', 'markdownAutoWrap': false, 'wrappingWidth': 1800}}}%%
+flowchart TB
     classDef user fill:#DBEAFE,stroke:#2563EB,stroke-width:2px,color:#1E3A5F,font-weight:bold
     classDef cli fill:#1E3A5F,stroke:#1E3A5F,stroke-width:2px,color:#FFFFFF,font-weight:bold
     classDef agent fill:#D1FAE5,stroke:#059669,stroke-width:2px,color:#064E3B
 
     user([You]):::user
-    cli[mngr CLI]:::cli
 
     subgraph host1["Local Host"]
+        direction LR
         style host1 fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#78350F
-        agent1["Claude A"]:::agent
-        agent6["Claude F"]:::agent
-        subgraph docker1["Docker container 1"]
+        cli["mngr CLI ( create / list / connect / message / exec / push / pull / pair / snapshot / migrate / clone / rename / destroy )"]:::cli
+        agent1["OpenCode"]:::agent
+        agent6["Codex"]:::agent
+        subgraph docker1["Docker container 2"]
+            direction LR
             style docker1 fill:#EDE9FE,stroke:#7C3AED,stroke-width:2px,color:#4C1D95
-            agent3["Claude C"]:::agent
-            agent4["Claude D"]:::agent
+            agent3["Claude"]:::agent
+            agent4["Claude"]:::agent
         end
-        subgraph docker2["Docker container 2"]
+        subgraph docker2["Docker container 1"]
+            direction LR
             style docker2 fill:#EDE9FE,stroke:#7C3AED,stroke-width:2px,color:#4C1D95
-            agent5["Claude E"]:::agent
+            agent5["Claude"]:::agent
         end
     end
 
-    subgraph host2["Remote host 1"]
+    subgraph host2["Remote host 2"]
+        direction LR
         style host2 fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#78350F
-        agent2["Claude B"]:::agent
+        agent2["Claude"]:::agent
     end
 
-    subgraph host3["Remote host 2"]
+    subgraph host3["Remote host 1"]
+        direction LR
         style host3 fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#78350F
-        agent7["Claude G"]:::agent
-        agent8["Claude H"]:::agent
+        agent7["Codex"]:::agent
+        agent8["Claude"]:::agent
     end
 
-    user -->|"create / list / destroy / snapshot / push / pull / message / etc"| cli
-    cli --> host1
-    cli --> host2
-    cli --> host3
+    user --> cli
+    cli --> agent1
+    cli --> agent6
+    cli --> agent3
+    cli --> agent4
+    cli --> agent5
+    cli --> agent2
+    cli --> agent7
+    cli --> agent8
 ```
 
 ## Why mngr
