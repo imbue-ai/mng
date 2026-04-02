@@ -22,6 +22,7 @@ from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.loader import load_config
 from imbue.mngr.main import create_plugin_manager
+from imbue.mngr.primitives import ProviderInstanceName
 
 
 def count_real_fds() -> int:
@@ -43,7 +44,7 @@ def main() -> None:
         providers = get_all_provider_instances(mngr_ctx, None)
         provider_map = {p.name: p for p in providers}
 
-        modal_provider = provider_map.get("modal")
+        modal_provider = provider_map.get(ProviderInstanceName("modal"))
         if modal_provider is None:
             print("No modal provider found, exiting")
             return
@@ -53,7 +54,7 @@ def main() -> None:
         print(f"Baseline FDs: {base}")
 
         # Get the app_id and volume for direct Modal SDK calls
-        app_id = modal_provider._app.app_id  # type: ignore[attr-defined]
+        app_id = modal_provider._app.app_id  # noqa: SLF001
         volume = modal_provider.get_state_volume()
 
         print("\n--- Test 1: Sandbox.list (direct, no executor) ---")

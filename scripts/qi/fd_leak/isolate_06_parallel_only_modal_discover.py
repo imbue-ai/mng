@@ -21,6 +21,7 @@ from imbue.mngr.config.loader import load_config
 from imbue.mngr.main import create_plugin_manager
 from imbue.mngr.primitives import DiscoveredAgent
 from imbue.mngr.primitives import DiscoveredHost
+from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 
 
@@ -58,7 +59,7 @@ def main() -> None:
         base = count_real_fds()
         print(f"Baseline FDs: {base}")
 
-        modal_provider = provider_map.get("modal")
+        modal_provider = provider_map.get(ProviderInstanceName("modal"))
         if modal_provider is None:
             print("No modal provider found, exiting")
             return
