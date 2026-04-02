@@ -12,7 +12,7 @@ from datetime import timezone
 from pathlib import Path
 
 import pytest
-import toml
+import tomlkit
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.utils.polling import poll_until
@@ -236,7 +236,7 @@ def _load_modal_credentials(env: dict[str, str]) -> None:
     modal_toml_path = _REAL_HOME / ".modal.toml"
     if not modal_toml_path.exists():
         return
-    for value in toml.load(modal_toml_path).values():
+    for value in tomlkit.loads(modal_toml_path.read_text()).values():
         if isinstance(value, dict) and value.get("active", ""):
             env["MODAL_TOKEN_ID"] = value.get("token_id", "")
             env["MODAL_TOKEN_SECRET"] = value.get("token_secret", "")
