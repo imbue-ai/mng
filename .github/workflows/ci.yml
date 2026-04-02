@@ -276,12 +276,13 @@ jobs:
 
       - name: Run release tests
         run: |
-          EXTRA_ARGS=""
+          export IS_RELEASE=1
           if [ "$RUNNER_OS" = "macOS" ]; then
             # macOS runners don't have Docker; skip Docker-marked tests
-            EXTRA_ARGS="-m 'release and not docker and not docker_sdk'"
+            uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0' --no-cov -v --tb=short --splits 12 --group ${{ matrix.group }} --splitting-algorithm=least_duration -m 'release and not docker and not docker_sdk'
+          else
+            uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0' --no-cov -v --tb=short --splits 12 --group ${{ matrix.group }} --splitting-algorithm=least_duration
           fi
-          export IS_RELEASE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0' --no-cov -v --tb=short --splits 12 --group ${{ matrix.group }} --splitting-algorithm=least_duration $EXTRA_ARGS
 
       - name: Upload test timing data
         if: always()
