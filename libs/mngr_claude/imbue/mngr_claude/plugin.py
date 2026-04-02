@@ -371,7 +371,7 @@ def _build_claude_json(
 
     # Trust work_dir if unattended or auto_dismiss_dialogs
     if should_trust_work_dir(config, ctx):
-        projects.setdefault(str(work_dir), {})["hasTrustDialogAccepted"] = True
+        projects.setdefault(str(work_dir.resolve()), {})["hasTrustDialogAccepted"] = True
 
     return data
 
