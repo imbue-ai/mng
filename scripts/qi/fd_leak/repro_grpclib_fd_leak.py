@@ -1,14 +1,11 @@
-"""Minimal repro: grpclib leaks sockets when used from parallel threads.
+"""Repro: socket leak when multiple providers discover in parallel.
 
-When grpclib channels are used from threads with different asyncio event
-loops, each thread creates new TCP connections that are never closed.
-This happens because grpclib.client.Channel stores a single _protocol
-bound to one event loop, but Modal's synchronize_api creates a new loop
-per thread.
+The leak occurs only when local + modal providers run in the same
+ConcurrencyGroupExecutor. Running either provider alone is stable.
 
-The leak only manifests when multiple threads use grpclib concurrently
-(e.g. local + modal providers discovering in parallel). Running a single
-provider at a time does not leak.
+This script exercises the same code path as list_agents but isolates the
+discover phase to show the leak more clearly. It also tests sequential
+discovery (no executor) to confirm the leak is specific to parallel execution.
 
 Usage:
     uv run python scripts/qi/fd_leak/repro_grpclib_fd_leak.py [--iterations N]
@@ -17,10 +14,13 @@ Usage:
 import argparse
 import gc
 import os
-import threading
 from pathlib import Path
 
-import modal
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mngr.api.discover import discover_hosts_and_agents
+from imbue.mngr.api.providers import get_all_provider_instances
+from imbue.mngr.config.loader import load_config
+from imbue.mngr.main import create_plugin_manager
 
 
 def count_real_fds() -> int:
@@ -35,60 +35,39 @@ def count_real_fds() -> int:
     return count
 
 
-def modal_api_call(app_id: str, volume: modal.Volume) -> None:
-    """Make Modal SDK calls (uses grpclib internally)."""
-    list(modal.Sandbox.list(app_id=app_id))
-    try:
-        list(volume.listdir("/hosts/"))
-    except Exception:
-        pass
-
-
-def busy_work() -> None:
-    """Non-Modal work in a parallel thread (simulates local provider)."""
-    import time
-
-    time.sleep(0.1)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--iterations", type=int, default=10)
-    parser.add_argument("--app-name", type=str, default="mngr-modal")
-    parser.add_argument("--volume-name", type=str, default="mngr-modal-state")
-    parser.add_argument("--environment", type=str, default="mngr-Qi")
     args = parser.parse_args()
-
-    app = modal.App.lookup(args.app_name, create_if_missing=False, environment_name=args.environment)
-    volume = modal.Volume.from_name(args.volume_name, environment_name=args.environment, version=2)
-    app_id = app.app_id
 
     gc.collect()
     initial = count_real_fds()
-    print(f"Initial FDs: {initial}")
+    print(f"Initial real FDs: {initial}")
 
-    print("\n--- Test 1: Modal API calls from a single thread (no leak expected) ---")
-    base = count_real_fds()
-    for i in range(1, args.iterations + 1):
-        t = threading.Thread(target=modal_api_call, args=(app_id, volume))
-        t.start()
-        t.join()
-        gc.collect()
-        current = count_real_fds()
-        print(f"[{i:3d}] FDs: {current} (delta: {current - base:+d})")
+    cg = ConcurrencyGroup(name="repro")
+    with cg:
+        pm = create_plugin_manager()
+        mngr_ctx = load_config(pm, cg)
 
-    print("\n--- Test 2: Modal API calls with a parallel busy thread (leak expected) ---")
-    base = count_real_fds()
-    for i in range(1, args.iterations + 1):
-        t1 = threading.Thread(target=modal_api_call, args=(app_id, volume))
-        t2 = threading.Thread(target=busy_work)
-        t1.start()
-        t2.start()
-        t1.join()
-        t2.join()
-        gc.collect()
-        current = count_real_fds()
-        print(f"[{i:3d}] FDs: {current} (delta: {current - base:+d})")
+        print("\n--- Test 1: discover both providers in parallel (via ConcurrencyGroupExecutor) ---")
+        base = count_real_fds()
+        for i in range(1, args.iterations + 1):
+            discover_hosts_and_agents(
+                mngr_ctx, provider_names=None, agent_identifiers=None, include_destroyed=True, reset_caches=False
+            )
+            gc.collect()
+            current = count_real_fds()
+            print(f"[{i:3d}] FDs: {current} (delta: {current - base:+d})")
+
+        print("\n--- Test 2: discover both providers sequentially (no executor, no leak) ---")
+        providers = get_all_provider_instances(mngr_ctx, None)
+        base = count_real_fds()
+        for i in range(1, args.iterations + 1):
+            for provider in providers:
+                provider.discover_hosts_and_agents(cg=mngr_ctx.concurrency_group, include_destroyed=True)
+            gc.collect()
+            current = count_real_fds()
+            print(f"[{i:3d}] FDs: {current} (delta: {current - base:+d})")
 
 
 if __name__ == "__main__":

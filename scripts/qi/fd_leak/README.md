@@ -16,17 +16,18 @@ Two FD leak sources were identified and fixed:
    OS-level pipes. Fixed by destroying the Hub via a global `on_thread_exit` callback
    registered at mngr startup.
 
-## Remaining issue: grpclib socket leak
+## Remaining issue: socket leak when providers discover in parallel
 
-When multiple providers run in parallel threads (e.g. local + modal), grpclib creates
-per-thread gRPC connections that are never closed. This is because `grpclib.client.Channel`
-binds its protocol to one asyncio event loop, but Modal's `synchronize_api` creates a
-new loop per thread.
+When `discover_hosts_and_agents` runs local + modal providers in parallel (via
+`ConcurrencyGroupExecutor`), ~24 sockets leak per call. The leak does NOT occur when:
 
-- Running providers **sequentially**: no leak (one-time connection setup, then stable)
-- Running providers **in parallel**: ~24 sockets leaked per `list_agents` call
+- Only one provider is active (local-only or modal-only)
+- Both providers run sequentially on the main thread
 
-This needs a fix in grpclib or the Modal SDK.
+The leak could not be reproduced with just the Modal SDK + threading outside of mngr.
+It appears to be specific to the interaction between the mngr provider discovery
+pipeline and grpclib's connection management when used from ConcurrencyGroupExecutor
+threads.
 
 ## Scripts
 
@@ -49,8 +50,8 @@ uv run python scripts/qi/fd_leak/repro_fd_leak_discover_only.py
 
 ### `repro_grpclib_fd_leak.py`
 
-Minimal reproduction of the grpclib leak using only the Modal SDK and threading. Demonstrates
-that Modal API calls from a single thread don't leak, but leak when a parallel thread is active.
+Compares parallel discovery (leaks) vs sequential discovery (no leak) to demonstrate
+that the socket leak is specific to running providers in a ConcurrencyGroupExecutor.
 
 ```
 uv run python scripts/qi/fd_leak/repro_grpclib_fd_leak.py --iterations 10
