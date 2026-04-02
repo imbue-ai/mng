@@ -260,14 +260,16 @@ def test_no_ruff_errors() -> None:
 # --- Hardcoded path ratchets ---
 
 _PREVENT_HARDCODED_CLAUDE_DIR = RegexRatchetRule(
-    rule_name="hardcoded Path.home() / '.claude' directory references",
+    rule_name="hardcoded Path.home() / '.claude' path references",
     rule_description=(
-        "Use get_claude_config_dir() or get_user_claude_config_dir() from "
-        "claude_config.py instead of hardcoding Path.home() / '.claude'. "
-        "This allows the config directory to be overridden via CLAUDE_CONFIG_DIR "
+        "Use the accessor functions from claude_config.py instead of hardcoding "
+        "Path.home() / '.claude' or Path.home() / '.claude.json'. "
+        "For the config directory: get_claude_config_dir() / get_user_claude_config_dir(). "
+        "For the config file: get_claude_config_path() / get_user_claude_config_path(). "
+        "This allows paths to be overridden via CLAUDE_CONFIG_DIR "
         "and ORIGINAL_CLAUDE_CONFIG_DIR environment variables."
     ),
-    pattern_string=r"""Path\.home\(\)\s*/\s*["']\.claude["']""",
+    pattern_string=r"""Path\.home\(\)\s*/\s*["']\.claude(\.json(\.bak)?)?["']""",
 )
 
 # Excluded patterns: test files construct paths directly for setup, and

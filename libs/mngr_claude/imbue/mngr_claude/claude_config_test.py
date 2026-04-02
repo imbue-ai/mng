@@ -19,6 +19,7 @@ from imbue.mngr_claude.claude_config import get_claude_config_backup_path
 from imbue.mngr_claude.claude_config import get_claude_config_dir
 from imbue.mngr_claude.claude_config import get_claude_config_path
 from imbue.mngr_claude.claude_config import get_user_claude_config_dir
+from imbue.mngr_claude.claude_config import get_user_claude_config_path
 from imbue.mngr_claude.claude_config import is_source_directory_trusted
 from imbue.mngr_claude.claude_config import remove_claude_trust_for_path
 
@@ -699,3 +700,55 @@ def test_get_user_claude_config_dir_falls_back_to_claude_config_dir(
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(custom_dir))
     result = get_user_claude_config_dir()
     assert result == custom_dir
+
+
+# Tests for get_claude_config_path (CLAUDE_CONFIG_DIR-aware)
+
+
+def test_get_claude_config_path_respects_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With CLAUDE_CONFIG_DIR set, returns $CLAUDE_CONFIG_DIR/.claude.json."""
+    custom_dir = tmp_path / "custom-claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(custom_dir))
+    result = get_claude_config_path()
+    assert result == custom_dir / ".claude.json"
+
+
+def test_get_claude_config_backup_path_derives_from_config_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Backup path should follow the config path location."""
+    custom_dir = tmp_path / "custom-claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(custom_dir))
+    result = get_claude_config_backup_path()
+    assert result == custom_dir / ".claude.json.bak"
+
+
+# Tests for get_user_claude_config_path
+
+
+def test_get_user_claude_config_path_defaults_to_home() -> None:
+    """Without env vars, returns ~/.claude.json."""
+    result = get_user_claude_config_path()
+    assert result == Path.home() / ".claude.json"
+
+
+def test_get_user_claude_config_path_respects_original_env_var(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With ORIGINAL_CLAUDE_CONFIG_DIR set, returns path inside that dir."""
+    user_dir = tmp_path / "user-claude"
+    agent_dir = tmp_path / "agent-claude"
+    monkeypatch.setenv("ORIGINAL_CLAUDE_CONFIG_DIR", str(user_dir))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(agent_dir))
+    result = get_user_claude_config_path()
+    assert result == user_dir / ".claude.json"
+
+
+def test_get_user_claude_config_path_falls_back_to_claude_config_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without ORIGINAL_CLAUDE_CONFIG_DIR, uses CLAUDE_CONFIG_DIR."""
+    custom_dir = tmp_path / "custom-claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(custom_dir))
+    result = get_user_claude_config_path()
+    assert result == custom_dir / ".claude.json"

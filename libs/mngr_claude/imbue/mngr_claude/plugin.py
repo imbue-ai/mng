@@ -71,8 +71,8 @@ from imbue.mngr_claude.claude_config import encode_claude_project_dir_name
 from imbue.mngr_claude.claude_config import ensure_claude_dialogs_dismissed
 from imbue.mngr_claude.claude_config import find_project_config
 from imbue.mngr_claude.claude_config import get_claude_config_dir
-from imbue.mngr_claude.claude_config import get_claude_config_path
 from imbue.mngr_claude.claude_config import get_user_claude_config_dir
+from imbue.mngr_claude.claude_config import get_user_claude_config_path
 from imbue.mngr_claude.claude_config import is_effort_callout_dismissed
 from imbue.mngr_claude.claude_config import is_onboarding_completed
 from imbue.mngr_claude.claude_config import is_source_directory_trusted
@@ -293,7 +293,7 @@ def build_claude_json_for_agent(
     before serializing.
     """
     if sync_local:
-        local_config = read_claude_config(get_claude_config_path())
+        local_config = read_claude_config(get_user_claude_config_path())
         data: dict[str, Any] = (
             local_config if local_config else _generate_claude_json(version, current_time=current_time)
         )
@@ -465,7 +465,7 @@ def _prompt_user_for_onboarding_completion() -> bool:
 
 def _claude_json_has_primary_api_key() -> bool:
     """Check if the user's .claude.json contains a non-empty primaryApiKey."""
-    claude_json_path = get_claude_config_path()
+    claude_json_path = get_user_claude_config_path()
     if not claude_json_path.exists():
         return False
     try:
@@ -1168,7 +1168,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
                 trust_path = source_path if source_path is not None else self.work_dir
             else:
                 trust_path = self.work_dir
-            check_claude_dialogs_dismissed(get_claude_config_path(), trust_path)
+            check_claude_dialogs_dismissed(get_user_claude_config_path(), trust_path)
         if not config.check_installation:
             logger.debug("Skipped claude installation check (check_installation=False)")
             return
@@ -1272,7 +1272,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
         source_path is the trusted source directory (for git-worktree/git-mirror modes).
         When None (rsync/none mode), trust is prompted for work_dir instead.
         """
-        global_config_path = get_claude_config_path()
+        global_config_path = get_user_claude_config_path()
         trust_path = source_path if source_path is not None else self.work_dir
 
         if mngr_ctx.is_auto_approve:
@@ -1443,7 +1443,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
         user was already prompted). Falls back to generated defaults if no global
         config exists.
         """
-        global_config = read_claude_config(get_claude_config_path())
+        global_config = read_claude_config(get_user_claude_config_path())
         if global_config:
             data = global_config
         else:
@@ -1509,7 +1509,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
 
                 if config.trust_working_directory:
                     # Auto-approve all dialogs for agents that opt into trust
-                    ensure_claude_dialogs_dismissed(get_claude_config_path(), self.work_dir)
+                    ensure_claude_dialogs_dismissed(get_user_claude_config_path(), self.work_dir)
                 else:
                     # Check/prompt for all blocking dialogs
                     # source_path=None (clone/no-git) means trust is prompted for work_dir
@@ -1566,7 +1566,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
                     logger.info("Claude installed successfully")
 
             # no matter what, *always* dismiss the cost popup, it's pointless
-            acknowledge_cost_threshold(get_claude_config_path())
+            acknowledge_cost_threshold(get_user_claude_config_path())
 
             # Transfer plugin data from source agent before config setup (if cloning via --from-agent).
             # This copies sessions, memory, transcript offsets, etc. The subsequent config setup
@@ -1675,7 +1675,7 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
                 logger.debug("Removed per-agent OAuth credentials keychain entry")
         elif not per_agent_config_exists:
             # Legacy agent without per-agent config dir -- clean up global file
-            removed = remove_claude_trust_for_path(get_claude_config_path(), self.work_dir)
+            removed = remove_claude_trust_for_path(get_user_claude_config_path(), self.work_dir)
             if removed:
                 logger.debug("Removed Claude trust entry for {} from global config", self.work_dir)
         else:
