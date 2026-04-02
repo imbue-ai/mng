@@ -14,6 +14,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 from typing import Mapping
+from typing import NoReturn
 from typing import ParamSpec
 from typing import Sequence
 from typing import TypeVar
@@ -57,7 +58,7 @@ from imbue.modal_proxy.interface import VolumeInterface
 # ---------------------------------------------------------------------------
 
 
-def _raise_if_modal_cli_missing(e: FileNotFoundError) -> None:
+def _raise_if_modal_cli_missing(e: FileNotFoundError) -> NoReturn:
     """Re-raise as ModalProxyError if the missing file is the modal CLI binary, otherwise re-raise the original."""
     if e.filename == "modal":
         raise ModalProxyError("The 'modal' CLI command was not found. Install it with: uv tool install modal") from e
