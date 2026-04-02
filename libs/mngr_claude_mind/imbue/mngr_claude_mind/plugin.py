@@ -100,7 +100,7 @@ class ClaudeMindConfig(ClaudeAgentConfig):
         "per-agent dir lightweight; copies provide full isolation.",
     )
     settings_overrides: dict[str, Any] = Field(
-        default={"model": "opus[1m]", "fastMode": True},
+        default_factory=lambda: {"model": "opus[1m]", "fastMode": True},
         description="Key-value overrides merged into settings.json at provisioning time.",
     )
     install_llm: bool = Field(
