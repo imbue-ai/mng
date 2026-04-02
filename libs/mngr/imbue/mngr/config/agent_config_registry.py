@@ -75,14 +75,16 @@ def _apply_custom_overrides_to_parent_config(
     fields like trust_working_directory).
     """
     explicitly_set_fields = custom_config.model_fields_set
-    if not explicitly_set_fields - {"parent_type"}:
+    # parent_type and plugin are routing metadata, not runtime config values.
+    _METADATA_FIELDS = {"parent_type", "plugin"}
+    if not explicitly_set_fields - _METADATA_FIELDS:
         return parent_config
 
     custom_values = custom_config.model_dump()
     updates: list[tuple[str, Any]] = []
 
     for field_name in explicitly_set_fields:
-        if field_name == "parent_type":
+        if field_name in _METADATA_FIELDS:
             continue
         elif field_name == "cli_args":
             # cli_args uses merge semantics (concatenation)
