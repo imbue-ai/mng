@@ -8,11 +8,9 @@ if ! command -v claude &>/dev/null; then
     exit 0
 fi
 
-# Clear stale plugin cache to avoid using outdated agents/skills
+# Clear stale plugin cache for our marketplaces to avoid using outdated agents/skills
 CACHE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache"
-if [ -d "$CACHE_DIR" ]; then
-    rm -rf "$CACHE_DIR"
-fi
+rm -rf "$CACHE_DIR/imbue-mngr" "$CACHE_DIR/imbue-code-guardian" 2>/dev/null || true
 
 # The plugin and marketplace are configured at project scope in
 # .claude/settings.json (extraKnownMarketplaces + enabledPlugins),
