@@ -15,7 +15,7 @@ Agents are composable into whatever workflow your team actually needs. Do things
 
 We live in `mngr`, so we try to make everything Just Work<sup>TM</sup>:
 - See all your agents, and if they're blocked on you
-- Connect to any agent live mid-task to ask a question or unblock it
+- Connect to any agent mid-task to ask a question or unblock it
 - Agent sandboxes auto-snapshot and shut down when idle
 
 Run any agent: Claude Code, Codex, OpenCode, etc.
