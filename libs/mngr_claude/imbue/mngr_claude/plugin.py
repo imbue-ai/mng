@@ -1452,14 +1452,14 @@ class ClaudeAgent(BaseAgent[ClaudeAgentConfig]):
 
         settings_json = _build_settings_json(source_claude_dir, config, ctx, sync_local=config.sync_home_settings)
 
-        installed_plugins = _generate_installed_plugins_content(source_claude_dir, config_dir)
-
         generated_files: dict[Path, str] = {
             Path("settings.json"): settings_json,
             Path(".claude.json"): json.dumps(claude_json_data, indent=2) + "\n",
         }
-        if installed_plugins:
-            generated_files[_INSTALLED_PLUGINS_RELATIVE_PATH] = installed_plugins
+        if config.sync_home_settings:
+            installed_plugins = _generate_installed_plugins_content(source_claude_dir, config_dir)
+            if installed_plugins:
+                generated_files[_INSTALLED_PLUGINS_RELATIVE_PATH] = installed_plugins
 
         # Remote credentials: read locally, include in generated files for staging
         if not host.is_local and config.sync_claude_credentials:
