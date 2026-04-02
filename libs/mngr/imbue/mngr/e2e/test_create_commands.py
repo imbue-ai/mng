@@ -33,6 +33,7 @@ def test_create_with_custom_command(e2e: E2eSession) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.modal
 @pytest.mark.tmux
 def test_create_with_idle_mode_and_timeout(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
@@ -59,6 +60,7 @@ def test_create_with_idle_mode_and_timeout(e2e: E2eSession) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.modal
 @pytest.mark.tmux
 def test_create_with_extra_tmux_windows(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
@@ -80,6 +82,7 @@ def test_create_with_extra_tmux_windows(e2e: E2eSession) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.modal
 @pytest.mark.tmux
 def test_create_with_no_ensure_clean(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
@@ -104,6 +107,7 @@ def test_create_with_no_ensure_clean(e2e: E2eSession) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.modal
 @pytest.mark.tmux
 def test_create_with_connect_command(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
@@ -127,6 +131,7 @@ def test_create_with_connect_command(e2e: E2eSession) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.modal
 @pytest.mark.tmux
 def test_create_with_message(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""

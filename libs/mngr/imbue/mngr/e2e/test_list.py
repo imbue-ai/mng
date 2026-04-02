@@ -11,6 +11,8 @@ import pytest
 from imbue.mngr.e2e.conftest import E2eSession
 from imbue.skitwright.expect import expect
 
+pytestmark = [pytest.mark.release, pytest.mark.modal]
+
 
 @pytest.mark.release
 def test_list_with_no_agents(e2e: E2eSession) -> None:

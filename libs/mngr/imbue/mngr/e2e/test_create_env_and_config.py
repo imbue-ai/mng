@@ -32,6 +32,7 @@ def test_create_with_env(e2e: E2eSession) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.modal
 @pytest.mark.tmux
 def test_create_with_pass_env(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
@@ -111,6 +112,7 @@ def test_create_with_plugin_flags(e2e: E2eSession) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.modal
 @pytest.mark.tmux
 def test_create_in_place_alias_target(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
@@ -149,6 +151,7 @@ def test_config_set_headless(e2e: E2eSession) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.modal
 def test_env_var_mngr_headless(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
     # or you can set it as an environment variable:
@@ -184,6 +187,7 @@ def test_config_set_default_provider(e2e: E2eSession) -> None:
 
 
 @pytest.mark.release
+@pytest.mark.modal
 @pytest.mark.tmux
 def test_create_with_label(e2e: E2eSession) -> None:
     e2e.write_tutorial_block("""
