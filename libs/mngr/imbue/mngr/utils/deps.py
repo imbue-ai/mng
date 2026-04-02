@@ -3,13 +3,20 @@ import shutil
 import subprocess
 from collections.abc import Sequence
 from enum import auto
-from typing import Literal
 
 from pydantic import Field
 
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import BinaryNotInstalledError
+from imbue.mngr.errors import MngrError
+
+
+class OsName(UpperCaseStrEnum):
+    """Supported operating system names."""
+
+    MACOS = auto()
+    LINUX = auto()
 
 
 class DependencyCategory(UpperCaseStrEnum):
@@ -126,15 +133,14 @@ OPTIONAL_DEPS: tuple[SystemDependency, ...] = (CLAUDE, RSYNC, UNISON)
 ALL_DEPS: tuple[SystemDependency, ...] = CORE_DEPS + OPTIONAL_DEPS
 
 
-def detect_os() -> Literal["macos", "linux"]:
+def detect_os() -> OsName:
     """Detect the current operating system."""
     system = platform.system()
     if system == "Darwin":
-        return "macos"
+        return OsName.MACOS
     if system == "Linux":
-        return "linux"
-    msg = f"Unsupported operating system: {system}. mngr supports macOS and Linux."
-    raise RuntimeError(msg)
+        return OsName.LINUX
+    raise MngrError(f"Unsupported operating system: {system}. mngr supports macOS and Linux.")
 
 
 def check_bash_version(minimum: int = 4) -> bool:
@@ -158,7 +164,12 @@ def check_bash_version(minimum: int = 4) -> bool:
         return False
 
 
-def install_dep(dep: SystemDependency, os_name: Literal["macos", "linux"]) -> bool:
+def install_modern_bash() -> bool:
+    """Install modern bash (4+) via Homebrew on macOS. Returns True on success."""
+    return _install_via_brew(["bash"])
+
+
+def install_dep(dep: SystemDependency, os_name: OsName) -> bool:
     """Install a single system dependency. Returns True on success."""
     if dep.install_method is None:
         return False
@@ -166,16 +177,16 @@ def install_dep(dep: SystemDependency, os_name: Literal["macos", "linux"]) -> bo
     if dep.install_method.custom_install_script is not None:
         return _install_via_script(dep.install_method.custom_install_script)
 
-    if os_name == "macos" and dep.install_method.brew_package is not None:
+    if os_name == OsName.MACOS and dep.install_method.brew_package is not None:
         return _install_via_brew([dep.install_method.brew_package])
 
-    if os_name == "linux" and dep.install_method.apt_package is not None:
+    if os_name == OsName.LINUX and dep.install_method.apt_package is not None:
         return _install_via_apt([dep.install_method.apt_package])
 
     return False
 
 
-def install_deps_batch(deps: Sequence[SystemDependency], os_name: Literal["macos", "linux"]) -> list[SystemDependency]:
+def install_deps_batch(deps: Sequence[SystemDependency], os_name: OsName) -> list[SystemDependency]:
     """Install multiple dependencies, batching brew/apt calls. Returns list of deps that failed."""
     # Separate deps by install mechanism
     brew_packages: list[str] = []
@@ -189,12 +200,14 @@ def install_deps_batch(deps: Sequence[SystemDependency], os_name: Literal["macos
             continue
         if dep.install_method.custom_install_script is not None:
             custom_deps.append(dep)
-        elif os_name == "macos" and dep.install_method.brew_package is not None:
+        elif os_name == OsName.MACOS and dep.install_method.brew_package is not None:
             brew_packages.append(dep.install_method.brew_package)
             brew_dep_map[dep.install_method.brew_package] = dep
-        elif os_name == "linux" and dep.install_method.apt_package is not None:
+        elif os_name == OsName.LINUX and dep.install_method.apt_package is not None:
             apt_packages.append(dep.install_method.apt_package)
             apt_dep_map[dep.install_method.apt_package] = dep
+        else:
+            pass
 
     failed: list[SystemDependency] = []
 

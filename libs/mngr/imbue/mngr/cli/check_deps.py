@@ -15,10 +15,12 @@ from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.utils.deps import ALL_DEPS
 from imbue.mngr.utils.deps import DependencyCategory
+from imbue.mngr.utils.deps import OsName
 from imbue.mngr.utils.deps import SystemDependency
 from imbue.mngr.utils.deps import check_bash_version
 from imbue.mngr.utils.deps import detect_os
 from imbue.mngr.utils.deps import install_deps_batch
+from imbue.mngr.utils.deps import install_modern_bash
 
 
 def _read_tty_choice(prompt: str) -> str:
@@ -54,7 +56,7 @@ def _print_status_table(
             dep.purpose,
         )
 
-    if os_name == "macos" and not bash_ok:
+    if os_name == OsName.MACOS and not bash_ok:
         write_human_line(
             "  {:<{}}  {:>8}  {}  ({})",
             "bash(4+)",
@@ -72,11 +74,9 @@ def _check_deps_impl(interactive: bool, core: bool, install_all: bool) -> None:
     # Check which deps are missing
     missing = [dep for dep in ALL_DEPS if not dep.is_available()]
     missing_core = [dep for dep in missing if dep.category == DependencyCategory.CORE]
-    missing_optional = [dep for dep in missing if dep.category == DependencyCategory.OPTIONAL]
-
     # Check bash version (only matters on macOS)
     bash_ok = True
-    if os_name == "macos":
+    if os_name == OsName.MACOS:
         bash_ok = check_bash_version()
 
     # Print status
@@ -102,7 +102,7 @@ def _check_deps_impl(interactive: bool, core: bool, install_all: bool) -> None:
         to_install = missing
     elif core:
         to_install = missing_core
-    elif interactive:
+    else:
         write_human_line("  [a] Install all ({})", ", ".join(d.binary for d in missing))
         if missing_core:
             write_human_line("  [c] Install core only ({})", ", ".join(d.binary for d in missing_core))
@@ -122,12 +122,7 @@ def _check_deps_impl(interactive: bool, core: bool, install_all: bool) -> None:
         write_human_line("Nothing to install.")
         return
 
-    # Install bash if needed (macOS only, via brew)
-    need_bash = os_name == "macos" and not bash_ok
-    if need_bash and (install_all or core or (interactive and choice.lower() in ("a", "y", "", "c"))):
-        # bash is installed via brew on macOS but isn't a SystemDependency (it's always present,
-        # just too old). We handle it by adding "bash" to the brew batch.
-        pass  # handled below
+    need_bash = os_name == OsName.MACOS and not bash_ok
 
     # Do the installation
     write_human_line("Installing: {}", ", ".join(d.binary for d in to_install))
@@ -135,22 +130,14 @@ def _check_deps_impl(interactive: bool, core: bool, install_all: bool) -> None:
 
     # Install modern bash on macOS if needed
     if need_bash:
-        import shutil
-        import subprocess
-
-        if shutil.which("brew") is not None:
-            write_human_line("Installing modern bash via brew...")
-            try:
-                result = subprocess.run(["brew", "install", "bash"], timeout=300)
-                if result.returncode != 0:
-                    write_human_line("WARNING: Failed to install modern bash.")
-            except (OSError, subprocess.TimeoutExpired):
-                write_human_line("WARNING: Failed to install modern bash.")
+        write_human_line("Installing modern bash via brew...")
+        if not install_modern_bash():
+            write_human_line("WARNING: Failed to install modern bash.")
 
     # Post-install status
     write_human_line("")
     still_missing = [dep for dep in ALL_DEPS if not dep.is_available()]
-    bash_ok_now = check_bash_version() if os_name == "macos" else True
+    bash_ok_now = check_bash_version() if os_name == OsName.MACOS else True
 
     if failed:
         write_human_line("Failed to install: {}", ", ".join(d.binary for d in failed))
@@ -159,7 +146,7 @@ def _check_deps_impl(interactive: bool, core: bool, install_all: bool) -> None:
         write_human_line("Still missing: {}", ", ".join(d.binary for d in still_missing))
 
     # Deferred warnings
-    if os_name == "macos" and not bash_ok_now and need_bash:
+    if os_name == OsName.MACOS and not bash_ok_now and need_bash:
         write_human_line(
             "WARNING: PATH-resolved bash is still old after install. "
             "Ensure /opt/homebrew/bin (Apple Silicon) or /usr/local/bin (Intel) is before /bin in your PATH."
@@ -167,7 +154,7 @@ def _check_deps_impl(interactive: bool, core: bool, install_all: bool) -> None:
 
     # Exit code: 0 if all core deps present, 1 otherwise
     still_missing_core = [d for d in still_missing if d.category == DependencyCategory.CORE]
-    if still_missing_core or (os_name == "macos" and not bash_ok_now):
+    if still_missing_core or (os_name == OsName.MACOS and not bash_ok_now):
         sys.exit(1)
 
 

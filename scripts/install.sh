@@ -70,11 +70,14 @@ fi
 
 # ── Check system dependencies ─────────────────────────────────────────────────
 
-"$MNGR_BIN" dependencies -i || warn "Some dependencies could not be installed. Run 'mngr dependencies' to see what's missing."
+# Redirect stdin from /dev/tty for interactive commands. When this script is
+# invoked via `curl ... | bash`, stdin is the pipe from curl, not the terminal.
+# Interactive prompts and the plugin install wizard's urwid TUI need a real TTY.
+"$MNGR_BIN" dependencies -i < /dev/tty || warn "Some dependencies could not be installed. Run 'mngr dependencies' to see what's missing."
 
 # ── Optional extras (plugins, shell completion, Claude Code plugin) ───────────
 
-"$MNGR_BIN" extras -i || warn "Some extras could not be installed. Run 'mngr extras' to see status."
+"$MNGR_BIN" extras -i < /dev/tty || warn "Some extras could not be installed. Run 'mngr extras' to see status."
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 

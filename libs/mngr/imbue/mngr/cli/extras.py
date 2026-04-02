@@ -1,8 +1,8 @@
 """Install optional extras for mngr: plugins, shell completion, Claude Code plugin."""
 
 import os
+import platform
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -10,11 +10,19 @@ from typing import Any
 import click
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessError
 from imbue.mngr.cli.common_opts import add_common_options
+from imbue.mngr.cli.complete import generate_bash_script
+from imbue.mngr.cli.complete import generate_zsh_script
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import write_human_line
+from imbue.mngr.cli.plugin_install_wizard import install_wizard_impl
+from imbue.mngr.plugin_catalog import RECOMMENDED_PLUGINS
+from imbue.mngr.uv_tool import read_receipt
+from imbue.mngr.uv_tool import require_uv_tool_receipt
 
 
 def _read_tty_choice(prompt: str) -> str:
@@ -36,8 +44,6 @@ def _detect_shell() -> str:
     if "bash" in shell_env:
         return "bash"
     # Fallback based on OS
-    import platform
-
     if platform.system() == "Darwin":
         return "zsh"
     return "bash"
@@ -60,18 +66,9 @@ def _is_completion_configured(rc_path: Path) -> bool:
 
 def _generate_completion_script(shell_type: str) -> str | None:
     """Generate the completion script using the existing complete module."""
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "imbue.mngr.cli.complete", "--script", shell_type],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-        return None
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    if shell_type == "zsh":
+        return generate_zsh_script()
+    return generate_bash_script()
 
 
 # -- Completion extra --
@@ -123,15 +120,11 @@ def _claude_plugin_status() -> tuple[bool, bool]:
 
     # Check if the plugin is installed
     try:
-        result = subprocess.run(
-            ["claude", "plugin", "list"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+        with ConcurrencyGroup(name="extras-claude-check") as cg:
+            result = cg.run_process_to_completion(["claude", "plugin", "list"])
         plugin_installed = "imbue-code-guardian" in result.stdout
         return True, plugin_installed
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, ProcessError):
         return True, False
 
 
@@ -156,26 +149,16 @@ def _install_claude_plugin(auto: bool) -> bool:
 
     write_human_line("Installing Claude Code review plugin...")
     try:
-        result = subprocess.run(
-            ["claude", "plugin", "marketplace", "add", "imbue-ai/code-guardian"],
-            timeout=60,
-        )
-        if result.returncode != 0:
-            write_human_line("WARNING: Failed to add plugin from marketplace.")
-            return False
-
-        result = subprocess.run(
-            ["claude", "plugin", "install", "imbue-code-guardian@imbue-code-guardian"],
-            timeout=60,
-        )
-        if result.returncode != 0:
-            write_human_line("WARNING: Failed to install Claude Code plugin.")
-            return False
-
+        with ConcurrencyGroup(name="extras-claude-install") as cg:
+            cg.run_process_to_completion(["claude", "plugin", "marketplace", "add", "imbue-ai/code-guardian"])
+            cg.run_process_to_completion(["claude", "plugin", "install", "imbue-code-guardian@imbue-code-guardian"])
         write_human_line("Claude Code review plugin installed.")
         return True
-    except (OSError, subprocess.TimeoutExpired):
-        write_human_line("WARNING: Failed to install Claude Code plugin.")
+    except (OSError, ProcessError) as e:
+        detail = ""
+        if isinstance(e, ProcessError):
+            detail = e.stderr.strip() or e.stdout.strip()
+        write_human_line("WARNING: Failed to install Claude Code plugin. {}", detail)
         return False
 
 
@@ -184,10 +167,6 @@ def _install_claude_plugin(auto: bool) -> bool:
 
 def _plugins_status() -> str:
     """Return a brief status string for the plugins extra."""
-    from imbue.mngr.plugin_catalog import RECOMMENDED_PLUGINS
-    from imbue.mngr.uv_tool import read_receipt
-    from imbue.mngr.uv_tool import require_uv_tool_receipt
-
     try:
         receipt_path = require_uv_tool_receipt()
         receipt = read_receipt(receipt_path)
@@ -202,9 +181,7 @@ def _plugins_status() -> str:
 
 def _run_plugin_wizard() -> None:
     """Run the plugin install wizard (delegates to existing implementation)."""
-    from imbue.mngr.cli.plugin_install_wizard import _install_wizard_impl
-
-    _install_wizard_impl()
+    install_wizard_impl()
 
 
 # -- Status display --
