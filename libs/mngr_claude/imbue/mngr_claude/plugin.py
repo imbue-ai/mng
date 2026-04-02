@@ -314,6 +314,7 @@ def _build_settings_json(
         try:
             data: dict[str, Any] = json.loads(source.read_text())
         except json.JSONDecodeError:
+            logger.warning("Corrupt settings.json at {}, using defaults", source)
             data = _generate_claude_home_settings()
     else:
         data = _generate_claude_home_settings()
