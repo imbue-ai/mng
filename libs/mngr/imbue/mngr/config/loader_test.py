@@ -371,6 +371,21 @@ def test_parse_agent_types_skips_custom_type_with_disabled_parent() -> None:
         reset_agent_config_registry()
 
 
+def test_parse_agent_types_skips_type_with_disabled_grandparent() -> None:
+    """_parse_agent_types should walk the full parent chain and skip if any ancestor is disabled."""
+    raw = {
+        "root-plugin": {"cli_args": "--root"},
+        "mid-type": {"parent_type": "root-plugin"},
+        "leaf-type": {"parent_type": "mid-type"},
+        "unrelated": {"cli_args": "--ok"},
+    }
+    result = _parse_agent_types(raw, disabled_plugins=frozenset({"root-plugin"}))
+    assert AgentTypeName("root-plugin") not in result
+    assert AgentTypeName("mid-type") not in result
+    assert AgentTypeName("leaf-type") not in result
+    assert AgentTypeName("unrelated") in result
+
+
 # =============================================================================
 # Tests for _parse_plugins
 # =============================================================================

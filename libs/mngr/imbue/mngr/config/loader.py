@@ -358,6 +358,29 @@ def _normalize_cli_args_for_construct(raw_config: dict[str, Any]) -> dict[str, A
     return {**raw_config, "cli_args": normalized}
 
 
+def _has_disabled_ancestor(
+    name: str,
+    raw_types: dict[str, dict[str, Any]],
+    disabled_plugins: frozenset[str],
+) -> bool:
+    """Check if an agent type or any ancestor in its parent chain is disabled."""
+    current = name
+    seen: set[str] = set()
+    while True:
+        if current in disabled_plugins:
+            return True
+        if current in seen:
+            return False
+        seen.add(current)
+        raw = raw_types.get(current)
+        if raw is None:
+            return False
+        parent = raw.get("parent_type")
+        if parent is None:
+            return False
+        current = parent
+
+
 def _parse_agent_types(
     raw_types: dict[str, dict[str, Any]],
     disabled_plugins: frozenset[str],
@@ -377,8 +400,9 @@ def _parse_agent_types(
         # has trust_working_directory). Without this, unregistered custom type names
         # fall back to the base AgentTypeConfig which rejects parent-specific fields.
         parent_type = raw_config.get("parent_type")
-        plugin = parent_type if parent_type is not None else name
-        if plugin in disabled_plugins:
+        # Walk the parent chain through raw_types to check if this type or
+        # any ancestor depends on a disabled plugin.
+        if _has_disabled_ancestor(name, raw_types, disabled_plugins):
             continue
         config_class = get_agent_config_class(parent_type if parent_type is not None else name)
         _check_unknown_fields(raw_config, config_class, f"agent_types.{name}", strict=strict)

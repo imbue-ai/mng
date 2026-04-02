@@ -119,18 +119,27 @@ def resolve_agent_type(
     """
     custom_config = config.agent_types.get(agent_type)
 
-    # Determine which plugin this agent type depends on: custom types with a
-    # parent_type depend on the parent's plugin; otherwise the type name
-    # itself is the plugin identifier.
-    effective_plugin = str(agent_type)
-    if custom_config is not None and custom_config.parent_type is not None:
-        effective_plugin = str(custom_config.parent_type)
-    if effective_plugin in config.disabled_plugins:
-        raise MngrError(
-            f"Agent type '{agent_type}' cannot be used because plugin "
-            f"'{effective_plugin}' is disabled. Enable the plugin with: "
-            f"mngr plugin enable {effective_plugin}"
-        )
+    # Walk the parent chain to check if this type or any ancestor depends on
+    # a disabled plugin.  The chain is: agent_type -> parent_type -> parent's
+    # parent_type -> ... until we hit a type with no parent_type or one that
+    # is not defined in config.agent_types.
+    checked = str(agent_type)
+    current = custom_config
+    seen: set[str] = set()
+    while True:
+        if checked in config.disabled_plugins:
+            raise MngrError(
+                f"Agent type '{agent_type}' cannot be used because plugin "
+                f"'{checked}' is disabled. Enable the plugin with: "
+                f"mngr plugin enable {checked}"
+            )
+        if checked in seen:
+            break
+        seen.add(checked)
+        if current is None or current.parent_type is None:
+            break
+        checked = str(current.parent_type)
+        current = config.agent_types.get(current.parent_type)
 
     if custom_config is not None and custom_config.parent_type is not None:
         parent_type = custom_config.parent_type

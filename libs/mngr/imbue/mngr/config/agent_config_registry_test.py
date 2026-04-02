@@ -382,6 +382,33 @@ def test_resolve_agent_type_raises_when_parent_type_plugin_disabled() -> None:
         reset_agent_config_registry()
 
 
+def test_resolve_agent_type_raises_when_grandparent_plugin_disabled() -> None:
+    """resolve_agent_type should walk the full parent chain and catch a disabled grandparent."""
+    reset_agent_class_registry()
+    reset_agent_config_registry()
+    try:
+        register_agent_class("root-plugin", _FakeAgentClass)
+        register_agent_config("root-plugin", AgentTypeConfig)
+
+        config = MngrConfig(
+            agent_types={
+                AgentTypeName("mid-type"): AgentTypeConfig(
+                    parent_type=AgentTypeName("root-plugin"),
+                ),
+                AgentTypeName("leaf-type"): AgentTypeConfig(
+                    parent_type=AgentTypeName("mid-type"),
+                ),
+            },
+            disabled_plugins=frozenset({"root-plugin"}),
+        )
+
+        with pytest.raises(MngrError, match="plugin 'root-plugin' is disabled"):
+            resolve_agent_type(AgentTypeName("leaf-type"), config)
+    finally:
+        reset_agent_class_registry()
+        reset_agent_config_registry()
+
+
 def test_resolve_agent_type_allows_non_disabled_plugin() -> None:
     """resolve_agent_type should work normally when the plugin is not disabled."""
     reset_agent_class_registry()
