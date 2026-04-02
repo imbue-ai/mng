@@ -67,7 +67,7 @@ Build the SOP once. Run it on demand. mngr handles the rest—isolation, lifecyc
 
 ---
 
-## What mngr can do
+## Why mngr
 
 - **Simple** — one command launches an agent locally or on Modal; sensible defaults throughout
 - **Fast** — agents start in under 2 seconds
