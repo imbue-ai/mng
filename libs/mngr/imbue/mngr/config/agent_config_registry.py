@@ -11,6 +11,10 @@ from imbue.mngr.config.data_types import merge_cli_args
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import AgentTypeName
 
+# Fields on AgentTypeConfig that are routing metadata (not runtime config values).
+# These are skipped when applying custom overrides to a parent config.
+_METADATA_FIELDS: frozenset[str] = frozenset({"parent_type", "plugin"})
+
 # =============================================================================
 # Agent Config Registry
 # =============================================================================
@@ -75,8 +79,6 @@ def _apply_custom_overrides_to_parent_config(
     fields like trust_working_directory).
     """
     explicitly_set_fields = custom_config.model_fields_set
-    # parent_type and plugin are routing metadata, not runtime config values.
-    _METADATA_FIELDS = {"parent_type", "plugin"}
     if not explicitly_set_fields - _METADATA_FIELDS:
         return parent_config
 
