@@ -8,13 +8,11 @@
 
 Programmatically manage any agent, anywhere.
 
-*Built on SSH, git, and tmux. Extensible via [plugins](libs/mngr/docs/concepts/plugins.md) . No managed service required.*
+Seamlessly scale from a single local Claude to 100s of agents across remote hosts, containers, and sandboxes.
+List all your agents, see which are blocked, and instantly connect to any of them to chat or debug.
+Compose your own powerful workflows on top of agents without being locked in to any specific provider or interface.
 
-> **Why mngr?** 
-> Most agent tooling is a managed cloud: opaque infrastructure, per-seat pricing, hard to script. 
-> `mngr` takes the opposite approach.
-> Agents run on compute you control, that you access via SSH, and that shuts down when idle. 
-> It's built on primitives you already know (SSH, git, tmux, docker), and lets seamlessly you scale from running a single Claude locally to running 100's of agents across remote hosts, containers, and sandboxes.
+*Built on SSH, git, and tmux. Extensible via [plugins](libs/mngr/docs/concepts/plugins.md) . No managed service required.*
 
 ---
 
@@ -41,29 +39,29 @@ flowchart TB
     subgraph host1["Local Host"]
         direction LR
         style host1 fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#78350F
-        cli["mngr CLI ( create / list / connect / message / exec / push / pull / pair / snapshot / migrate / clone / rename / destroy )"]:::cli
+        cli["mngr CLI ( create / list / connect / message / push / pull / snapshot / migrate / clone / destroy )"]:::cli
         agent1["OpenCode"]:::agent
         agent6["Codex"]:::agent
-        subgraph docker1["Docker container 2"]
+        subgraph docker1["Docker container 1"]
             direction LR
             style docker1 fill:#EDE9FE,stroke:#7C3AED,stroke-width:2px,color:#4C1D95
             agent3["Claude"]:::agent
             agent4["Claude"]:::agent
         end
-        subgraph docker2["Docker container 1"]
+        subgraph docker2["Docker container 2"]
             direction LR
             style docker2 fill:#EDE9FE,stroke:#7C3AED,stroke-width:2px,color:#4C1D95
             agent5["Claude"]:::agent
         end
     end
 
-    subgraph host2["Remote host 2"]
+    subgraph host2["Remote host 1"]
         direction LR
         style host2 fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#78350F
         agent2["Claude"]:::agent
     end
 
-    subgraph host3["Remote host 1"]
+    subgraph host3["Remote host 2"]
         direction LR
         style host3 fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#78350F
         agent7["Codex"]:::agent
@@ -82,6 +80,14 @@ flowchart TB
 ```
 
 ## Why mngr
+
+Most agent tooling is a managed cloud: opaque infrastructure, per-seat pricing, hard to script. 
+
+`mngr` takes the opposite approach.
+Agents run on compute you control, that you access via SSH, and that shuts down when idle. 
+It's built on primitives you already know (SSH, git, tmux, docker), and 
+
+`mngr` is designed to be:
 
 - **Simple** — one command launches an agent locally or on Modal; sensible defaults throughout
 - **Fast** — agents start in under 2 seconds
