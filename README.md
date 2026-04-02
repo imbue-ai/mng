@@ -1,6 +1,4 @@
-# mngr: CLI for managing agents
-
-Programmatically manage 100s of coding agent sessions in parallel.
+# mngr: a Unix-style tool for managing agents
 
 [![GitHub Stars](https://img.shields.io/github/stars/imbue-ai/mngr?style=flat-square)](https://github.com/imbue-ai/mngr)
 [![PyPI](https://img.shields.io/pypi/v/imbue-mngr?style=flat-square)](https://pypi.org/project/imbue-mngr/)
@@ -8,32 +6,28 @@ Programmatically manage 100s of coding agent sessions in parallel.
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
 [![Open Issues](https://img.shields.io/github/issues/imbue-ai/mngr?style=flat-square)](https://github.com/imbue-ai/mngr/issues)
 
-Agents are composable into whatever workflow you actually need. Do things like:
-- For each open GitHub issue, create a PR
-- For each flaky test in the past week, fix it
-- For each rule in the style guide, scan my codebase and fix all instances
+Programmatically manage any agent, anywhere.
 
-We live in `mngr`, so we try to make everything Just Work<sup>TM</sup>:
-- See all your agents, and if they're blocked on you
-- Connect to any agent mid-task to ask a question or unblock it
-- Agent sandboxes auto-snapshot and shut down when idle
+*Built on SSH, git, and tmux. Extensible via [plugins](libs/mngr/docs/concepts/plugins.md) . No managed service required.*
 
-Run any agent: Claude Code, Codex, OpenCode, etc.
+> **Why mngr?** 
+> Most agent tooling is a managed cloud: opaque infrastructure, per-seat pricing, hard to script. 
+> `mngr` takes the opposite approach.
+> Agents run on compute you control, that you access via SSH, and that shuts down when idle. 
+> It's built on primitives you already know (SSH, git, tmux, docker), and lets seamlessly you scale from running a single Claude locally to running 100's of agents across remote hosts, containers, and sandboxes.
 
-Run on any compute: local, Docker, Modal, or anything you can SSH into.
+---
 
-
+**installation:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
 ```
 
-For a quickstart, use `mngr ask` to learn the CLI interface.
-
 ## Overview
 
-`mngr` is a composable primitive for running parallel coding agents at any scale—locally, on Modal, in Docker, or anywhere you can SSH into. Works with Claude, Codex, any coding agent.
+`mngr` makes it easy to create and use any AI agent (ex: Claude Code, Codex), anywhere (locally, in Docker, on Modal, etc.).
 
-Built on open-source standards (SSH, git, tmux, docker) and extensible via [plugins](libs/mngr/docs/concepts/plugins.md) for whatever your workflow needs on top.
+Think of `mngr` as "git for agents": just like git allows you to `commit`/`push`/`pull`/`fork`/`clone` *versions of code*, `mngr` allows you to `create`/`destroy`/`list`/`clone`/`message` *agents*.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#EFF6FF', 'primaryTextColor': '#1E3A5F', 'primaryBorderColor': '#3B82F6', 'lineColor': '#64748B', 'edgeLabelBackground': '#FFFFFF', 'fontSize': '15px'}}}%%
@@ -56,18 +50,6 @@ flowchart LR
     host <-->|"git · SSH · rsync"| codebase
     cli <-->|"connect · transcript · pull"| host
 ```
-## Point 100s of agents at almost anything
-
-```bash
-# every file in your codebase — review + fix issues
-# every open GitHub issue — one PR each
-# every flaky test from the past week
-# every customer use case — generate + validate
-```
-
-Build the SOP once. Run it on demand. mngr handles the rest—isolation, lifecycle, and a live SSH connection to any agent, any time.
-
----
 
 ## Why mngr
 
