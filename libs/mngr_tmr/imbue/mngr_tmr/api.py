@@ -4,7 +4,7 @@ Implements the map-reduce pattern: collect tests via pytest, launch an agent per
 test, poll for completion, gather results, and pull code changes.
 
 Sub-modules:
-- utils: shared helpers (FD diagnostics, template resolution, test collection)
+- utils: shared helpers (template resolution, test collection, naming)
 - launching: agent/host creation and launching
 - pulling: result/artifact pulling and branch management
 """
@@ -77,7 +77,8 @@ def _list_agents_thread_target(
             is_streaming=False,
             error_behavior=ErrorBehavior.CONTINUE,
         )
-    except (MngrError, HostError, OSError):
+    except (MngrError, HostError, OSError) as exc:
+        logger.warning("Polling failed (will retry next cycle): {}", exc)
         result_holder[0] = None
 
 

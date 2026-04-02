@@ -38,6 +38,16 @@ from imbue.mngr_tmr.utils import transfer_mode_for_provider
 _AGENT_CREATION_TIMEOUT_SECONDS = 600.0
 
 
+def _resolve_build_options(config: TmrLaunchConfig, mngr_ctx: MngrContext) -> NewHostBuildOptions:
+    """Resolve templates and build NewHostBuildOptions for host creation."""
+    tmpl = resolve_templates(config.templates, mngr_ctx.config) if config.templates else {}
+    raw_build_args = tmpl.get("build_args", ())
+    raw_start_args = tmpl.get("start_args", ())
+    build_args = tuple(str(a) for a in raw_build_args) if isinstance(raw_build_args, (list, tuple)) else ()
+    start_args = tuple(str(a) for a in raw_start_args) if isinstance(raw_start_args, (list, tuple)) else ()
+    return NewHostBuildOptions(snapshot=config.snapshot, build_args=build_args, start_args=start_args)
+
+
 def build_agent_options(
     agent_name: AgentName,
     branch_name: str,
@@ -82,13 +92,7 @@ def _create_tmr_agent(
     if existing_host is not None:
         target_host: OnlineHostInterface | NewHostOptions = existing_host
     else:
-        tmpl = resolve_templates(config.templates, mngr_ctx.config) if config.templates else {}
-        snapshot = config.snapshot
-        raw_build_args = tmpl.get("build_args", ())
-        raw_start_args = tmpl.get("start_args", ())
-        build_args = tuple(str(a) for a in raw_build_args) if isinstance(raw_build_args, (list, tuple)) else ()
-        start_args = tuple(str(a) for a in raw_start_args) if isinstance(raw_start_args, (list, tuple)) else ()
-        build = NewHostBuildOptions(snapshot=snapshot, build_args=build_args, start_args=start_args)
+        build = _resolve_build_options(config, mngr_ctx)
         is_local = config.provider_name.lower() == LOCAL_PROVIDER_NAME
         resolved_host_name = None if is_local else host_name
         target_host = NewHostOptions(provider=config.provider_name, name=resolved_host_name, build=build)
@@ -187,13 +191,7 @@ def _create_host_pool(
 ) -> list[OnlineHostInterface]:
     """Pre-create a pool of hosts for remote agent placement."""
     hosts: list[OnlineHostInterface] = []
-    tmpl = resolve_templates(config.templates, mngr_ctx.config) if config.templates else {}
-    snapshot = config.snapshot
-    raw_build_args = tmpl.get("build_args", ())
-    raw_start_args = tmpl.get("start_args", ())
-    build_args = tuple(str(a) for a in raw_build_args) if isinstance(raw_build_args, (list, tuple)) else ()
-    start_args = tuple(str(a) for a in raw_start_args) if isinstance(raw_start_args, (list, tuple)) else ()
-    build = NewHostBuildOptions(snapshot=snapshot, build_args=build_args, start_args=start_args)
+    build = _resolve_build_options(config, mngr_ctx)
 
     with ConcurrencyGroupExecutor(
         parent_cg=mngr_ctx.concurrency_group,
