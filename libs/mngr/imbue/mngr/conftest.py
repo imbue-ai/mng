@@ -484,7 +484,13 @@ def plugin_manager(
     for name in to_block:
         pm.set_blocked(name)
     pm.load_setuptools_entrypoints("mngr")
+
+    # Only register the local backend, not modal or docker.
+    # This prevents tests from depending on Modal credentials or Docker daemon.
+    # This also loads the provider configs since backends and configs are registered together.
     load_local_backend_only(pm)
+
+    # Load other registries (agents)
     load_agents_from_plugins(pm)
 
     yield pm
