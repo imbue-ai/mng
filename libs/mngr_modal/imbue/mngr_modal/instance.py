@@ -47,6 +47,7 @@ from imbue.mngr.hosts.common import resolve_expected_process_name
 from imbue.mngr.hosts.common import timestamp_to_datetime
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
+from imbue.mngr.hosts.offline_host import derive_offline_host_state
 from imbue.mngr.hosts.offline_host import validate_and_create_discovered_agent
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import AgentDetails
@@ -2465,33 +2466,20 @@ log "=== Shutdown script completed ==="
                 logger.warning("Failed to create host from sandbox {}: {}", host_id, e)
                 return None, None
         if host_id not in running_sandbox_by_host_id or host_obj is None:
-            # Host has no running sandbox - it's stopped, failed, destroyed, or we couldn't connect
-            has_snapshots = len(host_record.certified_host_data.snapshots) > 0
-            is_failed = host_record.certified_host_data.failure_reason is not None
+            # Host has no running sandbox - derive state from certified data
+            state = derive_offline_host_state(
+                certified_data=host_record.certified_host_data,
+                supports_shutdown_hosts=self.supports_shutdown_hosts,
+                supports_snapshots=self.supports_snapshots,
+            )
 
-            if is_failed:
-                # Failed host - always include so users can warning() build failures
-                try:
-                    return self._create_host_from_host_record(host_record), HostState.FAILED
-                except (OSError, IOError, ValueError, KeyError) as e:
-                    logger.warning("Failed to create host from host record {}: {}", host_id, e)
-                    return None, None
-            elif has_snapshots:
-                # Stopped host (can be restarted)
-                try:
-                    return self._create_host_from_host_record(host_record), HostState.STOPPED
-                except (OSError, IOError, ValueError, KeyError) as e:
-                    logger.warning("Failed to create host from host record {}: {}", host_id, e)
-                    return None, None
-            elif include_destroyed:
-                # Destroyed host (no snapshots, can't be restarted)
-                try:
-                    return self._create_host_from_host_record(host_record), HostState.DESTROYED
-                except (OSError, IOError, ValueError, KeyError) as e:
-                    logger.warning("Failed to create host from host record {}: {}", host_id, e)
-                    return None, None
-            else:
-                # Skip destroyed hosts when include_destroyed=False
+            if state == HostState.DESTROYED and not include_destroyed:
+                return None, None
+
+            try:
+                return self._create_host_from_host_record(host_record), state
+            except (OSError, IOError, ValueError, KeyError) as e:
+                logger.warning("Failed to create host from host record {}: {}", host_id, e)
                 return None, None
         return None, None
 
@@ -2585,17 +2573,14 @@ log "=== Shutdown script completed ==="
             if not is_running and not is_failed and not has_snapshots and not include_destroyed:
                 continue
 
-            # Derive host_state from the discovery booleans (same logic as
-            # _construct_host_from_record_for_discovery, without building a
-            # full Host object).
             if is_running:
                 host_state: HostState = HostState.RUNNING
-            elif is_failed:
-                host_state = HostState.FAILED
-            elif has_snapshots:
-                host_state = HostState.STOPPED
             else:
-                host_state = HostState.DESTROYED
+                host_state = derive_offline_host_state(
+                    certified_data=host_record.certified_host_data,
+                    supports_shutdown_hosts=self.supports_shutdown_hosts,
+                    supports_snapshots=self.supports_snapshots,
+                )
 
             host_ref = DiscoveredHost(
                 host_id=host_id,

@@ -1274,16 +1274,9 @@ kill -TERM 1
             if should_include:
                 try:
                     host_obj = self._create_host_from_host_record(host_record)
-                    # Derive state from the record data we already have
-                    if is_failed:
-                        state = HostState.FAILED
-                    elif has_snapshots:
-                        state = HostState.STOPPED
-                    elif has_container:
-                        state = HostState.STOPPED
-                    else:
-                        state = HostState.DESTROYED
-                    hosts_with_state.append((host_obj, state))
+                    # OfflineHost.get_state() uses certified data only (no SSH),
+                    # so it's safe to call here unlike Host.get_state().
+                    hosts_with_state.append((host_obj, host_obj.get_state()))
                 except (OSError, ValueError, KeyError) as e:
                     logger.warning("Failed to create host from record {}: {}", host_id, e)
 
