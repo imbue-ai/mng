@@ -12,6 +12,7 @@ from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import SendMessageError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -275,6 +276,20 @@ class HeadlessClaude(NoPermissionsClaudeAgent, StreamingHeadlessAgentMixin):
         """Wait for the agent to finish and return its complete output."""
         return "".join(self.stream_output())
 
+    def _get_pane_error_message(self) -> str | None:
+        """Capture the tmux pane content to extract an error message.
+
+        When the headless claude process fails (e.g. auth error), its stderr
+        goes to the tmux pane. This captures that content so the error can be
+        surfaced to the user.
+        """
+        content = self.capture_pane_content()
+        if content is None:
+            return None
+        # Strip empty lines and return the non-empty content
+        stripped = content.strip()
+        return stripped if stripped else None
+
     def stream_output(self) -> Iterator[str]:
         """Stream text output as it becomes available.
 
@@ -285,11 +300,17 @@ class HeadlessClaude(NoPermissionsClaudeAgent, StreamingHeadlessAgentMixin):
 
         Yields text delta chunks parsed from stream-json events. Completes when
         the agent process exits and the file is fully consumed.
+
+        Raises MngrError if the agent exits without producing any output,
+        which typically indicates a startup failure (e.g. authentication error).
         """
         stdout_path = self._get_stdout_path()
 
         if not self._wait_for_stdout_file(stdout_path):
-            return
+            error_detail = self._get_pane_error_message()
+            if error_detail:
+                raise MngrError(f"claude exited without producing output:\n{error_detail}")
+            raise MngrError("claude exited without producing output (no details available)")
 
         state = _StreamTailState(
             stdout_path=stdout_path,
