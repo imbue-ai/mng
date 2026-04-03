@@ -2585,10 +2585,23 @@ log "=== Shutdown script completed ==="
             if not is_running and not is_failed and not has_snapshots and not include_destroyed:
                 continue
 
+            # Derive host_state from the discovery booleans (same logic as
+            # _construct_host_from_record_for_discovery, without building a
+            # full Host object).
+            if is_running:
+                host_state: HostState = HostState.RUNNING
+            elif is_failed:
+                host_state = HostState.FAILED
+            elif has_snapshots:
+                host_state = HostState.STOPPED
+            else:
+                host_state = HostState.DESTROYED
+
             host_ref = DiscoveredHost(
                 host_id=host_id,
                 host_name=host_name,
                 provider_name=self.name,
+                host_state=host_state,
             )
 
             agent_refs: list[DiscoveredAgent] = []
