@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
+from typing import Never
 
 from pydantic import Field
 
@@ -12,6 +13,7 @@ from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import SendMessageError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -275,6 +277,52 @@ class HeadlessClaude(NoPermissionsClaudeAgent, StreamingHeadlessAgentMixin):
         """Wait for the agent to finish and return its complete output."""
         return "".join(self.stream_output())
 
+    def _raise_no_output_error(self) -> Never:
+        """Raise MngrError with the best available error detail.
+
+        Checks stdout.jsonl first -- claude prints some errors (like auth
+        failures) to stdout, which the shell redirect captures into the file
+        as plain text instead of stream-json. Falls back to tmux pane content.
+        """
+        error_detail = self._get_stdout_error_message() or self._get_pane_error_message()
+        if error_detail:
+            raise MngrError(f"claude exited without producing output:\n{error_detail}")
+        raise MngrError("claude exited without producing output (no details available)")
+
+    def _get_stdout_error_message(self) -> str | None:
+        """Check stdout.jsonl for non-JSON error text.
+
+        Claude prints some errors (e.g. 'Not logged in') to stdout rather
+        than stderr. Since stdout is redirected to a file, these end up in
+        stdout.jsonl as plain text instead of stream-json events. If the file
+        contains non-empty text that isn't valid JSON, it's likely an error.
+        """
+        stdout_path = self._get_stdout_path()
+        try:
+            content = self.host.read_text_file(stdout_path)
+        except FileNotFoundError:
+            return None
+        stripped = content.strip()
+        if not stripped:
+            return None
+        # If the first line is valid JSON, this is normal stream output, not an error
+        first_line = stripped.split("\n", 1)[0].strip()
+        if first_line.startswith("{"):
+            return None
+        return stripped
+
+    def _get_pane_error_message(self) -> str | None:
+        """Capture the tmux pane content to extract an error message.
+
+        Fallback for when stderr content is visible in the pane (e.g. the
+        process crashed before writing anything to stdout).
+        """
+        content = self.capture_pane_content()
+        if content is None:
+            return None
+        stripped = content.strip()
+        return stripped if stripped else None
+
     def stream_output(self) -> Iterator[str]:
         """Stream text output as it becomes available.
 
@@ -285,18 +333,30 @@ class HeadlessClaude(NoPermissionsClaudeAgent, StreamingHeadlessAgentMixin):
 
         Yields text delta chunks parsed from stream-json events. Completes when
         the agent process exits and the file is fully consumed.
+
+        Raises MngrError if the agent exits without producing any output,
+        which typically indicates a startup failure (e.g. authentication error).
+        The check covers both cases: stdout file never created, and stdout file
+        created but empty (e.g. shell redirect creates the file before claude
+        fails).
         """
         stdout_path = self._get_stdout_path()
 
         if not self._wait_for_stdout_file(stdout_path):
-            return
+            self._raise_no_output_error()
 
         state = _StreamTailState(
             stdout_path=stdout_path,
             host=self.host,
             is_finished=self._is_agent_finished,
         )
-        yield from state.tail_until_done()
+        yielded_any = False
+        for chunk in state.tail_until_done():
+            yielded_any = True
+            yield chunk
+
+        if not yielded_any:
+            self._raise_no_output_error()
 
 
 @hookimpl
