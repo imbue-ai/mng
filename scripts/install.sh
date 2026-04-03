@@ -11,8 +11,8 @@
 #   3. Runs: mngr dependencies -i  (interactively install system deps)
 #   4. Runs: mngr extras -i        (optional: plugins, shell completion, etc.)
 #
-# Nothing is installed without confirmation. You can review the source of
-# each command at: https://github.com/imbue-ai/mngr
+# Steps 1-2 run automatically. Steps 3-4 prompt before installing anything.
+# Source: https://github.com/imbue-ai/mngr
 #
 set -euo pipefail
 
