@@ -170,7 +170,6 @@ def _check_deps_impl(ctx: click.Context, interactive: bool, core: bool, install_
         count = len(missing) + (0 if bash_ok else 1)
         write_human_line("{} missing dependency(ies). Use -i to install interactively.", count)
         ctx.exit(1)
-        return
 
     need_bash = os_name == OsName.MACOS and not bash_ok
 
