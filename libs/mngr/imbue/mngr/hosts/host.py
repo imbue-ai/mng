@@ -2784,8 +2784,8 @@ def _build_start_agent_shell_command(
     """
     # Bail out early if the session already exists. Use = prefix for exact
     # matching to avoid prefix-matching a different session (e.g. "mngr_foo"
-    # matching "mngr_foo-bar"). stderr is redirected so if = is not supported
-    # by this tmux version, the guard harmlessly falls through.
+    # matching "mngr_foo-bar"). The = prefix is supported by has-session
+    # (which uses CMD_FIND_SESSION internally) on all tmux versions since 1.8.
     guard = f"tmux has-session -t {shlex.quote('=' + session_name)} 2>/dev/null && exit 0"
 
     steps: list[str] = []
