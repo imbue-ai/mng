@@ -2399,6 +2399,22 @@ def test_host_create_host_tmux_config_creates_file(
     assert "C-t" in content
 
 
+def test_host_create_host_tmux_config_overrides_base_index(
+    local_host: Host,
+    temp_host_dir: Path,
+) -> None:
+    """Config must set base-index 0 AFTER sourcing user config to override base-index 1."""
+    content = local_host._create_host_tmux_config().read_text()
+
+    assert "set -g base-index 0" in content
+    assert "set -g pane-base-index 0" in content
+
+    # Ordering matters: override must come after source-file or user config wins
+    source_pos = content.index("source-file")
+    assert content.index("set -g base-index 0") > source_pos
+    assert content.index("set -g pane-base-index 0") > source_pos
+
+
 # =========================================================================
 # Tests for Host._build_env_shell_command
 # =========================================================================
