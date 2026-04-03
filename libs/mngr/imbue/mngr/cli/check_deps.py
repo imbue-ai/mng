@@ -101,15 +101,21 @@ def _check_deps_impl(ctx: click.Context, interactive: bool, core: bool, install_
         all_commands = describe_install_commands(missing, os_name)
         if need_bash:
             all_commands.append("brew install bash")
-        write_human_line("  [a] Install all ({}):", ", ".join(d.binary for d in missing))
+        all_names = [d.binary for d in missing]
+        if need_bash:
+            all_names.append("bash(4+)")
+        write_human_line("  [a] Install all ({}):", ", ".join(all_names))
         for cmd in all_commands:
             write_human_line("        {}", cmd)
 
-        if missing_core:
+        if missing_core or need_bash:
             core_commands = describe_install_commands(missing_core, os_name)
             if need_bash:
                 core_commands.append("brew install bash")
-            write_human_line("  [c] Install core only ({}):", ", ".join(d.binary for d in missing_core))
+            core_names = [d.binary for d in missing_core]
+            if need_bash:
+                core_names.append("bash(4+)")
+            write_human_line("  [c] Install core only ({}):", ", ".join(core_names))
             for cmd in core_commands:
                 write_human_line("        {}", cmd)
 
