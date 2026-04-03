@@ -269,7 +269,7 @@ def test_stream_output_raises_when_agent_stopped_and_no_file(
     _patch_agent_as_stopped(monkeypatch)
     agent, _host = _make_headless_agent(local_provider, tmp_path)
 
-    with pytest.raises(MngrError, match="claude exited without producing output"):
+    with pytest.raises(MngrError, match="no details available"):
         list(agent.stream_output())
 
 
