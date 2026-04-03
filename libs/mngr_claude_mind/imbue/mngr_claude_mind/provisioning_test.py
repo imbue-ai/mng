@@ -1173,7 +1173,10 @@ def extra_context_env(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[Any, Path]:
-    """Set up a fresh extra_context_tool module with uv not found and MNGR_AGENT_STATE_DIR set.
+    """Set up an isolated extra_context_tool module with uv not found and MNGR_AGENT_STATE_DIR set.
+
+    Clears LLM_USER_PATH so the function under test does not read a real LLM database
+    from the ambient environment.
 
     Returns the loaded module and the tmp_path (used as agent data directory).
     """
