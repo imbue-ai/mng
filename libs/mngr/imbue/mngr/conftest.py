@@ -336,6 +336,13 @@ def setup_test_mngr_env(
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
     monkeypatch.delenv("MNGR_PROJECT_DIR", raising=False)
 
+    # Prevent uv from hitting the network or doing unnecessary work during
+    # tests. UV_OFFLINE stops network requests (uv tool run was checking for
+    # updates, causing ~10s delays on Modal). UV_FROZEN prevents uv.lock
+    # updates and the filesystem scan that goes with them.
+    monkeypatch.setenv("UV_OFFLINE", "1")
+    monkeypatch.setenv("UV_FROZEN", "1")
+
     # Unison derives its config directory from $HOME. Since we override HOME
     # above, unison tries to create its config dir inside tmp_path, which
     # fails because the expected parent directories don't exist. The UNISON

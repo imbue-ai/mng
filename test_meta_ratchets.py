@@ -229,6 +229,40 @@ def test_no_gitignored_files_are_tracked() -> None:
     )
 
 
+def test_gitignore_patterns_are_depth_qualified() -> None:
+    """Ensure every active .gitignore pattern is depth-qualified.
+
+    Each pattern must either:
+    - Start with **/ (matches at any depth -- dockerignore-compatible)
+    - Start with / (root-only in gitignore)
+    - Contain a / before the final character (already path-qualified, e.g. docs/_build/)
+
+    Bare names like 'foo' silently differ between gitignore (any depth) and
+    dockerignore (root only). Requiring explicit depth qualification prevents
+    this class of bugs and keeps .dockerignore generation trivial.
+    """
+    gitignore = (_REPO_ROOT / ".gitignore").read_text()
+    violations: list[str] = []
+    for lineno, line in enumerate(gitignore.splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        # Remove negation prefix for analysis.
+        pattern = stripped.lstrip("!")
+        # Already depth-qualified: starts with **/ or /
+        if pattern.startswith("**/") or pattern.startswith("/"):
+            continue
+        # Contains a / before the last char (e.g. docs/_build/, */*/_tasks/)
+        core = pattern.rstrip("/")
+        if "/" in core:
+            continue
+        violations.append(f"  line {lineno}: {stripped}")
+    assert len(violations) == 0, (
+        "The following .gitignore patterns are bare names without depth qualification.\n"
+        "Prefix with **/ (any depth) or / (root only):\n" + "\n".join(violations)
+    )
+
+
 def test_every_project_with_tests_has_coverage_config() -> None:
     """Ensure each project with tests has pytest coverage configuration in its pyproject.toml.
 

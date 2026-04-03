@@ -105,6 +105,8 @@ def setup_test_mngr_env(
     unison_dir = tmp_path / ".unison"
     unison_dir.mkdir(exist_ok=True)
     monkeypatch.setenv("UNISON", str(unison_dir))
+    monkeypatch.setenv("UV_OFFLINE", "1")
+    monkeypatch.setenv("UV_FROZEN", "1")
 
     assert_home_is_temp_directory()
 
