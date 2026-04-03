@@ -68,7 +68,7 @@ fi
 if [ -e /dev/tty ]; then
     mngr dependencies -i < /dev/tty || warn "Some dependencies could not be installed. Run 'mngr dependencies' to see what's missing."
 else
-    warn "No interactive terminal. Run 'mngr dependencies -i' to install system dependencies."
+    mngr dependencies || warn "Run 'mngr dependencies -i' to install missing dependencies."
 fi
 
 # ── Step 4: Optional extras (plugins, shell completion, Claude Code plugin) ──
@@ -76,7 +76,7 @@ fi
 if [ -e /dev/tty ]; then
     mngr extras -i < /dev/tty || warn "Some extras could not be installed. Run 'mngr extras' to see status."
 else
-    warn "No interactive terminal. Run 'mngr extras -i' to set up optional extras."
+    mngr extras || true
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
