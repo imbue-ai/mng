@@ -2432,6 +2432,11 @@ class Host(BaseHost, OnlineHostInterface):
             "# Source user's default tmux config if it exists",
             "if-shell 'test -f ~/.tmux.conf' 'source-file ~/.tmux.conf'",
             "",
+            "# Override base-index: mngr hardcodes window :0 throughout",
+            "# (user's base-index 1 causes 'can't find window: 0' errors)",
+            "set -g base-index 0",
+            "set -g pane-base-index 0",
+            "",
         ]
 
         if self.is_local:
