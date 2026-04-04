@@ -1131,7 +1131,7 @@ def test_parse_agent_address_bare_dot_means_nothing() -> None:
 
 
 # =============================================================================
-# Tests for positional / --name mutual exclusivity
+# Tests for --update / --reuse validation
 # =============================================================================
 
 
@@ -1148,6 +1148,11 @@ def test_create_rejects_update_without_reuse(
 
     assert result.exit_code != 0
     assert "--update requires --reuse" in result.output
+
+
+# =============================================================================
+# Tests for positional / --name mutual exclusivity
+# =============================================================================
 
 
 def test_create_rejects_positional_and_name_together(
