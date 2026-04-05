@@ -1,1 +1,2 @@
-onlyBuiltDependencies: electron
+onlyBuiltDependencies:
+  - electron
