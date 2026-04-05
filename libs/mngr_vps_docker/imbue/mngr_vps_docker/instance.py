@@ -85,10 +85,9 @@ def _create_pyinfra_host_with_proxy(
     proxy_command: str,
 ) -> "PyinfraHost":
     """Create a pyinfra host with SSH connector and ProxyCommand support."""
-    from paramiko import hostkeys as _hk
     from pyinfra.api.inventory import Inventory
     from pyinfra.api.state import State as PyinfraState
-    from pyinfra.connectors.util import get_host_keys
+    from pyinfra.connectors.sshuserclient.client import get_host_keys
 
     get_host_keys.cache.clear()
 
