@@ -39,17 +39,18 @@ def forward(ctx: click.Context, host: str, port: int, data_dir: str | None) -> N
     """
     data_directory = Path(data_dir) if data_dir else get_default_data_dir()
 
-    logger.info("Starting minds forwarding server...")
-    logger.info("  Listening on: http://{}:{}", host, port)
-    logger.info("  Data directory: {}", data_directory)
-    logger.info("")
-    logger.info("Press Ctrl+C to stop.")
-    logger.info("")
-
     # JSONL log format implies headless mode (no browser open, no duplicate
     # human-readable URL output) because the Electron shell is the consumer.
     log_format: LogFormat = ctx.obj.get("log_format", LogFormat.TEXT)
     is_headless = log_format == LogFormat.JSONL
+
+    if not is_headless:
+        logger.info("Starting minds forwarding server...")
+        logger.info("  Listening on: http://{}:{}", host, port)
+        logger.info("  Data directory: {}", data_directory)
+        logger.info("")
+        logger.info("Press Ctrl+C to stop.")
+        logger.info("")
 
     start_forwarding_server(
         data_directory=data_directory,
