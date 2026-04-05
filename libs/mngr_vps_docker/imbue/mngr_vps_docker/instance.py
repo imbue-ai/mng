@@ -66,6 +66,7 @@ from imbue.mngr_vps_docker.host_store import VpsDockerHostRecord
 from imbue.mngr_vps_docker.host_store import VpsDockerHostStore
 from imbue.mngr_vps_docker.host_store import VpsHostConfig
 from imbue.mngr_vps_docker.host_store import ensure_state_container
+from imbue.mngr_vps_docker.primitives import VpsInstanceId
 from imbue.mngr_vps_docker.vps_client import VpsClientInterface
 
 def _remove_host_from_known_hosts(known_hosts_path: Path, hostname: str, port: int) -> None:
@@ -374,6 +375,7 @@ class VpsDockerProvider(BaseProviderInstance):
             key_name = f"mngr-{self.name}-{host_id}"
             vps_ssh_key_id = self.vps_client.upload_ssh_key(key_name, vps_public_key)
 
+        vps_instance_id: VpsInstanceId | None = None
         try:
             # Step 3: Generate cloud-init user_data
             user_data = generate_cloud_init_user_data(
@@ -533,7 +535,7 @@ class VpsDockerProvider(BaseProviderInstance):
             # Best-effort cleanup on failure: destroy VPS and SSH key
             logger.error("Host creation failed, attempting cleanup...")
             try:
-                if "vps_instance_id" in dir():
+                if vps_instance_id is not None:
                     self.vps_client.destroy_instance(vps_instance_id)
             except Exception as cleanup_err:
                 logger.warning("Failed to clean up VPS instance: {}", cleanup_err)
