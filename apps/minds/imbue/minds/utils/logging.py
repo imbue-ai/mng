@@ -3,6 +3,7 @@ import os
 import sys
 from enum import auto
 from typing import Any
+from typing import assert_never
 
 from loguru import logger
 
@@ -142,6 +143,8 @@ def setup_logging(
                 colorize=False,
                 diagnose=False,
             )
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def console_level_from_verbose_and_quiet(verbose: int, quiet: bool) -> ConsoleLogLevel:
