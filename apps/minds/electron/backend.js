@@ -147,6 +147,7 @@ function startBackend(onProgress) {
       });
 
       child.on('error', (err) => {
+        logStream.end();
         if (!isResolved) {
           isResolved = true;
           reject(new Error(`Failed to start backend: ${err.message}`));
