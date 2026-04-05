@@ -1,5 +1,4 @@
 import json
-from collections.abc import Generator
 from typing import Any
 
 import pytest
@@ -85,14 +84,6 @@ def test_format_user_message_debug_includes_message_placeholder() -> None:
 def test_format_user_message_trace_includes_message_placeholder() -> None:
     result = _format_user_message(_make_fake_record("TRACE"))
     assert "{message}" in result
-
-
-@pytest.fixture()
-def _isolated_logger() -> Generator[None, None, None]:
-    """Remove all loguru handlers before and after each test to isolate logger state."""
-    logger.remove()
-    yield
-    logger.remove()
 
 
 @pytest.mark.usefixtures("_isolated_logger")
