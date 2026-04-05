@@ -28,9 +28,9 @@ def test_backend_config_class() -> None:
 
 def test_backend_build_args_help() -> None:
     help_text = VultrProviderBackend.get_build_args_help()
-    assert "--region" in help_text
-    assert "--plan" in help_text
-    assert "--os" in help_text
+    assert "--vps-region" in help_text
+    assert "--vps-plan" in help_text
+    assert "--vps-os" in help_text
 
 
 def test_backend_start_args_help() -> None:
