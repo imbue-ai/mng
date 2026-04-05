@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
@@ -36,7 +37,7 @@ class VultrProvider(VpsDockerProvider):
     vultr_client: VultrVpsClient = Field(frozen=True, description="Vultr API client")
     vultr_config: VultrProviderConfig = Field(frozen=True, description="Vultr-specific configuration")
 
-    def _parse_build_args(self, build_args: list[str] | None) -> tuple[str, str, int]:
+    def _parse_build_args(self, build_args: Sequence[str] | None) -> tuple[str, str, int]:
         """Parse build args with Vultr-specific defaults."""
         region = self.vultr_config.default_region
         plan = self.vultr_config.default_plan
@@ -56,6 +57,10 @@ class VultrProvider(VpsDockerProvider):
     def _discover_host_records(self) -> list[VpsDockerHostRecord]:
         """Discover host records by querying the Vultr API for tagged instances."""
         all_records: list[VpsDockerHostRecord] = []
+
+        # Skip discovery if no API key is configured
+        if not self.vultr_client.api_key:
+            return []
 
         # List all Vultr instances and filter for ones tagged with our provider name
         provider_tag = f"mngr-provider={self.name}"
@@ -84,6 +89,8 @@ class VultrProvider(VpsDockerProvider):
 
     def _find_host_record(self, host: HostId | HostName) -> VpsDockerHostRecord | None:
         """Find a host record by ID or name across all known VPSes."""
+        if not self.vultr_client.api_key:
+            return None
         records = self._discover_host_records()
         for record in records:
             if isinstance(host, HostId) and record.certified_host_data.host_id == str(host):
@@ -169,7 +176,13 @@ class VultrProviderBackend(ProviderBackendInterface):
         if not isinstance(config, VultrProviderConfig):
             raise MngrError(f"Expected VultrProviderConfig, got {type(config).__name__}")
 
-        api_key = config.get_api_key()
+        try:
+            api_key = config.get_api_key()
+        except ValueError:
+            # No API key configured -- create with empty key.
+            # The provider will be discoverable but operations will fail
+            # with a clear error message when the API is actually used.
+            api_key = ""
         vultr_client = VultrVpsClient(api_key=api_key)
 
         return VultrProvider(

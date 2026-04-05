@@ -941,7 +941,7 @@ class VpsDockerProvider(BaseProviderInstance):
     def get_connector(self, host: HostInterface | HostId) -> PyinfraHost:
         resolved = self.get_host(host.id if isinstance(host, HostInterface) else host)
         if isinstance(resolved, Host):
-            return resolved.connector.pyinfra_host
+            return resolved.connector.host
         raise MngrError("Cannot get connector for offline host")
 
     # =========================================================================
