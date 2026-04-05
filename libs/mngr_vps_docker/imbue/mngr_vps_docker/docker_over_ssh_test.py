@@ -7,7 +7,6 @@ from unittest.mock import patch
 import pytest
 
 from imbue.mngr_vps_docker.docker_over_ssh import DockerOverSsh
-from imbue.mngr_vps_docker.docker_over_ssh import _SSH_BASE_OPTIONS
 from imbue.mngr_vps_docker.errors import ContainerSetupError
 from imbue.mngr_vps_docker.errors import VpsConnectionError
 
@@ -33,7 +32,7 @@ def test_build_ssh_command_structure(docker_ssh: DockerOverSsh) -> None:
     assert "-o" in cmd
     assert "StrictHostKeyChecking=yes" in cmd
     assert "BatchMode=yes" in cmd
-    assert f"root@192.168.1.100" in cmd
+    assert "root@192.168.1.100" in cmd
     assert cmd[-1] == "echo hello"
 
 
