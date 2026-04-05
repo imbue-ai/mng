@@ -30,26 +30,22 @@ function waitForPort(host, port, maxAttempts = 50, intervalMs = 200) {
       attempts++;
       const socket = new net.Socket();
       socket.setTimeout(500);
+
+      function retryOrFail() {
+        socket.destroy();
+        if (attempts >= maxAttempts) {
+          reject(new Error(`Server not ready after ${maxAttempts} attempts on port ${port}`));
+        } else {
+          setTimeout(tryConnect, intervalMs);
+        }
+      }
+
       socket.once('connect', () => {
         socket.destroy();
         resolve();
       });
-      socket.once('error', () => {
-        socket.destroy();
-        if (attempts >= maxAttempts) {
-          reject(new Error(`Server not ready after ${maxAttempts} attempts on port ${port}`));
-        } else {
-          setTimeout(tryConnect, intervalMs);
-        }
-      });
-      socket.once('timeout', () => {
-        socket.destroy();
-        if (attempts >= maxAttempts) {
-          reject(new Error(`Server not ready after ${maxAttempts} attempts on port ${port}`));
-        } else {
-          setTimeout(tryConnect, intervalMs);
-        }
-      });
+      socket.once('error', retryOrFail);
+      socket.once('timeout', retryOrFail);
       socket.connect(port, host);
     }
     tryConnect();
