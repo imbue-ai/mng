@@ -47,11 +47,11 @@ def start_forwarding_server(
     auth_store.add_one_time_code(code=code)
     login_url = "http://{}:{}/login?one_time_code={}".format(host, port, code)
 
-    # Emit login URL as a structured field -- in JSONL mode Electron's
-    # backend.js detects and parses this event via the `extra.login_url` key.
-    logger.info("Login URL ready", login_url=login_url)
-
-    if not is_headless:
+    if is_headless:
+        # Emit login URL as a structured field -- in JSONL mode Electron's
+        # backend.js detects and parses this event via the `extra.login_url` key.
+        logger.info("Login URL ready", login_url=login_url)
+    else:
         logger.info("")
         logger.info("Login URL (one-time use):")
         logger.info("  {}", login_url)
