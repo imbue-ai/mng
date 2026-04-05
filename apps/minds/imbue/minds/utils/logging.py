@@ -18,6 +18,10 @@ _DEBUG_COLOR = "\x1b[38;5;33m"
 _TRACE_COLOR = "\x1b[38;5;99m"
 _RESET_COLOR = "\x1b[0m"
 
+# Module-level state for the JSONL sink. Using a mutable dict so
+# setup_logging() can update it without a ``global`` statement.
+_jsonl_state: dict[str, str] = {"command": "unknown"}
+
 
 class ConsoleLogLevel(UpperCaseStrEnum):
     """Log verbosity level for console output."""
@@ -58,7 +62,7 @@ def _build_jsonl_event(record: Any) -> dict[str, Any]:
         "level": record["level"].name,
         "message": record["message"],
         "pid": os.getpid(),
-        "command": "forward",
+        "command": _jsonl_state["command"],
     }
 
     extra = dict(record["extra"])
@@ -94,13 +98,19 @@ def _format_user_message(record: Any) -> str:
 def setup_logging(
     console_level: ConsoleLogLevel,
     log_format: LogFormat = LogFormat.TEXT,
+    command: str = "unknown",
 ) -> None:
     """Configure loguru logging for minds CLI.
 
     When log_format is TEXT, sets up a human-readable colored console handler.
     When log_format is JSONL, emits structured JSONL lines to stderr for
     machine parsing (used by the Electron desktop app).
+
+    The ``command`` parameter is included in every JSONL event so consumers
+    can distinguish which CLI subcommand produced the log line.
     """
+    _jsonl_state["command"] = command
+
     logger.remove()
 
     if console_level == ConsoleLogLevel.NONE:

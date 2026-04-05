@@ -185,7 +185,7 @@ def test_setup_logging_jsonl_has_required_envelope_fields(capfd: Any) -> None:
     assert "timestamp" in event
     assert "event_id" in event
     assert event["source"] == "minds"
-    assert event["command"] == "forward"
+    assert event["command"] == "unknown"
     assert "pid" in event
 
 
