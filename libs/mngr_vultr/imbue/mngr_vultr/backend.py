@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from typing import Final
 
 from loguru import logger
@@ -34,23 +33,6 @@ class VultrProvider(VpsDockerProvider):
 
     vultr_client: VultrVpsClient = Field(frozen=True, description="Vultr API client")
     vultr_config: VultrProviderConfig = Field(frozen=True, description="Vultr-specific configuration")
-
-    def _parse_build_args(self, build_args: Sequence[str] | None) -> tuple[str, str, int]:
-        """Parse build args with Vultr-specific defaults."""
-        region = self.vultr_config.default_region
-        plan = self.vultr_config.default_plan
-        os_id = self.vultr_config.default_os_id
-
-        if build_args:
-            for arg in build_args:
-                if arg.startswith("--region="):
-                    region = arg.split("=", 1)[1]
-                elif arg.startswith("--plan="):
-                    plan = arg.split("=", 1)[1]
-                elif arg.startswith("--os="):
-                    os_id = int(arg.split("=", 1)[1])
-
-        return region, plan, os_id
 
     def _discover_host_records(self) -> list[VpsDockerHostRecord]:
         """Discover host records by querying the Vultr API for tagged instances."""
