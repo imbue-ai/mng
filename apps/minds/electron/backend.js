@@ -55,6 +55,10 @@ function waitForPort(host, port, maxAttempts = 50, intervalMs = 200) {
 /**
  * Spawn the Python backend and wait for the login URL.
  *
+ * The backend emits structured JSONL events to stdout (via --format jsonl)
+ * and human-readable log messages to stderr. We parse stdout for the
+ * login_url event and log everything to the log file.
+ *
  * Returns a promise that resolves with { loginUrl, port } when the backend
  * is ready, or rejects if the process exits before emitting the URL.
  */
@@ -81,10 +85,12 @@ function startBackend(onProgress) {
 
       const args = [
         'run', '--project', pyprojectDir,
-        'mind', '--log-format', 'jsonl',
+        'mind', '--format', 'jsonl',
+        '--log-file', path.join(logDir, 'minds-events.jsonl'),
         'forward',
         '--host', '127.0.0.1',
         '--port', String(port),
+        '--no-browser',
       ];
 
       const env = {
@@ -104,29 +110,28 @@ function startBackend(onProgress) {
 
       backendProcess = child;
 
-      let stderrBuffer = '';
+      // Parse JSONL events from stdout for the login URL
+      let stdoutBuffer = '';
 
-      child.stderr.on('data', (data) => {
+      child.stdout.on('data', (data) => {
         const text = data.toString();
         logStream.write(text);
-        stderrBuffer += text;
+        stdoutBuffer += text;
 
-        // Parse JSONL lines from stderr
-        const lines = stderrBuffer.split('\n');
+        const lines = stdoutBuffer.split('\n');
         // Keep the last incomplete line in the buffer
-        stderrBuffer = lines.pop() || '';
+        stdoutBuffer = lines.pop() || '';
 
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
             const event = JSON.parse(line);
-            // Check for login URL in the extra field
-            if (event.extra && event.extra.login_url) {
+            if (event.event === 'login_url' && event.login_url) {
               if (!isResolved) {
                 isResolved = true;
                 // Wait for the server to actually start listening before resolving
                 waitForPort('127.0.0.1', port).then(() => {
-                  resolve({ loginUrl: event.extra.login_url, port });
+                  resolve({ loginUrl: event.login_url, port });
                 }).catch((err) => {
                   reject(new Error(`Backend emitted login URL but server never became ready: ${err.message}`));
                 });
@@ -138,7 +143,8 @@ function startBackend(onProgress) {
         }
       });
 
-      child.stdout.on('data', (data) => {
+      // Stderr is human-readable logging -- capture to log file
+      child.stderr.on('data', (data) => {
         logStream.write(data.toString());
       });
 

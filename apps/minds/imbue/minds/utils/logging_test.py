@@ -1,11 +1,11 @@
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 from loguru import logger
 
 from imbue.minds.utils.logging import ConsoleLogLevel
-from imbue.minds.utils.logging import LogFormat
 from imbue.minds.utils.logging import _format_user_message
 from imbue.minds.utils.logging import console_level_from_verbose_and_quiet
 from imbue.minds.utils.logging import setup_logging
@@ -122,64 +122,34 @@ def test_setup_logging_shows_messages_at_configured_level(
     assert marker in captured.err
 
 
-# -- JSONL format tests --
+@pytest.mark.usefixtures("_isolated_logger")
+def test_setup_logging_always_uses_human_format_on_stderr(capfd: Any) -> None:
+    """Stderr output is always human-readable, never JSONL."""
+    setup_logging(ConsoleLogLevel.INFO)
+
+    logger.info("human-test-marker-71824")
+
+    captured = capfd.readouterr()
+    assert "human-test-marker-71824" in captured.err
+    # Should not be JSON
+    assert "{" not in captured.err.split("human-test-marker-71824")[0]
 
 
 @pytest.mark.usefixtures("_isolated_logger")
-def test_setup_logging_jsonl_emits_valid_json(capfd: Any) -> None:
-    setup_logging(ConsoleLogLevel.INFO, log_format=LogFormat.JSONL)
+def test_setup_logging_with_log_file(tmp_path: Path, capfd: Any) -> None:
+    """Verify that --log-file creates a JSONL log file."""
+    log_file = tmp_path / "test.jsonl"
+    setup_logging(ConsoleLogLevel.INFO, log_file=log_file)
 
-    logger.info("jsonl-test-marker-93827")
+    logger.info("file-log-test-marker-38291")
 
     captured = capfd.readouterr()
-    lines = [line for line in captured.err.strip().split("\n") if line.strip()]
-    assert len(lines) >= 1
-    event = json.loads(lines[-1])
-    assert event["message"] == "jsonl-test-marker-93827"
+    # Still shows on stderr
+    assert "file-log-test-marker-38291" in captured.err
+
+    # Also written to the log file
+    log_content = log_file.read_text()
+    assert log_content.strip()
+    event = json.loads(log_content.strip().split("\n")[-1])
+    assert event["message"] == "file-log-test-marker-38291"
     assert event["type"] == "minds"
-    assert event["level"] == "INFO"
-
-
-@pytest.mark.usefixtures("_isolated_logger")
-def test_setup_logging_jsonl_includes_extra_fields(capfd: Any) -> None:
-    setup_logging(ConsoleLogLevel.INFO, log_format=LogFormat.JSONL)
-
-    logger.info("login-url-test", login_url="http://127.0.0.1:1234/login?code=abc")
-
-    captured = capfd.readouterr()
-    lines = [line for line in captured.err.strip().split("\n") if line.strip()]
-    event = json.loads(lines[-1])
-    assert event["extra"]["login_url"] == "http://127.0.0.1:1234/login?code=abc"
-
-
-@pytest.mark.usefixtures("_isolated_logger")
-def test_setup_logging_jsonl_omits_extra_when_empty(capfd: Any) -> None:
-    setup_logging(ConsoleLogLevel.INFO, log_format=LogFormat.JSONL)
-
-    logger.info("no-extra-test")
-
-    captured = capfd.readouterr()
-    lines = [line for line in captured.err.strip().split("\n") if line.strip()]
-    event = json.loads(lines[-1])
-    assert "extra" not in event
-
-
-@pytest.mark.usefixtures("_isolated_logger")
-def test_setup_logging_jsonl_has_required_envelope_fields(capfd: Any) -> None:
-    setup_logging(ConsoleLogLevel.INFO, log_format=LogFormat.JSONL)
-
-    logger.info("envelope-test")
-
-    captured = capfd.readouterr()
-    lines = [line for line in captured.err.strip().split("\n") if line.strip()]
-    event = json.loads(lines[-1])
-    assert "timestamp" in event
-    assert "event_id" in event
-    assert event["source"] == "minds"
-    assert event["command"] == "unknown"
-    assert "pid" in event
-
-
-def test_log_format_text_is_default() -> None:
-    assert LogFormat.TEXT == LogFormat("TEXT")
-    assert LogFormat.JSONL == LogFormat("JSONL")
