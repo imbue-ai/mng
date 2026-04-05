@@ -72,6 +72,37 @@ def _remove_host_from_known_hosts(known_hosts_path: Path, hostname: str, port: i
     known_hosts_path.write_text("".join(filtered))
 
 
+def _parse_build_args(
+    build_args: Sequence[str] | None,
+    *,
+    default_region: str,
+    default_plan: str,
+    default_os_id: int,
+) -> tuple[str, str, int, tuple[str, ...]]:
+    """Parse build args, separating VPS provisioning args from Docker build args.
+
+    VPS-specific args use the --vps- prefix (e.g., --vps-region=ewr).
+    Everything else is passed through to docker build on the VPS.
+
+    Returns (region, plan, os_id, docker_build_args).
+    """
+    region = default_region
+    plan = default_plan
+    os_id = default_os_id
+    docker_build_args: list[str] = []
+
+    if build_args:
+        for arg in build_args:
+            if arg.startswith("--vps-region="):
+                region = arg.split("=", 1)[1]
+            elif arg.startswith("--vps-plan="):
+                plan = arg.split("=", 1)[1]
+            elif arg.startswith("--vps-os="):
+                os_id = int(arg.split("=", 1)[1])
+            else:
+                docker_build_args.append(arg)
+
+    return region, plan, os_id, tuple(docker_build_args)
 
 
 # Label constants (same scheme as Docker provider)
@@ -712,23 +743,12 @@ class VpsDockerProvider(BaseProviderInstance):
 
         Returns (region, plan, os_id, docker_build_args).
         """
-        region = self.config.default_region
-        plan = self.config.default_plan
-        os_id = self.config.default_os_id
-        docker_build_args: list[str] = []
-
-        if build_args:
-            for arg in build_args:
-                if arg.startswith("--vps-region="):
-                    region = arg.split("=", 1)[1]
-                elif arg.startswith("--vps-plan="):
-                    plan = arg.split("=", 1)[1]
-                elif arg.startswith("--vps-os="):
-                    os_id = int(arg.split("=", 1)[1])
-                else:
-                    docker_build_args.append(arg)
-
-        return region, plan, os_id, tuple(docker_build_args)
+        return _parse_build_args(
+            build_args,
+            default_region=self.config.default_region,
+            default_plan=self.config.default_plan,
+            default_os_id=self.config.default_os_id,
+        )
 
     # =========================================================================
     # Core Lifecycle: stop_host
