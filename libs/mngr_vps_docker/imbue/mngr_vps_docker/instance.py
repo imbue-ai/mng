@@ -856,8 +856,8 @@ class VpsDockerProvider(BaseProviderInstance):
         return [
             SnapshotInfo(
                 id=SnapshotId(s.id),
-                name=s.name,
-                created_at=s.created_at,
+                name=SnapshotName(s.name),
+                created_at=datetime.fromisoformat(s.created_at),
             )
             for s in snapshots
         ]
