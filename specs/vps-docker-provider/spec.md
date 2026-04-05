@@ -468,14 +468,21 @@ class VultrProviderConfig(VpsDockerProviderConfig):
 
 ### Build Args
 
-Build args control VPS provisioning and Docker image building. Parsed from the CLI `--build` flag, similar to how Modal parses build args:
+Build args (`-b`) serve two purposes: VPS provisioning and Docker image building. VPS-specific args use the `--vps-` prefix and are consumed by the provider. All other args are passed through to `docker build` on the VPS (the build context is uploaded via rsync).
+
+VPS providers must not use flags that conflict with Docker build flags. All VPS-specific flags must use the `--vps-` prefix.
 
 ```
---region=ewr          # Vultr region
---plan=vc2-2c-4gb     # Vultr plan (CPU/RAM)
---os=2136             # Vultr OS ID
---file=Dockerfile     # Build Docker image from Dockerfile
---image=ubuntu:22.04  # Use a specific Docker image
+--vps-region=ewr      # Vultr region (consumed by provider)
+--vps-plan=vc2-2c-4gb # Vultr plan (consumed by provider)
+--vps-os=2136         # Vultr OS ID (consumed by provider)
+--file=Dockerfile     # Passed to docker build on VPS
+.                     # Build context (uploaded to VPS, passed to docker build)
+```
+
+Example:
+```bash
+mngr create my-agent --provider vultr -b --vps-plan=vc2-2c-4gb -b --file=Dockerfile -b .
 ```
 
 ### Start Args

@@ -168,6 +168,35 @@ class DockerOverSsh(MutableModel):
             logger.debug("Docker not ready on VPS {}: {}", self.vps_ip, e)
             return False
 
+    def upload_directory(self, local_path: Path, remote_path: str, timeout_seconds: float = 120.0) -> None:
+        """Upload a local directory to the VPS via rsync over SSH."""
+        ssh_cmd = (
+            f"ssh -i {self.ssh_key_path} "
+            f"-o UserKnownHostsFile={self.known_hosts_path} "
+            f"-o StrictHostKeyChecking=yes "
+            f"-o BatchMode=yes"
+        )
+        local_str = str(local_path).rstrip("/") + "/"
+        cmd = [
+            "rsync", "-az", "--delete",
+            "-e", ssh_cmd,
+            local_str,
+            f"{self.ssh_user}@{self.vps_ip}:{remote_path}/",
+        ]
+        logger.debug("Uploading {} to VPS {}:{}", local_path, self.vps_ip, remote_path)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as e:
+            raise VpsConnectionError(f"Upload timed out after {timeout_seconds}s") from e
+        if result.returncode != 0:
+            raise ContainerSetupError(f"Upload failed: {result.stderr.strip()}")
+
+    def build_image(self, tag: str, build_context_path: str, docker_build_args: Sequence[str], timeout_seconds: float = 600.0) -> str:
+        """Build a Docker image on the VPS from a remote build context. Returns the image tag."""
+        args = ["build", "-t", tag] + list(docker_build_args) + [build_context_path]
+        self.run_docker(args, timeout_seconds=timeout_seconds)
+        return tag
+
     def check_file_exists(self, path: str) -> bool:
         """Check if a file exists on the VPS."""
         try:

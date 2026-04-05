@@ -354,7 +354,7 @@ class VpsDockerProvider(BaseProviderInstance):
 
         base_image = str(image) if image else self.config.default_image
         effective_start_args = tuple(self.config.default_start_args) + tuple(start_args or ())
-        region, plan, os_id = self._parse_build_args(build_args)
+        region, plan, os_id, docker_build_args = self._parse_build_args(build_args)
 
         _vps_key_path, vps_public_key = self._get_vps_ssh_keypair()
         vps_host_key_path, vps_host_public_key = self._get_vps_host_keypair()
@@ -383,6 +383,7 @@ class VpsDockerProvider(BaseProviderInstance):
                 vps_ip=vps_ip,
                 base_image=base_image,
                 effective_start_args=effective_start_args,
+                docker_build_args=docker_build_args,
                 tags=tags,
                 known_hosts=known_hosts,
                 authorized_keys=authorized_keys,
@@ -488,11 +489,15 @@ class VpsDockerProvider(BaseProviderInstance):
         vps_ip: str,
         base_image: str,
         effective_start_args: tuple[str, ...],
+        docker_build_args: tuple[str, ...],
         tags: Mapping[str, str] | None,
         known_hosts: Sequence[str] | None,
         authorized_keys: Sequence[str] | None,
     ) -> tuple[str, str, str]:
         """Create the Docker container and configure SSH inside it.
+
+        If docker_build_args are provided, uploads the build context to the VPS
+        and runs docker build there. Otherwise pulls the base image directly.
 
         Returns (container_name, container_id, volume_name).
         """
@@ -503,8 +508,11 @@ class VpsDockerProvider(BaseProviderInstance):
         with log_span("Creating host volume"):
             docker_ssh.create_volume(volume_name)
 
-        with log_span("Pulling Docker image on VPS"):
-            docker_ssh.pull_image(base_image, timeout_seconds=300.0)
+        if docker_build_args:
+            base_image = self._build_image_on_vps(docker_ssh, host_id, base_image, docker_build_args)
+        else:
+            with log_span("Pulling Docker image on VPS"):
+                docker_ssh.pull_image(base_image, timeout_seconds=300.0)
 
         container_name = f"{self.mngr_ctx.config.prefix}{name}"
         labels = {
@@ -626,6 +634,66 @@ class VpsDockerProvider(BaseProviderInstance):
             timeout_seconds=self.config.ssh_connect_timeout,
         )
 
+    def _build_image_on_vps(
+        self,
+        docker_ssh: DockerOverSsh,
+        host_id: HostId,
+        base_image: str,
+        docker_build_args: tuple[str, ...],
+    ) -> str:
+        """Build a Docker image on the VPS from the provided build args.
+
+        Uploads the build context (if a local path is referenced) to the VPS
+        and runs docker build there. Returns the image tag to use.
+        """
+        build_tag = f"mngr-build-{host_id}"
+        remote_build_dir = f"/tmp/mngr-build-{host_id.get_uuid().hex}"
+
+        # Separate the build context path from other docker build args.
+        # Docker build expects the last positional arg to be the context path.
+        # We scan for args that look like local paths (not starting with --)
+        # and upload them as the build context.
+        context_args: list[str] = []
+        non_context_args: list[str] = []
+        for arg in docker_build_args:
+            if not arg.startswith("-") and Path(arg).exists():
+                context_args.append(arg)
+            else:
+                non_context_args.append(arg)
+
+        if context_args:
+            # Upload the build context directory to the VPS
+            local_context = Path(context_args[-1])
+            with log_span("Uploading build context to VPS"):
+                docker_ssh.run_ssh(f"mkdir -p {remote_build_dir}")
+                docker_ssh.upload_directory(local_context, remote_build_dir)
+
+            with log_span("Building Docker image on VPS"):
+                docker_ssh.build_image(
+                    tag=build_tag,
+                    build_context_path=remote_build_dir,
+                    docker_build_args=tuple(non_context_args),
+                    timeout_seconds=600.0,
+                )
+        else:
+            # No local context -- pass all args to docker build with a minimal context
+            docker_ssh.run_ssh(f"mkdir -p {remote_build_dir}")
+            with log_span("Building Docker image on VPS"):
+                docker_ssh.build_image(
+                    tag=build_tag,
+                    build_context_path=remote_build_dir,
+                    docker_build_args=tuple(docker_build_args),
+                    timeout_seconds=600.0,
+                )
+
+        # Clean up remote build directory
+        try:
+            docker_ssh.run_ssh(f"rm -rf {remote_build_dir}")
+        except (VpsConnectionError, ContainerSetupError) as e:
+            logger.debug("Failed to clean up remote build dir: {}", e)
+
+        return build_tag
+
     def _create_shutdown_script(self, host: Host) -> None:
         """Create the shutdown script that stops the container on idle."""
         shutdown_script = "#!/bin/bash\nkill -TERM 1\n"
@@ -636,22 +704,31 @@ class VpsDockerProvider(BaseProviderInstance):
 
     def _parse_build_args(
         self, build_args: Sequence[str] | None
-    ) -> tuple[str, str, int]:
-        """Parse build args for VPS provisioning. Returns (region, plan, os_id)."""
+    ) -> tuple[str, str, int, tuple[str, ...]]:
+        """Parse build args, separating VPS provisioning args from Docker build args.
+
+        VPS-specific args use the --vps- prefix (e.g., --vps-region=ewr).
+        Everything else is passed through to docker build on the VPS.
+
+        Returns (region, plan, os_id, docker_build_args).
+        """
         region = self.config.default_region
         plan = self.config.default_plan
         os_id = self.config.default_os_id
+        docker_build_args: list[str] = []
 
         if build_args:
             for arg in build_args:
-                if arg.startswith("--region="):
+                if arg.startswith("--vps-region="):
                     region = arg.split("=", 1)[1]
-                elif arg.startswith("--plan="):
+                elif arg.startswith("--vps-plan="):
                     plan = arg.split("=", 1)[1]
-                elif arg.startswith("--os="):
+                elif arg.startswith("--vps-os="):
                     os_id = int(arg.split("=", 1)[1])
+                else:
+                    docker_build_args.append(arg)
 
-        return region, plan, os_id
+        return region, plan, os_id, tuple(docker_build_args)
 
     # =========================================================================
     # Core Lifecycle: stop_host

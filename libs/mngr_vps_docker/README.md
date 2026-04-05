@@ -63,14 +63,29 @@ The base config (`VpsDockerProviderConfig`) provides these settings:
 
 ## Build and start args
 
-**Build args** control VPS provisioning:
+Build args (`-b`) serve two purposes: VPS provisioning and Docker image building.
+
+**VPS-specific args** use the `--vps-` prefix and are consumed by the provider:
 ```
---region=ewr          # VPS region
---plan=vc2-2c-4gb     # VPS plan (CPU/RAM)
---os=2136             # VPS OS ID
+--vps-region=ewr          # VPS region
+--vps-plan=vc2-2c-4gb     # VPS plan (CPU/RAM)
+--vps-os=2136             # VPS OS ID
 ```
 
-**Start args** are passed to `docker run`:
+**All other build args** are passed through to `docker build` on the VPS. This follows the same pattern as the Docker provider:
+```
+--file=Dockerfile     # Use a specific Dockerfile
+.                     # Build context (local directory, uploaded to VPS)
+```
+
+VPS provider implementations must not use any flags that conflict with Docker build flags. All VPS-specific flags must use the `--vps-` prefix.
+
+**Example**: Create a host with a custom Dockerfile on a specific VPS plan:
+```bash
+mngr create my-agent --provider vultr -b --vps-plan=vc2-2c-4gb -b --file=Dockerfile -b .
+```
+
+**Start args** (`-s`) are passed to `docker run`:
 ```
 --cpus=2              # CPU limit for container
 --memory=4g           # Memory limit
