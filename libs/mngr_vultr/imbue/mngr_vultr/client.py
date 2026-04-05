@@ -216,7 +216,7 @@ class VultrVpsClient(VpsClientInterface):
         for snap in result["snapshots"]:
             created_str = snap.get("date_created", "")
             try:
-                created_at = datetime.fromisoformat(created_str.replace("+00:00", "+00:00"))
+                created_at = datetime.fromisoformat(created_str)
             except ValueError:
                 created_at = datetime.now(timezone.utc)
 
