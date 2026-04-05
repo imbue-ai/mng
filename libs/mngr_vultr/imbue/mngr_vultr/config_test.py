@@ -1,8 +1,7 @@
 """Tests for Vultr provider configuration."""
 
-import os
-
 import pytest
+from pydantic import SecretStr
 
 from imbue.mngr_vultr.config import VultrProviderConfig
 
@@ -16,7 +15,7 @@ def test_default_config_values() -> None:
 
 
 def test_get_api_key_from_config() -> None:
-    config = VultrProviderConfig(api_key="test-api-key-123")
+    config = VultrProviderConfig(api_key=SecretStr("test-api-key-123"))
     assert config.get_api_key() == "test-api-key-123"
 
 
@@ -28,7 +27,7 @@ def test_get_api_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_get_api_key_config_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VULTR_API_KEY", "env-key")
-    config = VultrProviderConfig(api_key="config-key")
+    config = VultrProviderConfig(api_key=SecretStr("config-key"))
     assert config.get_api_key() == "config-key"
 
 
