@@ -31,9 +31,13 @@ def start_forwarding_server(
 ) -> None:
     """Start the forwarding server using uvicorn.
 
-    Generates a one-time login URL and prints it to the console so the
-    user can authenticate. Starts background streaming subprocesses via
-    MngrStreamManager for continuous agent and server discovery.
+    Generates a one-time login URL for authentication. In normal mode the
+    URL is printed to the console and opened in the system browser. In
+    headless mode the URL is emitted as a structured log event (for the
+    Electron shell) and the browser is not opened.
+
+    Starts background streaming subprocesses via MngrStreamManager for
+    continuous agent and server discovery.
     """
     paths = MindPaths(data_dir=data_directory)
     auth_store = FileAuthStore(data_directory=paths.auth_dir)
